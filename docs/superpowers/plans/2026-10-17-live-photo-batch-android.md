@@ -370,7 +370,6 @@ object Fixtures {
     fun mp4(size: Long = 4096): ByteArray {
         require(size >= 12)
         val out = ByteArray(size.toInt())
-        uint16(size.toInt() ushr 16).let { /* 前 4 字节 = 32 位大端 box size */ }
         val boxSize = size.toInt()
         out[0] = (boxSize ushr 24).toByte()
         out[1] = (boxSize ushr 16).toByte()
@@ -421,7 +420,7 @@ class JpegStructureTest {
         val video = Fixtures.mp4(256)
         val bytes = Fixtures.jpeg(tail = video)
         val structure = (scan(bytes) as JpegScanResult.Parsed).structure
-        assertEquals(bytes.size - video.size, structure.imageEnd)
+        assertEquals((bytes.size - video.size).toLong(), structure.imageEnd)
     }
 
     @Test fun `legacy exif app1 is kept but xmp app1 is located`() {
@@ -454,8 +453,9 @@ class JpegStructureTest {
 }
 
 private fun ByteArray.indexOfSlice(slice: ByteArray): Int {
-    for (i in 0..(size - slice.size)) {
-        if (slice.contentEquals(0, slice.size, this, i)) return i
+    outer@ for (i in 0..(size - slice.size)) {
+        for (j in slice.indices) if (this[i + j] != slice[j]) continue@outer
+        return i
     }
     return -1
 }
@@ -534,7 +534,7 @@ object JpegScanner {
                 0xDA -> pending = cur.scanEntropy() ?: return JpegScanResult.Malformed
                 0xE1 -> when {
                     payload.startsWith(XAP) -> {
-                        val identifierEnd = XAP.size + 1 // 标识符 + NUL
+                        val identifierEnd = XAP.size // XAP 常量末尾已带标识符后的 NUL
                         if (payload.size > identifierEnd) {
                             oldXmp = ByteRange(markerStart, cur.position)
                             oldXmpText = String(
@@ -624,8 +624,8 @@ object JpegScanner {
     @Test fun `imageEnd counts every image byte exactly`() {
         val bytes = Fixtures.jpeg(tail = Fixtures.mp4(64))
         val structure = (scan(bytes) as JpegScanResult.Parsed).structure
-        // SOI(2) + SOF0(2+2+9) + SOS(2+2+6) + entropy(4) + EOI(2)
-        assertEquals(2 + 11 + 8 + 4 + 2, structure.imageEnd.toInt())
+        // SOI(2) + SOF0(2+2+9=13) + SOS(2+2+6=10) + entropy(4) + EOI(2) = 31
+        assertEquals(31, structure.imageEnd.toInt())
     }
 ```
 
@@ -633,7 +633,7 @@ object JpegScanner {
 
 Run: `./gradlew :core:test --tests '*JpegStructureTest'`
 Expected: 9 个测试全绿。
-
+Expected: 8 个测试全绿。
 - [ ] **Step 6: 提交**
 
 ```bash
@@ -904,8 +904,9 @@ class JpegXmpPatcherTest {
 }
 
 private fun ByteArray.indexOfSlice(slice: ByteArray): Int {
-    for (i in 0..(size - slice.size)) {
-        if (slice.contentEquals(0, slice.size, this, i)) return i
+    outer@ for (i in 0..(size - slice.size)) {
+        for (j in slice.indices) if (this[i + j] != slice[j]) continue@outer
+        return i
     }
     return -1
 }
