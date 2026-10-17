@@ -36,9 +36,10 @@ data class PlanResult(val jobs: List<PairJob>, val unpaired: List<Unpaired>)
  *   原地生成安全；上一轮已写出 `a_live.jpg` 时 `outputExists` 为 true，即 spec §9/G3 的覆盖。
  *
  * 排序：`jobs` 与 `unpaired` 都按 stem 的**自然顺序**（`String.compareTo`，逐 16 位码元）升序，
- * 不走 locale collator，所以结果与设备语言无关。ASCII 大写在数字之后、小写之前：
- * `'B'(0x42) < 'a'(0x61) < 'z'`，即 `"B.mp4"` 的 unpaired 排在 `"a.jpg"` 之前，`"Z_live.jpg"` 排在
- * `"a.jpg"` 之前。UI 的稳定顺序依赖这一点，不要改成大小写无关排序。
+ * 不走 locale collator，所以结果与设备语言无关。两点后果要记住：
+ * - ASCII 大写在符号之前、小写之前：`'B'(0x42) < '_'(0x5F) < 'a'(0x61)`，所以 stem `"B"` 的
+ *   unpaired 排在 stem `"a"` 之前。这是刻意的，UI 的稳定顺序依赖它，不要改成大小写无关排序。
+ * - 数字按字典序而非数值序：`IMG_10` 排在 `IMG_2` 之前。相册顺序因此不等同于拍摄顺序。
  */
 object PairPlanner {
     const val OUTPUT_SUFFIX = "_live"
