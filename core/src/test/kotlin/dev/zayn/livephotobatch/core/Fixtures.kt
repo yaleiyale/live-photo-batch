@@ -31,7 +31,14 @@ object Fixtures {
             byteArrayOf(0xFF.toByte(), 0xD9.toByte()) + tail
     }
 
-    /** 标准 ftyp 头 + filler，总长 size */
+    /**
+     * 标准 ftyp 头 + filler，总长 size。
+     *
+     * filler 里从 box 头之后第一个字节起每 16 字节埋一对真 `FF D9`：spec §7.2 说得很明白，
+     * 追加到 JPEG 尾部的视频字节里合法地会出现 FFD9（NAL 数据、时长字段都可能凑出来）。
+     * 紧跟 EOI 的视频里要有它，"按字节对搜 FFD9"或"读完整段再找最后一个 FFD9"的偷懒实现
+     * 才会被测试抓住。box 头 12 字节保持原样，Task 5 的 ftyp 探测仍看得懂这个盒子。
+     */
     fun mp4(size: Long = 4096): ByteArray {
         require(size >= 12)
         val out = ByteArray(size.toInt())
@@ -43,6 +50,12 @@ object Fixtures {
         out[3] = boxSize.toByte()
         "ftyp".toByteArray(Charsets.ISO_8859_1).copyInto(out, 4)
         "isom".toByteArray(Charsets.ISO_8859_1).copyInto(out, 8)
+        var i = 12
+        while (i + 1 < out.size) {
+            out[i] = 0xFF.toByte()
+            out[i + 1] = 0xD9.toByte()
+            i += 16
+        }
         return out
     }
 
