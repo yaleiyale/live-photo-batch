@@ -979,6 +979,9 @@ object JpegXmpPatcher {
         return copied
     }
 
+    // 注：交付时 copyExact 与 skipExact 已合并为一个私有
+    // transfer(input, buf, n, chunk)，chunk 取 emit/discard；两段 64 KiB 缓冲与两份
+    // EOF 检查属于重复，Task 4 的 review 已裁定合并。下面这段保留仅为说明区间语义。
     private fun skipExact(input: InputStream, n: Long) {
         var left = n
         val buf = ByteArray(COPY_BUFFER)
