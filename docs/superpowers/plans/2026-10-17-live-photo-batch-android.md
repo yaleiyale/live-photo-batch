@@ -1453,9 +1453,12 @@ class PairPlannerTest {
     }
 
     @Test fun `unpaired entries are reported both ways`() {
-        val result = plan("only.jpg", "only.mp4", "vid.mp4")
-        assertEquals(setOf("only", "vid"), (result.unpaired.map { it.name.substringBefore('.') }).toSet())
+        // fixture 里不能再放 "only.mp4"，否则 only 就配成对，本条测试与 Step 3 的代码
+        // 互相矛盾（原计划即如此，Task 6 实现时已纠正）
+        val result = plan("only.jpg", "vid.mp4")
         assertTrue(result.jobs.isEmpty())
+        // 并分别断言缺的是 VIDEO 与 IMAGE（以交付的测试为准）
+        assertEquals(setOf("only.jpg", "vid.mp4"), result.unpaired.map { it.name }.toSet())
     }
 
     @Test fun `other extensions are ignored entirely`() {
