@@ -16,7 +16,7 @@ enum class FailureReason {
 
 sealed interface ComposeResult {
     data class Success(val videoSize: Long, val totalBytes: Long) : ComposeResult
-    data class Failure(val reason: FailureReason, val bytesWritten: Long) : ComposeResult
+    data class Failure(val reason: FailureReason) : ComposeResult
 }
 
 /**
@@ -25,9 +25,10 @@ sealed interface ComposeResult {
  *
  * 校验顺序按 spec §7.4，且是**可观测的**：先把最便宜的视频头探测放最前（坏视频绝不让后面
  * 白扫一遍 JPEG），再判 SOI、段遍历、扩展 XMP、嵌套防护，全部通过后才开始写 sink。
- * 被拒绝的项对 sink 一个字节都不写，所以每条 [ComposeResult.Failure] 都是 bytesWritten=0；
- * 写入阶段本身出 I/O 故障时确实已经吐过字节，但那是半途的废文件——spec §7.5 要求调用方直接删掉
- * .part，所以不计数（Task 8 的失败分支正是 bytes = 0）。
+ * 被校验拒掉的项对 sink 一个字节都不写；**写入阶段**的 I/O 故障就不一定了——它可能在 patch 之后、
+ * 甚至视频搬了一半时才炸，sink 里实打实留着半截文件。两种失败都只报 [FailureReason]、不报字节数：
+ * spec §7.5 的清理是无条件的（失败就删 .part），计数没有读者，而一个恒为 0 的字段只会被误读成
+ * "0 表示什么都没写过"，那在半途失败这条路上恰恰是假的。
  *
  * sink 由调用方拥有并负责关闭：本函数绝不关它（Task 8 用 `use { }` 包着它）。
  * 全程流式、定长 64 KiB 缓冲，常数内存；同一个来源要读两遍（扫描 + 搬运）靠 [ChannelSource]
@@ -48,29 +49,29 @@ object MotionPhotoComposer {
         val head = try {
             readHead(video, minOf(PROBE_BYTES.toLong(), videoSize).toInt())
         } catch (e: IOException) {
-            return ComposeResult.Failure(FailureReason.IO_ERROR, 0)
+            return ComposeResult.Failure(FailureReason.IO_ERROR)
         }
-        if (!containsFtyp(head)) return ComposeResult.Failure(FailureReason.NOT_MP4, 0)
+        if (!containsFtyp(head)) return ComposeResult.Failure(FailureReason.NOT_MP4)
 
         val scan = try {
             image.open().use { ch -> JpegScanner.scan(ch) }
         } catch (e: IOException) {
-            return ComposeResult.Failure(FailureReason.IO_ERROR, 0)
+            return ComposeResult.Failure(FailureReason.IO_ERROR)
         }
         val structure = when (scan) {
-            is JpegScanResult.NotJpeg -> return ComposeResult.Failure(FailureReason.NOT_JPEG, 0)
-            is JpegScanResult.Malformed -> return ComposeResult.Failure(FailureReason.MALFORMED_JPEG, 0)
+            is JpegScanResult.NotJpeg -> return ComposeResult.Failure(FailureReason.NOT_JPEG)
+            is JpegScanResult.Malformed -> return ComposeResult.Failure(FailureReason.MALFORMED_JPEG)
             is JpegScanResult.Parsed -> scan.structure
         }
         if (structure.hasExtendedXmp) {
-            return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED, 0)
+            return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED)
         }
         // 嵌套防护两个信号缺一不可：EOI 后还有字节 = 上一轮已经追加过视频；
         // 源 XMP 自带 Motion Photo 语义 = 同一张图已经标记过偏移。
         if (structure.imageEnd < image.size() ||
             MotionDetector.looksLikeMotionPhoto(structure.oldXmpText)
         ) {
-            return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO, 0)
+            return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO)
         }
 
         val app1 = XmpPacket.app1Segment(videoSize)
@@ -80,8 +81,9 @@ object MotionPhotoComposer {
             copyToEnd(video, sink)
             ComposeResult.Success(videoSize, patched + app1.size + videoSize)
         } catch (e: IOException) {
-            // 全部校验都已通过，到这里只剩 I/O 故障；字节已经落到 sink 上，调用方须丢弃半成品。
-            ComposeResult.Failure(FailureReason.IO_ERROR, 0)
+            // 全部校验都已通过，到这里只剩 I/O 故障：sink 里可能已经留下一半内容，
+            // 调用方按 §7.5 无条件丢弃半成品，所以这里只报原因，不报"写了几个字节"。
+            ComposeResult.Failure(FailureReason.IO_ERROR)
         }
     }
 

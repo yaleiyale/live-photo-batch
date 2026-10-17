@@ -1290,7 +1290,7 @@ object MotionPhotoComposer {
         } catch (e: IOException) {
             return ComposeResult.Failure(FailureReason.IO_ERROR)
         }
-        if (!containsFtyp(head)) return ComposeResult.Failure(FailureReason.NOT_MP4, 0)
+        if (!containsFtyp(head)) return ComposeResult.Failure(FailureReason.NOT_MP4)
 
         val scan = try {
             image.open().use { ch -> JpegScanner.scan(ch) }

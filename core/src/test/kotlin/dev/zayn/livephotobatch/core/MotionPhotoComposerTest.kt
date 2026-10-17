@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
 
@@ -142,6 +143,34 @@ class MotionPhotoComposerTest {
         assertTrue(sink.isOpen, "compose 关掉了调用方的 sink")
     }
 
+    @Test fun `write phase io error leaves partial bytes in the sink`() {
+        val video = Fixtures.mp4(4096)
+        val image = Fixtures.jpeg()
+        // patch 全程跑完后 sink 里的字节数 = 源图 + 新 APP1（这张图没有旧 XMP 可丢）。
+        val imagePart = image.size + XmpPacket.app1Segment(video.size.toLong()).size
+        // 上限故意设在图片段**之后**：坏掉的必须是写入阶段的视频拷贝，而不是任何一条校验。
+        // 校验阶段的失败永远不碰 sink（上一条测试盯着），只有这里是"失败也可能留下字节"的路径。
+        val limit = imagePart + 100
+        val sink = ExhaustingSink(limit)
+        val result = MotionPhotoComposer.compose(ByteArraySource(image), ByteArraySource(video), sink)
+        // 真的是 sink 抛的 IOException 被转成了 Failure（而不是原样向上传播）。
+        assertTrue(sink.failed, "sink 从未被要求写入超出上限的字节，这条测试是空的")
+        assertEquals(FailureReason.IO_ERROR, (result as ComposeResult.Failure).reason)
+        // committed 行为：已落盘的字节不会因为失败而回滚或被清零——它们实打实留在 sink 里，
+        // 由调用方按 spec §7.5 无条件删掉 .part。谁若把"失败 = 什么都没写"当成前提（无论是
+        // 重新加回一个恒为 0 的 bytesWritten 字段，还是在清理时跳过删除），这条断言就红。
+        assertEquals(limit.toLong(), sink.size().toLong())
+        assertTrue(sink.size() > imagePart, "半截视频字节应当已经进了 sink")
+        // 留下的不是垃圾，而是合法产物的前缀：忘记删 .part 的调用方拿到的是一个截断文件。
+        val (_, full) = compose(image, video)
+        assertArrayEquals(
+            full.copyOfRange(0, imagePart),
+            sink.toByteArray().copyOfRange(0, imagePart),
+        )
+        // 写入阶段失败同样不许替调用方关 sink。
+        assertTrue(sink.isOpen, "compose 关掉了调用方的 sink")
+    }
+
     /** 记录"有没有被写过 / 有没有被关掉 / 一共收到多少字节"的 sink。 */
     private class CountingSink : java.nio.channels.WritableByteChannel {
         var wroteAnything = false
@@ -158,5 +187,32 @@ class MotionPhotoComposerTest {
         override fun close() { open = false }
         override fun isOpen() = open
         fun size(): Int = bytes.size()
+    }
+
+    /**
+     * 收满 [limit] 字节就把后续写入变成 [IOException] 的 sink——模拟设备写到一半就坏掉。
+     * [write] 允许只消费部分缓冲（`writeAll` 正是为此而循环），所以它能先吞掉剩余额度再抛，
+     * 于是失败发生时 sink 里留下的是**真实写出去过**的字节，不是内存里的镜像。
+     */
+    private class ExhaustingSink(private val limit: Int) : java.nio.channels.WritableByteChannel {
+        private val bytes = ByteArrayOutputStream()
+        private var open = true
+        var failed = false
+            private set
+        override fun write(src: ByteBuffer): Int {
+            if (bytes.size() >= limit) {
+                failed = true
+                throw IOException("sink 在第 $limit 字节后拒绝写入")
+            }
+            val n = minOf(src.remaining(), limit - bytes.size())
+            val chunk = ByteArray(n)
+            src.get(chunk)
+            bytes.write(chunk)
+            return n
+        }
+        override fun close() { open = false }
+        override fun isOpen() = open
+        fun size(): Int = bytes.size()
+        fun toByteArray(): ByteArray = bytes.toByteArray()
     }
 }
