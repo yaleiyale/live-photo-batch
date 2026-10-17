@@ -1035,7 +1035,9 @@ git commit -m "feat(core): replace jpeg xmp app1 in one streaming pass"
 - Consumes: `JpegScanner`, `JpegStructure`, `XmpPacket`, `JpegXmpPatcher`, `ChannelSource`
 - Produces:
   `enum class FailureReason { NOT_JPEG, MALFORMED_JPEG, ALREADY_MOTION_PHOTO, EXTENDED_XMP_UNSUPPORTED, NOT_MP4, IO_ERROR, NO_PAIR }`
-  `sealed interface ComposeResult { data class Success(videoSize, totalBytes); data class Failure(reason, bytesWritten) }`
+  `sealed interface ComposeResult { data class Success(videoSize, totalBytes); data class Failure(reason) }`
+  —— 失败不报告写了多少字节：spec §7.5 的清理契约是「失败就无条件删 `.part`」，
+  这个计数没有读者，留着只会被误解成「0 表示什么都没写过」
   `object MotionPhotoComposer { fun compose(image: ChannelSource, video: ChannelSource, sink: WritableByteChannel): ComposeResult }`
   `object MotionDetector { fun looksLikeMotionPhoto(xmpText: String?): Boolean }`
 
@@ -1272,7 +1274,7 @@ enum class FailureReason { NOT_JPEG, MALFORMED_JPEG, ALREADY_MOTION_PHOTO,
 
 sealed interface ComposeResult {
     data class Success(val videoSize: Long, val totalBytes: Long) : ComposeResult
-    data class Failure(val reason: FailureReason, val bytesWritten: Long) : ComposeResult
+    data class Failure(val reason: FailureReason) : ComposeResult
 }
 
 object MotionPhotoComposer {
@@ -1286,24 +1288,24 @@ object MotionPhotoComposer {
         val head = try {
             readHead(video, minOf(PROBE_BYTES.toLong(), videoSize).toInt())
         } catch (e: IOException) {
-            return ComposeResult.Failure(FailureReason.IO_ERROR, 0)
+            return ComposeResult.Failure(FailureReason.IO_ERROR)
         }
         if (!containsFtyp(head)) return ComposeResult.Failure(FailureReason.NOT_MP4, 0)
 
         val scan = try {
             image.open().use { ch -> JpegScanner.scan(ch) }
         } catch (e: IOException) {
-            return ComposeResult.Failure(FailureReason.IO_ERROR, 0)
+            return ComposeResult.Failure(FailureReason.IO_ERROR)
         }
         val structure = when (scan) {
-            is JpegScanResult.NotJpeg -> return ComposeResult.Failure(FailureReason.NOT_JPEG, 0)
-            is JpegScanResult.Malformed -> return ComposeResult.Failure(FailureReason.MALFORMED_JPEG, 0)
+            is JpegScanResult.NotJpeg -> return ComposeResult.Failure(FailureReason.NOT_JPEG)
+            is JpegScanResult.Malformed -> return ComposeResult.Failure(FailureReason.MALFORMED_JPEG)
             is JpegScanResult.Parsed -> scan.structure
         }
         if (structure.hasExtendedXmp)
-            return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED, 0)
+            return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED)
         if (structure.imageEnd < image.size() || MotionDetector.looksLikeMotionPhoto(structure.oldXmpText))
-            return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO, 0)
+            return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO)
 
         val app1 = XmpPacket.app1Segment(videoSize)
         return try {
@@ -1312,7 +1314,7 @@ object MotionPhotoComposer {
             ComposeResult.Success(videoSize, patched + app1.size + videoSize)
         } catch (e: IOException) {
             // 校验全过了才会走到这里；剩下的只有 I/O 故障。半成品已由调用方按 §7.5 删掉，不计数。
-            ComposeResult.Failure(FailureReason.IO_ERROR, 0)
+            ComposeResult.Failure(FailureReason.IO_ERROR)
         }
         // 注意：没有 finally { sink.close() }。见本节末尾的交付修正。
     }
