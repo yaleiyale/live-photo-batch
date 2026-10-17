@@ -25,8 +25,13 @@ data class PlanResult(val jobs: List<PairJob>, val unpaired: List<Unpaired>)
  * 输入约定（spec §7.4.5-7.4.6、§9）：
  * - `source`/`target` 都是**单层**目录名列表，由调用方（Task 7 的 BatchStorage.list）给出，
  *   本对象不递归，也不解释路径分隔符——名字里带 `/` 只会被当成 stem 的一部分。
- * - 只有 `.jpg`/`.jpeg` 进图像候选、`.mp4` 进视频候选；其它扩展名（.heic/.txt/…）与
- *   **无扩展名**、以点开头的文件名一律静默忽略，既不配对也不进 unpaired。
+ * - 只有 `.jpg`/`.jpeg` 进图像候选、`.mp4` 进视频候选；其它扩展名（.heic/.txt/…）一律静默忽略，
+ *   既不配对也不进 unpaired。
+ * - "无可用扩展名"同样静默忽略，判定来自 `extension()`：只看**最后一个点**，它必须既不在 index 0
+ *   也不是末字符。于是 `README`（无点）、`a.`（点在末尾）与 `.nomedia`/`.hidden`（唯一的点在 index 0
+ *   的裸点开头名）都不是候选。**反面要注意**：点开头**且带扩展名**的名字是候选，因为判定用的是最后一个
+ *   点而不是第一个——`.nomedia.mp4` 的 stem 是 `.nomedia`，照常进视频候选；`.hidden.jpg` 进图像候选
+ *   （再走下面的 `_live` 规则）。本对象不特殊处理点开头名字，媒体扫描器那套 `.nomedia` 语义与此无关。
  * - stem 以 `_live` 结尾（大小写不敏感）的**图像**不作为输入候选（spec §7.4.6 只点名 JPEG）；
  *   同名的 `.mp4` 仍进视频候选，因此上一轮的 `a_live.mp4` 会作为"缺图"出现在 unpaired 里——
  *   计划 Task 6 Step 4 与测试 `previous outputs are not treated as inputs` 都要求这个结果。

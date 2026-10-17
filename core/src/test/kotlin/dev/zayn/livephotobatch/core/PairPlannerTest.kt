@@ -68,4 +68,30 @@ class PairPlannerTest {
         val result = plan("b.jpg", "b.mp4", "a.jpg", "a.mp4")
         assertEquals(listOf("a", "b"), result.jobs.map { it.stem })
     }
+
+    // Fix round 1（Finding 2）：上面 8 条没有任何一条读 PairJob.imageName，
+    // 把 imageName 写成 videoName、stem 或 stem + ".jpg" 都能让全套保持绿色。
+    // 下游（Task 8 runner）要拿 imageName 去拼 sourceDir 下的真实路径，所以这里钉死：
+    // imageName/videoName 必须是列名原样，大小写与扩展名形式都不得改写。
+    @Test fun `job names are the listing names, not the stem or each other`() {
+        val result = PairPlanner.plan(
+            listOf(
+                DirEntry("IMG_001.JPG", 3L),
+                DirEntry("IMG_001.Mp4", 4L),
+                DirEntry("holiday.jpeg", 5L),
+                DirEntry("holiday.mp4", 6L),
+            ),
+            emptyList(),
+        )
+        assertEquals(2, result.jobs.size)
+        assertEquals(listOf("IMG_001", "holiday"), result.jobs.map { it.stem })
+        val upper = result.jobs[0]
+        assertEquals("IMG_001.JPG", upper.imageName)
+        assertEquals("IMG_001.Mp4", upper.videoName)
+        assertEquals("IMG_001_live.jpg", upper.outputName)
+        val lower = result.jobs[1]
+        assertEquals("holiday.jpeg", lower.imageName)
+        assertEquals("holiday.mp4", lower.videoName)
+        assertEquals("holiday_live.jpg", lower.outputName)
+    }
 }
