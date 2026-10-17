@@ -1585,7 +1585,7 @@ git commit -m "feat(core): pair same-stem jpg and mp4 into plan jobs"
 **Interfaces:**
 - Consumes: `ChannelSource`, `DirEntry`
 - Produces:
-  `interface BatchStorage { fun list(dirPath: String): List<DirEntry>; fun open(filePath: String): ChannelSource; fun ensureDir(dirPath: String); fun createParent(filePath: String); fun openWrite(filePath: String): WritableByteChannel; fun move(from: String, to: String): Boolean; fun delete(filePath: String): Boolean; fun exists(filePath: String): Boolean }`
+  `interface BatchStorage（7 个成员，与 Step 1 代码一致）{ fun list(dirPath: String): List<DirEntry>; fun open(filePath: String): ChannelSource; fun ensureDir(dirPath: String); fun openWrite(filePath: String): WritableByteChannel; fun move(from: String, to: String): Boolean; fun delete(filePath: String): Boolean; fun exists(filePath: String): Boolean }`
 
 - [ ] **Step 1: 定义接口**
 
@@ -2286,7 +2286,7 @@ class FileStorage(private val root: String) : dev.zayn.livephotobatch.core.Batch
         val dst = resolve(to)
         if (!src.isFile) return false
         dst.parentFile?.mkdirs()
-        if (dst.exists() && !dst.delete()) return false
+        // 不先删目标：renameTo 走 rename(2)，同文件系统内对已存在目标是原子替换；先删会开一个旧文件已消失的窗口
         if (src.renameTo(dst)) return true
         return try {
             src.copyTo(dst, overwrite = true)
