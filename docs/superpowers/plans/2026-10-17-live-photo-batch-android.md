@@ -1999,11 +1999,10 @@ class BatchRunner(private val storage: BatchStorage) {
     }
 
     private companion object {
-        val SKIPPABLE = setOf(
-            FailureReason.NOT_JPEG, FailureReason.MALFORMED_JPEG,
-            FailureReason.ALREADY_MOTION_PHOTO, FailureReason.EXTENDED_XMP_UNSUPPORTED,
-            FailureReason.NOT_MP4,
-        )
+        // spec 只在「已是动态照片」与「配不上对」两种情况下说"跳过"。其余拒绝都是
+        // FAILED —— 尤其 MALFORMED_JPEG：Task 2 的 Cursor 会把 IOException 折叠成
+        // Malformed，若把它算作跳过，真实磁盘故障会被埋进"坏文件"里
+        val SKIPPABLE = setOf(FailureReason.ALREADY_MOTION_PHOTO)
     }
 }
 ```
