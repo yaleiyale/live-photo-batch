@@ -58,4 +58,16 @@ class InMemoryStorage(initial: Map<String, ByteArray> = emptyMap()) : BatchStora
     }
 
     override fun delete(filePath: String): Boolean = files.remove(filePath) != null
+
+    /**
+     * 测试专用（Task 8）：还留在某个 `.tmp` 目录里的半截文件路径。
+     * 生产代码没有读者——`BatchRunner` 只负责删它，接口也不可能长出"列半截产物"这种成员，
+     * 所以它属于夹具而不是 [BatchStorage] API。用来证明 §7.5 的清理真的发生了。
+     */
+    val tmpFiles: List<String>
+        get() = files.keys.filter { it.contains("/.tmp/") }.sorted()
+
+    /** 测试专用（Task 8）：读出某条路径现在的字节；不存在就抛，绝不静默给空数组。 */
+    fun bytesOf(filePath: String): ByteArray =
+        files[filePath] ?: throw IllegalArgumentException("内存目录里没有这条路径：$filePath")
 }
