@@ -1596,7 +1596,11 @@ package dev.zayn.livephotobatch.core
 
 import java.nio.channels.WritableByteChannel
 
-/** BatchRunner 需要的全部文件动作。:app 用 java.io.File 实现，测试用内存实现。 */
+/**
+ * BatchRunner 需要的全部文件动作。:app 用 java.io.File 实现，测试用内存实现。
+ * 成员级契约见 BatchStorage.kt 的 KDoc：move 不得先删目标、exists/delete 只认普通文件、
+ * list 对不存在的目录返回空且从不抛。
+ */
 interface BatchStorage {
     /** 只列一层，返回普通文件。目录与特殊文件不出现。 */
     fun list(dirPath: String): List<DirEntry>
@@ -2257,7 +2261,8 @@ class FileStorage(private val root: String) : dev.zayn.livephotobatch.core.Batch
         }
     }
 
-    override fun exists(filePath: String): Boolean = resolve(filePath).exists()
+    // 契约要求只认普通文件，所以必须是 isFile 而不是 exists()
+    override fun exists(filePath: String): Boolean = resolve(filePath).isFile
 
     override fun ensureDir(dirPath: String) {
         val dir = resolve(dirPath)
@@ -2296,7 +2301,9 @@ class FileStorage(private val root: String) : dev.zayn.livephotobatch.core.Batch
         }
     }
 
-    override fun delete(filePath: String): Boolean = resolve(filePath).delete()
+    // 同理：目录必须返回 false 且不动它，所以先判 isFile
+    override fun delete(filePath: String): Boolean =
+        resolve(filePath).let { it.isFile && it.delete() }
 }
 ```
 
