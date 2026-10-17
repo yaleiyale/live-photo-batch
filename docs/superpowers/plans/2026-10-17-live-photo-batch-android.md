@@ -86,7 +86,7 @@ README.md
 **Interfaces:**
 - Produces: `data class ByteRange(val start: Long, val endExclusive: Long) { val length: Long }`，
   `interface ChannelSource { fun open(): ReadableByteChannel; fun size(): Long }`，
-  `class ByteArraySource(name: String, private val bytes: ByteArray) : ChannelSource`
+  `class ByteArraySource(private val bytes: ByteArray) : ChannelSource`（后续 Task 的测试都按这个单参构造调用）
 
 - [ ] **Step 1: 写版本目录与构建脚本**
 
@@ -308,7 +308,7 @@ Expected: 生成 `gradlew`, `gradlew.bat`, `gradle/wrapper/*`；版本号 9.6.1�
 - [ ] **Step 7: 提交**
 
 ```bash
-git add .gitattributes .gitignore settings.gradle.kts build.gradle.kts gradle.properties gradle core .github
+git add .gitattributes .gitignore settings.gradle.kts build.gradle.kts gradle.properties gradle gradlew gradlew.bat core .github .github
 git commit -m "chore: scaffold gradle build for core module"
 ```
 
