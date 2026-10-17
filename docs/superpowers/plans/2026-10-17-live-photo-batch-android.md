@@ -1374,7 +1374,7 @@ object MotionPhotoComposer {
 - [ ] **Step 6: 跑测试确认通过**
 
 Run: `./gradlew :core:test --tests '*MotionPhotoComposerTest'`
-Expected: 9 个测试全绿。
+Expected: 10 个测试全绿。
 
 - [ ] **Step 7: 提交**
 
@@ -2016,7 +2016,7 @@ Expected: 9 个测试全绿。
 - [ ] **Step 5: 全量回归**
 
 Run: `./gradlew :core:test`
-Expected: 全部模块测试通过。
+Expected: 全部模块测试通过（Task 1-5 累计 40 条）。
 
 - [ ] **Step 6: 提交**
 
