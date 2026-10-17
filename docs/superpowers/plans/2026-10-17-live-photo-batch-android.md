@@ -1060,6 +1060,13 @@ class MotionDetectorTest {
     @Test fun `unrelated xmp is not mistaken`() {
         assertFalse(MotionDetector.looksLikeMotionPhoto("<x:xmpmeta>MicroVideoOffsetish</x:xmpmeta>"))
         assertFalse(MotionDetector.looksLikeMotionPhoto(null))
+        // 交付新增：原稿只有上一条，删掉正则里的 "GCamera:" 前缀照样全绿——"MicroVideoOffsetish"
+        // 后面跟的是字母 i，不在 ["\s=>] 里，那条负例根本测不到命名空间。这三条才真正盯住
+        // ruling 4（命名空间限定匹配，不是裸子串）：无前缀/其他前缀的同名元素必须判 false，
+        // 否则普通照片会被整批 SKIPPED。
+        assertFalse(MotionDetector.looksLikeMotionPhoto("<MicroVideoOffset>123</MicroVideoOffset>"))
+        assertFalse(MotionDetector.looksLikeMotionPhoto("<tiff:MotionPhoto>0</tiff:MotionPhoto>"))
+        assertFalse(MotionDetector.looksLikeMotionPhoto("<dc:description>MotionPhoto</dc:description>"))
     }
 }
 ```
@@ -1120,29 +1127,55 @@ class MotionPhotoComposerTest {
         val success = result as ComposeResult.Success
         assertEquals(900L, success.videoSize)
         assertEquals(out.size.toLong(), success.totalBytes)
+        // 交付新增：把账本写死——产物 = 源图 + 新 APP1 + 视频，三项一项都不能少。
+        assertEquals(image.size + XmpPacket.app1Segment(900L).size + video.size, out.size)
         // 尾部逐字节等于源 MP4
         assertArrayEquals(video, out.copyOfRange(out.size - video.size, out.size))
         // 头 + 新 XMP + 源图剩余 + 视频
         val expectedHead = byteArrayOf(0xFF.toByte(), 0xD8.toByte()) +
             XmpPacket.app1Segment(900L) + image.copyOfRange(2, image.size - 2)
         assertArrayEquals(expectedHead, out.copyOfRange(0, expectedHead.size))
+        // 交付新增：sink 归调用方——只有走完写入阶段的这条用例能盯住"compose 不许 close 别人的 sink"
+        // （失败路径提前 return，压根碰不到那个 finally）。Task 8 用 use { } 包着它，compose 先关
+        // 就等于在 rename 之前关掉 .part 通道。
+        val owned = CountingSink()
+        MotionPhotoComposer.compose(ByteArraySource(image), ByteArraySource(video), owned)
+        assertTrue(owned.isOpen, "compose 关掉了调用方的 sink")
+        assertEquals(owned.size().toLong(), success.totalBytes)
     }
 
     @Test fun `round trip locates video by file size minus offset`() {
         val video = Fixtures.mp4(1234)
-        # Fixtures.mp4 已在 box header 之后每 16 字节埋入真实 FF D9 诱饵；
-        # 不要再手写 video[6]/video[7]——那会覆盖 'ftyp' 签名，让 composer 先以 NOT_MP4 拒绝。
-        val (_, out) = compose(Fixtures.jpeg(tail = Fixtures.mp4(200)), video)
-        val xmp = XmpPacket.motionPhoto(video.size.toLong()).decodeToString()
-        val offset = Regex("""MicroVideoOffset="(\d+)"""").find(xmp)!!.groupValues[1].toLong()
+        // Fixtures.mp4 已在 box header 之后每 16 字节埋入真实 FF D9 诱饵；
+        // 不要再手写 video[6]/video[7]——那会覆盖 'ftyp' 签名，让 composer 先以 NOT_MP4 拒绝。
+        //
+        // 交付修正：图必须是**干净**的 Fixtures.jpeg()。原版写的是
+        // Fixtures.jpeg(tail = Fixtures.mp4(200))，那种输入按 spec §7.4 第 3 条必然
+        // ALREADY_MOTION_PHOTO（imageEnd=31 < size=231，正是再下面那条测试的输入），compose
+        // 一个字节都不写，于是 out.size=0、start = 0 - 1234 = -1234，实测 ArrayIndexOutOfBoundsException。
+        // tail 是从 Task 4 patcher 测试抄来的：patcher 要证明"越过 EOI 不搬"，composer 只接受干净 JPEG。
+        val image = Fixtures.jpeg()
+        val (_, out) = compose(image, video)
+        // 偏移从产物自己的字节里读，而不是再调一次 XmpPacket：那才叫 round trip，
+        // 也才看得见 composer 到底往文件里写了什么 XMP。
+        val outText = out.toString(Charsets.ISO_8859_1)
+        val offset = Regex("""GCamera:MicroVideoOffset="(\d+)"""").find(outText)!!.groupValues[1].toLong()
         assertEquals(video.size.toLong(), offset)
+        assertEquals(offset, Regex("""<Item:Length>(\d+)""").find(outText)!!.groupValues[1].toLong())
         val start = out.size - offset
         assertEquals(0x66.toByte(), out[start.toInt() + 4]) // 'f' of ftyp
         assertArrayEquals(video, out.copyOfRange(start.toInt(), out.size))
+        // 图片段以真 EOI 收尾、视频紧贴其后；start 恰好 = 源图 + 新 APP1。
+        assertEquals(0xFF.toByte(), out[start.toInt() - 2])
+        assertEquals(0xD9.toByte(), out[start.toInt() - 1])
+        assertEquals((image.size + XmpPacket.app1Segment(video.size.toLong()).size).toLong(), start)
     }
 
     @Test fun `not jpeg`() {
-        val (result, out) = compose("PNGâPNG".toByteArray(), Fixtures.mp4())
+        // 交付修正：用 PNG 魔数，不依赖源码编码（原版的 "PNGâPNG" 里那个字符是编码事故）。
+        val png = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte()) +
+            byteArrayOf(0x0D, 0x0A, 0x1A, 0x0A)
+        val (result, out) = compose(png, Fixtures.mp4())
         assertEquals(FailureReason.NOT_JPEG, (result as ComposeResult.Failure).reason)
         assertEquals(0, out.size)
     }
@@ -1152,6 +1185,15 @@ class MotionPhotoComposerTest {
         val (result, out) = compose(Fixtures.jpeg(), bad)
         assertEquals(FailureReason.NOT_MP4, (result as ComposeResult.Failure).reason)
         assertEquals(0, out.size)
+        // 交付新增：两头都坏时必须是 NOT_MP4——这条才真正盯住"先探测视频头"的顺序（ruling 3）。
+        // 把 JPEG 扫描挪到前面就变成 NOT_JPEG，坏视频在整批报告里被误报成坏图片。
+        val both = compose("PNG".toByteArray(), bad)
+        assertEquals(FailureReason.NOT_MP4, (both.first as ComposeResult.Failure).reason)
+        assertEquals(0, both.second.size)
+        // 交付新增：不足 12 字节的头没有 ftyp 的容身之处，同样是 NOT_MP4，不许抛。
+        val tiny = compose(Fixtures.jpeg(), byteArrayOf(0, 0, 0, 4, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte()))
+        assertEquals(FailureReason.NOT_MP4, (tiny.first as ComposeResult.Failure).reason)
+        assertEquals(0, tiny.second.size)
     }
 
     @Test fun `already a motion photo is skipped without writing a byte`() {
@@ -1190,32 +1232,39 @@ class MotionPhotoComposerTest {
         // 无 ftyp 的视频在写任何东西之前就被拒
         assertEquals(FailureReason.NOT_MP4, (result as ComposeResult.Failure).reason)
         assertFalse(sink.wroteAnything)
+        // 交付新增：sink 归调用方，失败路径也不许替它 close()。
+        assertTrue(sink.isOpen, "compose 关掉了调用方的 sink")
     }
 
     private class CountingSink : java.nio.channels.WritableByteChannel {
         var wroteAnything = false
+        private val bytes = ByteArrayOutputStream()
         private var open = true
         override fun write(src: ByteBuffer): Int {
             wroteAnything = true
             val n = src.remaining()
-            src.position(src.limit())
+            val chunk = ByteArray(n)
+            src.get(chunk)
+            bytes.write(chunk)
             return n
         }
         override fun close() { open = false }
         override fun isOpen() = open
+        fun size(): Int = bytes.size()
     }
 }
 ```
 
 - [ ] **Step 5: 实现合成器**
 
-`MotionPhotoComposer.kt`（校验顺序按 spec §7.4；失败一律不写 sink，先写内存快照再决定）：
+`MotionPhotoComposer.kt`（校验顺序按 spec §7.4；被拒绝的项一个字节都不写 sink。整个过程流式，
+**不写内存快照**——原简报那句"先写内存快照再决定"与 §2 G5 的常数内存预算冲突，代码本身也没那么做）：
 
 ```kotlin
 package dev.zayn.livephotobatch.core
 
+import java.io.IOException
 import java.nio.ByteBuffer
-import java.nio.channels.Channels
 import java.nio.channels.WritableByteChannel
 
 enum class FailureReason { NOT_JPEG, MALFORMED_JPEG, ALREADY_MOTION_PHOTO,
@@ -1228,26 +1277,22 @@ sealed interface ComposeResult {
 
 object MotionPhotoComposer {
     private const val COPY_BUFFER = 64 * 1024
+    private const val PROBE_BYTES = 16
+    private const val MIN_MP4_HEAD = 12
+    private val FTYP = byteArrayOf('f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte())
 
     fun compose(image: ChannelSource, video: ChannelSource, sink: WritableByteChannel): ComposeResult {
         val videoSize = video.size()
-        val probe = ByteArray(minOf(16, videoSize).toInt())
-        try {
-            video.open().use { ch ->
-                val buf = ByteBuffer.wrap(probe)
-                while (buf.hasRemaining()) {
-                    val r = ch.read(buf)
-                    if (r <= 0) break
-                }
-            }
-        } catch (e: java.io.IOException) {
+        val head = try {
+            readHead(video, minOf(PROBE_BYTES.toLong(), videoSize).toInt())
+        } catch (e: IOException) {
             return ComposeResult.Failure(FailureReason.IO_ERROR, 0)
         }
-        if (!containsFtyp(probe)) return ComposeResult.Failure(FailureReason.NOT_MP4, 0)
+        if (!containsFtyp(head)) return ComposeResult.Failure(FailureReason.NOT_MP4, 0)
 
         val scan = try {
             image.open().use { ch -> JpegScanner.scan(ch) }
-        } catch (e: java.io.IOException) {
+        } catch (e: IOException) {
             return ComposeResult.Failure(FailureReason.IO_ERROR, 0)
         }
         val structure = when (scan) {
@@ -1263,35 +1308,66 @@ object MotionPhotoComposer {
         val app1 = XmpPacket.app1Segment(videoSize)
         return try {
             val patched = JpegXmpPatcher.patch(structure, image, sink, app1)
-            video.open().use { ch ->
-                val buf = ByteBuffer.allocate(COPY_BUFFER)
-                while (true) {
-                    buf.clear()
-                    val read = ch.read(buf)
-                    if (read <= 0) break
-                    buf.flip()
-                    sink.writeAll(buf)
-                }
-            }
+            copyToEnd(video, sink)
             ComposeResult.Success(videoSize, patched + app1.size + videoSize)
-        } catch (e: java.io.IOException) {
+        } catch (e: IOException) {
+            // 校验全过了才会走到这里；剩下的只有 I/O 故障。半成品已由调用方按 §7.5 删掉，不计数。
             ComposeResult.Failure(FailureReason.IO_ERROR, 0)
-        } finally {
-            runCatching { (sink as? AutoCloseable)?.close() }
+        }
+        // 注意：没有 finally { sink.close() }。见本节末尾的交付修正。
+    }
+
+    /** 定长读视频头；不足就留零，containsFtyp 自己会拒绝过短的头部。 */
+    private fun readHead(video: ChannelSource, n: Int): ByteArray {
+        val buf = ByteArray(n)
+        if (n == 0) return buf
+        video.open().use { ch ->
+            val dst = ByteBuffer.wrap(buf)
+            while (dst.hasRemaining()) if (ch.read(dst) <= 0) break
+        }
+        return buf
+    }
+
+    /** 视频原样追加：定长缓冲读到 EOF，写出只走共享的 writeAll。 */
+    private fun copyToEnd(video: ChannelSource, sink: WritableByteChannel) {
+        video.open().use { ch ->
+            val buf = ByteBuffer.allocate(COPY_BUFFER)
+            while (true) {
+                buf.clear()
+                if (ch.read(buf) <= 0) break
+                buf.flip()
+                sink.writeAll(buf)
+            }
         }
     }
 
     /** spec §7.4 第 4 条：起始 12 字节内出现 ftyp。 */
     private fun containsFtyp(head: ByteArray): Boolean {
-        val ftyp = byteArrayOf('f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte())
-        if (head.size < 12) return false
-        for (i in 0..8) {
-            if (head.regionMatches(i, ftyp, 0, 4)) return true
-        }
+        if (head.size < MIN_MP4_HEAD) return false
+        for (i in 0..(MIN_MP4_HEAD - FTYP.size)) if (head.matchesAt(i, FTYP)) return true
         return false
+    }
+
+    /** ByteArray 没有 regionMatches（那是 String/CharSequence 的 API）：自己写一次越界安全的比对。 */
+    private fun ByteArray.matchesAt(index: Int, pattern: ByteArray): Boolean {
+        if (index < 0 || size - index < pattern.size) return false
+        for (j in pattern.indices) if (this[index + j] != pattern[j]) return false
+        return true
     }
 }
 ```
+
+交付修正三处（实现与测试都已按此落地，`./gradlew :core:test` = 39 绿）：
+1. **删掉 `finally { runCatching { (sink as? AutoCloseable)?.close() } }`**：sink 归调用方，Task 8 用
+   `storage.openWrite(tmpPath).use { sink -> compose(...) }` 包着它，compose 先关就是在 rename 之前
+   关掉 .part 通道。盯住它的是 happy-path 测试里的 `assertTrue(owned.isOpen)`——早退的失败路径
+   根本碰不到那个 finally，所以只有成功用例能验证。
+2. **`head.regionMatches(i, ftyp, 0, 4)` 编译不过**：`regionMatches` 只存在于 String/CharSequence，
+   ByteArray 没有（实测 `Unresolved reference 'regionMatches' on receiver of type 'ByteArray'`）。
+   改为私有 `ByteArray.matchesAt(index, pattern)`，与 JpegScanner 里那条私有 `ByteArray.startsWith`
+   同一手法。
+3. 视频头读取与视频体追加抽成 `readHead` / `copyToEnd`；写出仍只走 Task 4 抽出来的共享
+   `WritableByteChannel.writeAll`（裁定：全仓库只许有一份排空循环）。
 
 - [ ] **Step 6: 跑测试确认通过**
 
