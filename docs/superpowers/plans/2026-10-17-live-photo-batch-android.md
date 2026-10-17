@@ -1094,8 +1094,8 @@ class MotionPhotoComposerTest {
 
     @Test fun `round trip locates video by file size minus offset`() {
         val video = Fixtures.mp4(1234)
-        video[6] = 0xFF.toByte()   // 在视频里放一个假 FFD9，证明定位不靠搜字节
-        video[7] = 0xD9.toByte()
+        # Fixtures.mp4 已在 box header 之后每 16 字节埋入真实 FF D9 诱饵；
+        # 不要再手写 video[6]/video[7]——那会覆盖 'ftyp' 签名，让 composer 先以 NOT_MP4 拒绝。
         val (_, out) = compose(Fixtures.jpeg(tail = Fixtures.mp4(200)), video)
         val xmp = XmpPacket.motionPhoto(video.size.toLong()).decodeToString()
         val offset = Regex("""MicroVideoOffset="(\d+)"""").find(xmp)!!.groupValues[1].toLong()
