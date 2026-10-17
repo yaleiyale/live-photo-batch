@@ -27,6 +27,7 @@ class InMemoryStorage(initial: Map<String, ByteArray> = emptyMap()) : BatchStora
         return ByteArraySource(bytes)
     }
 
+    /** map 里只有文件，目录不是 key，所以对目录路径天然是 false——正是接口契约要的。 */
     override fun exists(filePath: String): Boolean = files.containsKey(filePath)
 
     override fun ensureDir(dirPath: String) { /* 目录隐含在 key 里，无需操作 */ }

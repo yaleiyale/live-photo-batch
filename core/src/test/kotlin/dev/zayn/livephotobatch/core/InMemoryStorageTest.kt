@@ -51,6 +51,8 @@ class InMemoryStorageTest {
         storage.openWrite("/a/one.jpg").use { it.writeAll(ByteBuffer.wrap(ByteArray(3))) }
         storage.openWrite("/a/sub/two.jpg").use { it.writeAll(ByteBuffer.wrap(ByteArray(5))) }
         assertEquals(listOf("one.jpg"), storage.list("/a").map { it.name })
+        // Task 8 在任何 ensureDir 之前就先 list(targetDir)：目录不存在只能返回空列表，不许抛。
+        assertTrue(InMemoryStorage().list("/nope").isEmpty())
     }
 
     @Test fun `list is sorted by name and carries sizes`() {
