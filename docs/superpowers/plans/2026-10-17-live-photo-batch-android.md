@@ -308,7 +308,7 @@ Expected: 生成 `gradlew`, `gradlew.bat`, `gradle/wrapper/*`；版本号 9.6.1�
 - [ ] **Step 7: 提交**
 
 ```bash
-git add .gitattributes .gitignore settings.gradle.kts build.gradle.kts gradle.properties gradle gradlew gradlew.bat core .github .github
+git add .gitattributes .gitignore settings.gradle.kts build.gradle.kts gradle.properties gradle gradlew gradlew.bat core .github
 git commit -m "chore: scaffold gradle build for core module"
 ```
 
