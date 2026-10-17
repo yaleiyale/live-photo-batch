@@ -819,6 +819,7 @@ git commit -m "feat(core): emit google motion photo xmp as app1 segment"
 ## Task 4: JPEG XMP 段替换
 
 **Files:**
+- Create: `core/src/main/kotlin/dev/zayn/livephotobatch/core/ByteChannels.kt`
 - Create: `core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegXmpPatcher.kt`
 - Test: `core/src/test/kotlin/dev/zayn/livephotobatch/core/JpegXmpPatcherTest.kt`
 
@@ -826,7 +827,10 @@ git commit -m "feat(core): emit google motion photo xmp as app1 segment"
 - Consumes: `JpegStructure`, `ByteRange`, `ChannelSource`, `JpegScanner`
 - Produces:
   `object JpegXmpPatcher { fun patch(structure: JpegStructure, image: ChannelSource, sink: WritableByteChannel, app1: ByteArray): Long }`
-  返回值 = 从源图实际写入 sink 的**源图字节数**（不含新 APP1）。
+  返回值 = 从源图实际写入 sink 的**源图字节数**（不含新 APP1，也不含被丢弃的旧段），
+  即 `imageEnd - (oldXmp?.length ?: 0)`。调用方要得到产物里的图片总长，得自己加 `app1.size`。
+  `core/.../ByteChannels.kt` 提供 `internal fun WritableByteChannel.writeAll(src: ByteBuffer)`，
+  Task 4 与 Task 5 共用，避免各写一份排空循环。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -919,6 +923,22 @@ Expected: 编译失败 `Unresolved reference: JpegXmpPatcher`。
 
 - [ ] **Step 3: 实现**
 
+`ByteChannels.kt`（Task 4/5 共用，只有一份实现）：
+
+```kotlin
+package dev.zayn.livephotobatch.core
+
+import java.nio.ByteBuffer
+import java.nio.channels.WritableByteChannel
+
+/** WritableByteChannel.write 允许只消费部分缓冲；单次调用会写出短文件。 */
+internal fun WritableByteChannel.writeAll(src: ByteBuffer) {
+    while (src.hasRemaining()) {
+        if (write(src) <= 0) throw java.io.IOException("sink 拒绝写入")
+    }
+}
+```
+
 `JpegXmpPatcher.kt`：
 
 ```kotlin
@@ -946,14 +966,27 @@ object JpegXmpPatcher {
         image.open().use { ch ->
             val input = Channels.newInputStream(ch)
             copied += copyExact(input, 2L, sink)                       // SOI
-            sink.put(ByteBuffer.wrap(app1))                             // 新 XMP
+            sink.writeAll(ByteBuffer.wrap(app1))                       // 新 XMP
             val gapStart = structure.oldXmp?.start ?: structure.imageEnd
             copied += copyExact(input, gapStart - 2L, sink)
             if (structure.oldXmp != null) {
+                // 读指针此刻正停在 oldXmp.start 上；不先跳过就会把旧段的
+                // FF E1 + 长度 + 标识符再写一遍，并且少写同样多的真实尾部字节
+                skipExact(input, structure.oldXmp.length)
                 copied += copyExact(input, structure.imageEnd - structure.oldXmp.endExclusive, sink)
             }
         }
         return copied
+    }
+
+    private fun skipExact(input: InputStream, n: Long) {
+        var left = n
+        val buf = ByteArray(COPY_BUFFER)
+        while (left > 0) {
+            val read = input.read(buf, 0, minOf(left, buf.size.toLong()).toInt())
+            if (read <= 0) throw java.io.EOFException("跳过旧 XMP 时数据提前结束")
+            left -= read
+        }
     }
 
     /** 精确搬 n 字节；不够就抛，绝不静默写出半截 JPEG。 */
@@ -965,7 +998,7 @@ object JpegXmpPatcher {
             val want = minOf(left, buf.size.toLong()).toInt()
             val read = input.read(buf, 0, want)
             if (read <= 0) throw java.io.EOFException("JPEG 数据提前结束，还差 $left 字节")
-            sink.put(ByteBuffer.wrap(buf, 0, read))
+            sink.writeAll(ByteBuffer.wrap(buf, 0, read))
             left -= read
         }
         return n
@@ -1234,10 +1267,10 @@ object MotionPhotoComposer {
                     val read = ch.read(buf)
                     if (read <= 0) break
                     buf.flip()
-                    while (buf.hasRemaining()) sink.put(buf)
+                    sink.writeAll(buf)
                 }
             }
-            ComposeResult.Success(videoSize, patched + videoSize)
+            ComposeResult.Success(videoSize, patched + app1.size + videoSize)
         } catch (e: java.io.IOException) {
             ComposeResult.Failure(FailureReason.IO_ERROR, 0)
         } finally {
@@ -1591,7 +1624,7 @@ class InMemoryStorage(initial: Map<String, ByteArray> = emptyMap()) : BatchStora
         return object : WritableByteChannel {
             private var open = true
             override fun write(src: ByteBuffer): Int {
-                check(open); return sink.put(src)
+                check(open); return sink.write(src)
             }
             override fun close() {
                 if (!open) return
