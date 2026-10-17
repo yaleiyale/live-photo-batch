@@ -81,6 +81,7 @@ README.md
 - Create: `core/src/main/kotlin/dev/zayn/livephotobatch/core/Sources.kt`
 - Create: `core/src/test/kotlin/dev/zayn/livephotobatch/core/SourcesTest.kt`
 - Create: `.gitignore`, `.gitattributes`
+- Create: `.github/workflows/build.yml`（只有 `core-tests` job；`:app` 的 job 由 Task 9 追加）
 
 **Interfaces:**
 - Produces: `data class ByteRange(val start: Long, val endExclusive: Long) { val length: Long }`，
@@ -264,7 +265,36 @@ class SourcesTest {
 Run: `$GD :core:test`
 Expected: `BUILD SUCCESSFUL`，3 个测试通过。若报缺 JDK：确认已 `export JAVA_HOME`。
 
-- [ ] **Step 5: 生成 wrapper**
+- [ ] **Step 5: 加 CI（core-tests）**
+
+`.github/workflows/build.yml`：
+
+```yaml
+name: CI
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "feat/*" ]
+  pull_request:
+    branches: [ "main" ]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core-tests:
+    name: Core unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - run: ./gradlew :core:test --no-daemon
+```
+
+`push` 触发分支里带上 `feat/*`：push 事件的 workflow 取自被推的 ref，所以功能分支自己就能触发，
+不必先把代码合进 `main`。
+
+- [ ] **Step 6: 生成 wrapper**
 
 Run:
 
@@ -275,10 +305,10 @@ $GD wrapper --gradle-version 9.6.1 --distribution-type bin
 
 Expected: 生成 `gradlew`, `gradlew.bat`, `gradle/wrapper/*`；版本号 9.6.1。此后统一用 `./gradlew`。
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 7: 提交**
 
 ```bash
-git add .gitattributes .gitignore settings.gradle.kts build.gradle.kts gradle.properties gradle core
+git add .gitattributes .gitignore settings.gradle.kts build.gradle.kts gradle.properties gradle core .github
 git commit -m "chore: scaffold gradle build for core module"
 ```
 
@@ -533,8 +563,7 @@ object JpegScanner {
     private class Cursor(private val ch: ReadableByteChannel) {
         var position: Long = 0L
             private set
-        private val scratch = ByteBuffer.allocate(64 * 1024)
-
+    
         fun read(n: Int): ByteArray? {
             val out = ByteArray(n)
             val buf = ByteBuffer.wrap(out)
@@ -583,40 +612,27 @@ object JpegScanner {
             }
         }
 
-        /** 读掉并丢弃 n 字节，不把整段留在内存里。 */
-        fun skip(n: Long): Boolean {
-            var left = n
-            while (left > 0) {
-                scratch.clear()
-                scratch.limit(minOf(left, scratch.capacity().toLong()).toInt())
-                while (scratch.hasRemaining()) {
-                    val r = try { ch.read(scratch) } catch (e: java.io.IOException) { return false }
-                    if (r <= 0) return false
-                }
-                val consumed = scratch.position().toLong()
-                left -= consumed
-                position += consumed
-            }
-            return true
-        }
     }
 }
 ```
 
-`Cursor.skip` 目前还没被调用，Task 4 的复制器会用到它——为避免"未使用成员"警告，Task 4 之前先加一个测试暴露它：在 `JpegStructureTest.kt` 末尾追加
+扫描器只负责定位，不负责搬运：Task 4 的复制器改用 `Channels.newInputStream` + 定长缓冲，
+所以 `Cursor` 里不保留 `skip`/`scratch` 这类未被调用的成员。为把"EOI 定位精确"这件事钉死，
+在 `JpegStructureTest.kt` 里加这条：
 
 ```kotlin
-    @Test fun `scan consumes exactly imageEnd bytes`() {
+    @Test fun `imageEnd counts every image byte exactly`() {
         val bytes = Fixtures.jpeg(tail = Fixtures.mp4(64))
         val structure = (scan(bytes) as JpegScanResult.Parsed).structure
-        assertEquals(2 + 11 + 8 + 4 + 2, structure.imageEnd.toInt()) // SOI+SOF0+SOS+entropy+EOI
+        // SOI(2) + SOF0(2+2+9) + SOS(2+2+6) + entropy(4) + EOI(2)
+        assertEquals(2 + 11 + 8 + 4 + 2, structure.imageEnd.toInt())
     }
 ```
 
 - [ ] **Step 5: 跑测试确认通过**
 
 Run: `./gradlew :core:test --tests '*JpegStructureTest'`
-Expected: 8 个测试全绿。
+Expected: 9 个测试全绿。
 
 - [ ] **Step 6: 提交**
 
@@ -1908,7 +1924,7 @@ git commit -m "feat(core): batch runner with tmp commit, cancel and report"
 - Create: `app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt`
 - Create: `app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt`
 - Modify: `settings.gradle.kts`（`include(":app")`）
-- Create: `.github/workflows/build.yml`（追加 app job）
+- Modify: `.github/workflows/build.yml`（追加 `apk` job，见 Step 5）
 
 **Interfaces:**
 - Consumes: `BatchStorage`, `ChannelSource`, `DirEntry`
@@ -2167,7 +2183,31 @@ class FileStorage(private val root: String) : dev.zayn.livephotobatch.core.Batch
 }
 ```
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: 给 CI 加 apk job**
+
+在 `.github/workflows/build.yml` 末尾追加（`core-tests` 之后，同缩进层级）：
+
+```yaml
+  apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-photo-batch-debug
+          path: app/build/outputs/apk/debug/*.apk
+```
+
+本地没有 `platforms/android-36`，所以 `:app` 的编译与单测从这一步起一律以 CI 为准；仪器化测试在
+Task 12 用真机跑。
+
+- [ ] **Step 6: 提交**
 
 ```bash
 git add settings.gradle.kts gradle/libs.versions.toml app .github
@@ -2261,7 +2301,7 @@ class PermissionGate(private val isManager: () -> Boolean) {
 
     companion object {
         fun of(context: Context): PermissionGate = PermissionGate {
-            Build.VERSION.SDK_INT < Build.VERSION.R || Environment.isExternalStorageManager()
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
         }
 
         /** vivo 上可能落不到系统页，调用方需在跳转后回查 granted()（spec R2）。 */
@@ -2606,63 +2646,18 @@ git commit -m "feat(app): single screen batch ui with progress and report"
 ## Task 12: CI 出包与真机验收
 
 **Files:**
-- Create: `.github/workflows/build.yml`
-- Create: `README.md`
+- Modify: `README.md`（新建）
 
 **Interfaces:**
 - Consumes: 全部
 - Produces: 可安装 APK + 实测性能数字
 
-- [ ] **Step 1: 写 CI**
+- [ ] **Step 1: 确认 CI 已绿**
 
-`.github/workflows/build.yml`：
+推送分支后 `curl -H "Authorization: token $TOK" .../actions/runs?per_page=1` 查状态。
+Expected: `core-tests` 与 `apk` 都成功，工件 `live-photo-batch-debug` 里有 APK。
 
-```yaml
-name: CI
-on:
-  workflow_dispatch:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-jobs:
-  core-tests:
-    name: Core unit tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "17" }
-      - run: ./gradlew :core:test --no-daemon
-  apk:
-    name: Build debug APK
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "17" }
-      - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon
-      - uses: actions/upload-artifact@v4
-        with:
-          name: live-photo-batch-debug
-          path: app/build/outputs/apk/debug/*.apk
-```
-
-- [ ] **Step 2: 推送并等 CI 绿**
-
-```bash
-git push origin main
-```
-
-用 `curl -H "Authorization: token $TOK" .../actions/runs?per_page=1` 查状态。Expected: 两个 job 成功，
-工件 `live-photo-batch-debug` 里有 APK。
-
-- [ ] **Step 3: 装机前处理签名冲突**
+- [ ] **Step 2: 下载工件并装机**
 
 已安装的 `com.github.wszqkzqk.live_photo_conv` 是不同包名，可以直接并存。安装：
 
@@ -2673,7 +2668,7 @@ adb shell appops set dev.zayn.livephotobatch MANAGE_EXTERNAL_STORAGE allow
 
 第二条是可选捷径：不点系统授权页也能先跑通；正式流程仍走 app 内授权按钮。
 
-- [ ] **Step 4: 功能验收（V2419A）**
+- [ ] **Step 3: 功能验收（V2419A）**
 
 1. 准备 3 对同名 `IMG_*.jpg` / `IMG_*.mp4`，`adb push` 到 `/storage/emulated/0/DCIM/Camera`。
 2. 源目录选相机目录，目标目录选 `Pictures/LivePhoto`，不勾删除，点开始。
@@ -2684,7 +2679,7 @@ adb shell appops set dev.zayn.livephotobatch MANAGE_EXTERNAL_STORAGE allow
 6. 勾选删除原文件后再跑一对，确认源两个文件消失、相册里不残留指向它们的条目；残留则记录为 spec R4 命中。
 7. 取消：开始一个大批次后立即点取消，确认已完成的产物存在、`.tmp` 里没有遗留 `.part`。
 
-- [ ] **Step 5: 性能实测（填 G5 预算）**
+- [ ] **Step 4: 性能实测（填 G5 预算）**
 
 ```bash
 # 记录 100 对素材的合成耗时
@@ -2697,14 +2692,14 @@ adb shell "dumpsys meminfo dev.zayn.livephotobatch" | head -20
 `MotionPhotoComposer` 的缓冲大小与 `FileStorage` 的通道选择做优化（当前实现每次写都用新建
 `RandomAccessFile`，没有复用；这是首要怀疑点）。
 
-- [ ] **Step 6: 写 README 并提交**
+- [ ] **Step 5: 写 README 并提交**
 
 `README.md` 至少包含：它做什么、不做什么、权限要求与 vivo 授权路径、验收清单结果、实测数字、
 XMP 字段与 `livemaker.vala` 的对应关系、构建命令。
 
 ```bash
-git add .github README.md
-git commit -m "docs: add ci workflow, acceptance checklist and measured numbers"
+git add README.md
+git commit -m "docs: add acceptance checklist and measured numbers"
 ```
 
 ---
