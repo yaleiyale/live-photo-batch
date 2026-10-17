@@ -96,7 +96,7 @@ class MotionPhotoComposerTest {
         val both = compose("PNG".toByteArray(), bad)
         assertEquals(FailureReason.NOT_MP4, (both.first as ComposeResult.Failure).reason)
         assertEquals(0, both.second.size)
-        // 小于 12 字头的视频连 ftyp 的容身之处都没有：同样 NOT_MP4，绝不抛异常。
+        // 不足 12 字节的头没有 ftyp 的容身之处：同样 NOT_MP4，绝不抛异常。
         val tiny = compose(Fixtures.jpeg(), byteArrayOf(0, 0, 0, 4, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte()))
         assertEquals(FailureReason.NOT_MP4, (tiny.first as ComposeResult.Failure).reason)
         assertEquals(0, tiny.second.size)
