@@ -7,10 +7,13 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.Timeout.ThreadMode
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
 import java.nio.channels.WritableByteChannel
+import java.util.concurrent.TimeUnit
 
 class JpegXmpPatcherTest {
     private val app1 = XmpPacket.app1Segment(7L)
@@ -126,6 +129,62 @@ class JpegXmpPatcherTest {
         }
         // 必须是 IOException 子类，Task 5 的 composer 才能把它归进 IO_ERROR。
         assertInstanceOf(java.io.IOException::class.java, error)
+    }
+
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
+    @Test fun `truncation inside the discarded old segment throws too`() {
+        val exif = Fixtures.segment(0xE1, "Exif".toByteArray() + byteArrayOf(0, 1, 2, 3))
+        val old = Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket)
+        val bytes = Fixtures.jpeg(headSegments = listOf(exif, old, Fixtures.sof0()))
+        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+        val oldXmp = structure.oldXmp!!
+        // 源在"要读掉的旧 XMP"中间就断了：写出分支一切正常，缺字节的是丢弃分支。
+        // 这条专门盯那一步的短读处理——"能跳多少算多少"式的 skip 到 EOF 只返回 0/-1：
+        // 要么旧段字节被当成图片内容写进输出（实测：把丢弃长度改成 0，本条与第 3 条一起红），
+        // 要么循环条件永不满足而原地挂死——所以整条跑在独立线程 + 超时上，挂死 = 失败，
+        // 而不是卡住整个构建。
+        val truncated = bytes.copyOf((oldXmp.start + old.size / 2).toInt())
+        val out = ByteArrayOutputStream()
+        val error = assertThrows(java.io.EOFException::class.java) {
+            JpegXmpPatcher.patch(structure, ByteArraySource(truncated),
+                Channels.newChannel(out), app1)
+        }
+        assertInstanceOf(java.io.IOException::class.java, error)
+        // 已经吐给 sink 的部分里不许混进旧段内容：断掉的那一步只能是"读掉并丢弃"。
+        assertFalse(out.toByteArray().toString(Charsets.ISO_8859_1).contains("OLD"))
+    }
+
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
+    @Test fun `a sink that refuses the write fails fast instead of spinning`() {
+        val bytes = Fixtures.jpeg()
+        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+        val sink = RejectingSink()
+        // write 返回 0 既不是"写完"也不是"没东西可写"：必须立刻变成 IOException。
+        // 少了这个判断，排空循环原地挂死，Task 5 会把挂死当成成功。
+        val error = assertThrows(java.io.IOException::class.java) {
+            JpegXmpPatcher.patch(structure, ByteArraySource(bytes), sink, app1)
+        }
+        // 是 sink 拒绝，不是源截断：分类成 EOFException 会掩盖真正的写入故障。
+        assertEquals(java.io.IOException::class.java, error.javaClass)
+        assertTrue(sink.calls > 0, "calls=${sink.calls}")
+    }
+
+    /** write 永远返回 0 的 sink：任何字节都不肯接收。 */
+    private class RejectingSink : WritableByteChannel {
+        var calls = 0
+            private set
+        private var open = true
+
+        override fun write(src: ByteBuffer): Int {
+            calls++
+            return 0
+        }
+
+        override fun close() { open = false }
+
+        override fun isOpen() = open
     }
 
     @Test fun `partial writes from the sink are drained and memory stays constant`() {
