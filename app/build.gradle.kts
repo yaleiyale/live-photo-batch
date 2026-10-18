@@ -50,4 +50,7 @@ dependencies {
     testImplementation(libs.junit4)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    // 仪器化测试直接 import org.junit.*（AndroidJUnit4 / Assert / @Test），
+    // 之前只靠 androidx.test:runner 的传递依赖拿到，声明下来不再依赖别人的依赖图。
+    androidTestImplementation(libs.junit4)
 }

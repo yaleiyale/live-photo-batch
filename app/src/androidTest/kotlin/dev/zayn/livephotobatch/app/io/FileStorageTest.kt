@@ -152,4 +152,30 @@ class FileStorageTest {
         channel.close()
         assertArrayEquals(byteArrayOf(1, 2), readAll(s, "vis/a.jpg"))
     }
+
+    /**
+     * `resolve()` 的 root 边界：`path == root`（不带尾斜杠）也是绝对路径。
+     * Task 10 的 `DirBrowser(root)` 与预设项「内部存储」传的就是 root 本身，
+     * 一旦二次拼接就会变成 `<root>/<root>`：`list` 静默给空列表，`ensureDir` 在真实
+     * 存储里造一棵垃圾嵌套树——所以这里同时钉「两个写法列出同一批条目」和「垃圾路径没被造出来」。
+     */
+    @Test fun rootPathIsAbsoluteAndNeverDoublePrefixed() {
+        val root = rootDir.path
+        val s = FileStorage(root)
+        s.openWrite("edge-at-root.txt").use { it.write(ByteBuffer.wrap(byteArrayOf(1, 2, 3))) }
+
+        // 两种写法必须命中同一个真实目录
+        val asRoot = s.list(root)
+        assertEquals(listOf("edge-at-root.txt"), asRoot.filter { it.name == "edge-at-root.txt" }.map { it.name })
+        assertEquals(asRoot, s.list("$root/"))
+
+        // root 是目录，而契约只认普通文件（`File.exists()` 对目录返回 true，所以这里必须是 false）
+        assertFalse(s.exists(root))
+
+        // 幂等：ensureDir(root) 只是确认 root 存在，不许在 root 下面再套一层 root
+        s.ensureDir(root)
+        s.ensureDir("$root/")
+        assertTrue(rootDir.isDirectory)
+        assertFalse("resolve() 把 root 当相对路径二次拼接了", File(root, root.removePrefix("/")).exists())
+    }
 }

@@ -34,10 +34,13 @@ jobs:
           SDKM="$(command -v sdkmanager || echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager")"
           yes | "$SDKM" --licenses > /dev/null
           "$SDKM" "build-tools;36.0.0"
-          # compose 1.12.1 的 AAR 元数据要求 compileSdk 37，而 SDK 仓库里 37 只有
-          # android-37.0 / android-37.1（repository2-3.xml），没有裸 android-37；
-          # AGP 解析哪个 hash 取决于 compileSdkMinor，所以挨个试、装不上的忽略。
-          for p in "platforms;android-37.0" "platforms;android-37" "platforms;android-37.1"; do
+          # compileSdk = 37 / compileSdkMinor = 0 解析到的就是这一个包，它是本 job 的
+          # 硬依赖：装不上必须让这一步红，不能跟着下面的循环一起被容忍——
+          # 包被改名/不可用时，后果只是 Gradle 在后面报一堆难读的 "no matching platform" 错误。
+          "$SDKM" "platforms;android-37.0"
+          # 备用名继续容忍：SDK 仓库里 37 只有 android-37.0 / android-37.1（repository2-3.xml），
+          # 没有裸 android-37，这一轮循环只为"万一 AGP 要的是别的 hash"兜底。
+          for p in "platforms;android-37" "platforms;android-37.1"; do
             "$SDKM" "$p" || echo "not in repository: $p"
           done
       - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon

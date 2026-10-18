@@ -55,6 +55,12 @@ fun fileChannelSource(f: File): ChannelSource = object : ChannelSource {
  * 调用方（Task 11 的 UI）因此必须按"整批被拒绝"来处理这个异常。
  *
  * ## 其余与 `BatchStorage` 契约对齐的点（每一条都是内存实现与本类的分叉风险）
+ * - [resolve]：`path == root`（不带尾斜杠）**也是绝对路径**，必须原样用，不能进相对分支。
+ *   这条边界不是理论问题：Task 10 的 `DirBrowser(root)` / 预设项「内部存储」就是把
+ *   `"/storage/emulated/0"` 本身当路径传进来的，一旦二次拼接就会变成
+ *   `/storage/emulated/0/storage/emulated/0`——`list(root)` 静默返回空（用户看到"这个目录没有文件"），
+ *   `ensureDir(root)` 则在真实存储里造出一棵垃圾嵌套树。`"$root/"` 带尾斜杠走同一个分支，
+ *   两种写法必须列出同一批条目（`FileStorageTest` 钉了这条）。
  * - [list]：目录不存在 / 读不出来时 `File.listFiles()` 返回 **null 而不抛异常**，一律给空列表
  *   （Task 8 在任何 `ensureDir` 之前就要 `list(targetDir)`，那时目录往往还不存在）。
  *   必须按 `name` 自然升序排序：Task 6 的 `PairPlanner` 对同 stem 候选取"列表第一个"
@@ -63,12 +69,14 @@ fun fileChannelSource(f: File): ChannelSource = object : ChannelSource {
  * - [exists]：契约只认普通文件，而 `File.exists()` 对目录返回 true，因此这里必须是 `isFile`。
  * - [delete]：`File.delete()` 对**空目录**返回 true，因此也必须先 `isFile` 挡一道；
  *   路径不存在时返回 false 而不是抛（Task 8 的 catch 清理路径依赖这条）。
- * - [move]：改名之前绝不删除目标，见方法注释。
+ * - [move]：改名之前绝不删除目标，见方法注释；退化到 copy+delete 时以 `copyTo` 的成败为准，
+ *   源没删掉不算 move 失败，见方法内注释。
  */
 class FileStorage(private val root: String) : BatchStorage {
 
     private fun resolve(path: String): File =
-        if (path.startsWith(root + "/")) File(path) else File(File(root), path.removePrefix("/"))
+        if (path == root || path.startsWith("$root/")) File(path)
+        else File(File(root), path.removePrefix("/"))
 
     override fun list(dirPath: String): List<DirEntry> {
         val dir = resolve(dirPath)
@@ -118,7 +126,13 @@ class FileStorage(private val root: String) : BatchStorage {
         // 所以它只在 rename 已经不可能成功时才走，契约里"原子"只覆盖正常路径。
         return try {
             src.copyTo(dst, overwrite = true)
+            // copyTo 成功 = move 成功，后面的 src.delete() 只是清理，不参与返回值。
+            // 源删不掉不能把结果翻成 false：此刻目标已经就位，而 BatchRunner 见 false 就报
+            // FAILED（还会 deleteQuietly 一次），于是"失败但产物存在"——比留一个没人认领的
+            // .part 残留糟糕得多。真正的删除失败由调用方的删除逻辑另行报告（原文件走
+            // ItemResult.deleteFailures，tmp 只是 .tmp 目录里的残留文件）。
             src.delete()
+            true
         } catch (e: IOException) {
             false
         }
