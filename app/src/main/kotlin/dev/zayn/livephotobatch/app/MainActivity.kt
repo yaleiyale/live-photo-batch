@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.zayn.livephotobatch.app.perm.PermissionGate
@@ -23,21 +24,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 屏幕里全是 M3 控件（Button/Checkbox/AlertDialog/LinearProgressIndicator…），
+        // 必须活在 MaterialTheme 下，否则取的是空主题的兜底配色。
+        // enableEdgeToEdge() 刻意**不**开：计划没要求，而 BatchScreen 已经在窗口层用
+        // WindowInsets.safeDrawing 手动避让；真机（targetSdk 36 + API 37）本来就强制 edge-to-edge，
+        // 在这里再叠一层只会把已审过的 insets 行为改掉。
         setContent {
-            BatchScreen(vm, request = {
-                // vivo 上 ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION 不一定落得到系统页（spec R2）：
-                // 跳不动就退化成手动指引的 Toast，回到前台时 onResume 会再回查一次真实状态。
-                runCatching {
-                    startActivity(PermissionGate.requestIntent(this@MainActivity))
-                }.onFailure {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "请在 设置 → 应用 → 特殊访问 → 所有文件访问 中手动开启",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-                vm.refreshPermission()
-            })
+            MaterialTheme {
+                BatchScreen(vm, request = {
+                    // vivo 上 ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION 不一定落得到系统页（spec R2）：
+                    // 跳不动就退化成手动指引的 Toast，回到前台时 onResume 会再回查一次真实状态。
+                    runCatching {
+                        startActivity(PermissionGate.requestIntent(this@MainActivity))
+                    }.onFailure {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "请在 设置 → 应用 → 特殊访问 → 所有文件访问 中手动开启",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    vm.refreshPermission()
+                })
+            }
         }
     }
 

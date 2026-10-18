@@ -2,6 +2,7 @@ package dev.zayn.livephotobatch.app
 
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.util.Log
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -26,26 +27,41 @@ import java.util.concurrent.TimeUnit
  * 所以 [dev.zayn.livephotobatch.app.BatchViewModel] 只在 IO 调度器里调它，别把它挪到
  * `setContent` / `onClick` / `onResume` 里。
  *
- * ## 绝不抛
+ * ## 绝不抛，但绝不**静默**
  * 绑定失败、`SecurityException`、线程被中断——任何一种都不该让已经跑完的批次在收尾时崩掉，
  * 也不该让 `UiState.running` 永远卡在 true（扫描是尽力而为的收尾动作，不是成功条件）。
+ * 但"扫描没成"本身是 spec §7.6 的验收项：静默失败就是把这个不变量藏起来。所以 [scan] 返回
+ * 一个**确认信号**（true = 已发起且在超时内收到至少一次回调确认）并把失败打进 logcat，
+ * 调用方（BatchViewModel 的收尾）据此给 UI 一行提示。
  */
 object MediaStoreSync {
 
-    /** 提交 [paths] 给媒体扫描器，最多等 [TIMEOUT_MS] 毫秒；空列表直接返回。 */
-    fun scan(context: Context, paths: List<String>) {
-        if (paths.isEmpty()) return
+    /**
+     * 提交 [paths] 给媒体扫描器，最多等 [TIMEOUT_MS] 毫秒；空列表直接返回 true（无事发生，
+     * 不需要确认）。返回 false = 发起抛了异常/被中断，或超时内一个确认都没收到——
+     * 磁盘事实（产物、已删原文件）不受影响，受影响的只是相册索引的新鲜度。
+     */
+    fun scan(context: Context, paths: List<String>): Boolean {
+        if (paths.isEmpty()) return true
         val latch = CountDownLatch(1)
-        try {
+        return try {
             MediaScannerConnection.scanFile(context, paths.toTypedArray(), null) { _, _ ->
                 latch.countDown()
             }
-            latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            val confirmed = latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            if (!confirmed) {
+                Log.w(TAG, "媒体扫描 ${TIMEOUT_MS}ms 内未收到确认（${paths.size} 个路径），相册刷新可能滞后")
+            }
+            confirmed
         } catch (e: Exception) {
             // 扫描器不可用（ROM 裁掉了 MediaScanner 服务、无权限、被中断）只影响相册什么时候刷新，
-            // 磁盘上的产物和已删除的原文件都是既成事实。超时同理：`await` 返回 false 就继续往下走。
+            // 磁盘上的产物和已删除的原文件都是既成事实——但必须可见：记日志并回报 false。
+            if (e is InterruptedException) Thread.currentThread().interrupt()
+            Log.w(TAG, "媒体扫描失败（${paths.size} 个路径），相册可能仍显示指向已删文件的旧条目", e)
+            false
         }
     }
 
+    private const val TAG = "MediaStoreSync"
     private const val TIMEOUT_MS = 2_000L
 }

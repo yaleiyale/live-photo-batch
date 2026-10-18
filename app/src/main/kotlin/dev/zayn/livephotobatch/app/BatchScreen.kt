@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -36,10 +37,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.zayn.livephotobatch.app.browse.DirBrowser
+import dev.zayn.livephotobatch.app.browse.DirItem
 import dev.zayn.livephotobatch.core.FailureReason
 import dev.zayn.livephotobatch.core.ItemResult
 import dev.zayn.livephotobatch.core.ItemStatus
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** 目录浏览弹窗现在在给哪个字段选路径；null 表示没打开。 */
 private enum class Picking { Source, Target }
@@ -200,8 +204,11 @@ private fun PathRow(label: String, path: String, enabled: Boolean, onBrowse: () 
  * 只看 `startsWith("/")`，本来就是个宽口子；但 [selectable] 为假时会禁掉"选这里"并说明原因，
  * 因为那种串喂给 `FileStorage.resolve()` 会被重新拼到 root 之下，选了就等于把批次指向另一个目录。
  *
- * 列目录是磁盘调用，所以 `presets()` / `subdirs()` 都 `remember` 在路径上：批次逐项回报会频繁
- * 重组这一屏，不能让每帧都去 `listFiles()`。
+ * **列目录绝不发生在组合期。** `presets()` / `subdirs()` / `File.parentFile` 背后是
+ * `listFiles()` + 多次 `isDirectory` stat——都是磁盘调用。`remember` 只是缓存，不是副作用护栏：
+ * 槽位恢复、被丢弃的重组都会重新执行它的 lambda，批次逐项回报的频繁重组里随时可能把 stat 打到
+ * UI 线程上。所以列表读取挪进 [produceState] + [Dispatchers.IO]：组合只消费"已载入"的结果。
+ * 展示内容不变，只是加载瞬间先渲染空列表。
  */
 @Composable
 private fun DirectoryPicker(
@@ -213,12 +220,20 @@ private fun DirectoryPicker(
     onPick: (String) -> Unit,
 ) {
     var path by remember(root, startPath) { mutableStateOf(if (selectable(startPath)) startPath else root) }
-    val presets = remember(browser) { browser.presets() }
-    val subdirs = remember(path) { browser.subdirs(path) }
+    val presets by produceState<List<DirItem>?>(initialValue = null, browser) {
+        value = withContext(Dispatchers.IO) { browser.presets() }
+    }
     // 上一级只能自己算：DirItem.parent 的定义是"这批条目出自哪个目录"（subdirs 里就是被列的
     // 目录本身，presets 里才是该项的父级），当不了从 path 往上走的串。
     // 这里用 java.io.File 的 parent 语义——和 DirBrowser 内部拼路径用的是同一套 API，不手写 "/"。
-    val parent = remember(path) { File(path).parentFile?.absolutePath ?: "" }
+    val listing by produceState<Listing?>(initialValue = null, browser, path) {
+        value = withContext(Dispatchers.IO) {
+            Listing(
+                subdirs = browser.subdirs(path),
+                parent = File(path).parentFile?.absolutePath ?: "",
+            )
+        }
+    }
     val canPick = selectable(path)
 
     AlertDialog(
@@ -237,16 +252,17 @@ private fun DirectoryPicker(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                if (parent.isNotEmpty()) {
-                    TextButton(onClick = { path = parent }) { Text("⬆ 上一级", maxLines = 1) }
+                val current = listing
+                if (current != null && current.parent.isNotEmpty()) {
+                    TextButton(onClick = { path = current.parent }) { Text("⬆ 上一级", maxLines = 1) }
                 }
-                presets.forEach { p ->
+                presets?.forEach { p ->
                     TextButton(onClick = { path = p.absolutePath }) { Text(p.name, maxLines = 1) }
                 }
-                if (subdirs.isEmpty()) {
+                if (current != null && current.subdirs.isEmpty()) {
                     Text("（没有可进入的子目录）", style = MaterialTheme.typography.bodySmall)
                 }
-                subdirs.forEach { d ->
+                current?.subdirs?.forEach { d ->
                     TextButton(onClick = { path = d.absolutePath }) {
                         Text(d.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
@@ -255,6 +271,9 @@ private fun DirectoryPicker(
         },
     )
 }
+
+/** 一次目录读取的结果（[produceState] 只能发布一个值，子目录和上一级合并成一条）。 */
+private data class Listing(val subdirs: List<DirItem>, val parent: String)
 
 /** 一行报告文案。`when (item.status)` 的三个分支是穷尽的，核心层加状态时这里会编译不过。 */
 private fun itemLine(item: ItemResult): String {
