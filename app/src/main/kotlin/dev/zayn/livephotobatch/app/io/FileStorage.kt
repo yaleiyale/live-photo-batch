@@ -40,7 +40,7 @@ fun fileChannelSource(f: File): ChannelSource = object : ChannelSource {
  * 真实文件系统做不到：`RandomAccessFile(file, "rw")` 一打开就把文件创建出来并 truncate 到 0，
  * 于是写一半的时候磁盘上就是一个半截文件，任何读者（媒体扫描、下一个批次、用户自己）都能看到。
  * 后果是分工：可见性由调用方保证，不是由这一层保证——Task 8 的 `BatchRunner` 正是
- * 先写 `xxx.live.tmp.part`、`close()`、再 [move] 成正式名字，靠 `rename(2)` 完成发布。
+ * 先写 `目标目录/.tmp/输出名.part`、`close()`、再 [move] 成 `目标目录/输出名`，靠 `rename(2)` 完成发布。
  * 所以本类不要再"顺手"加临时名/改名的把戏，也不要允许任何人直接拿正式路径当写入目标；
  * 两种做法都只是把这个不对称挪个地方，还会让 `move` 的替换语义变得含混。
  *
