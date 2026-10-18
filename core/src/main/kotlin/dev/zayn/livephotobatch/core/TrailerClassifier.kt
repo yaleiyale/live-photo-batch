@@ -5,7 +5,7 @@ package dev.zayn.livephotobatch.core
  *
  * - [VIDEO]：真有一段追加的视频（或源 XMP 已经声明过视频）——这才是"上一轮已经合成过"，
  *   调用方据此返回 `ALREADY_MOTION_PHOTO`。
- * - [OTHER]：gain map 副图、厂商 JSON 记录、零填充……**一律放行**，但尾巴不再搬进产物（spec 增补 2026-10-18b §2）。
+ * - [OTHER]：gain map 副图、厂商 JSON 记录、零填充……**一律放行**，并原样搬进产物（spec 增补 2026-10-18c §1）。
  *   旧规则"EOI 后有任何字节就跳过"在 V2419A 上会把用户 100% 的真实输入判成已合成过，
  *   因为那台机器上每张 JPEG 都有尾巴。
  * - [NONE]：文件正好停在 EOI，没有尾巴。

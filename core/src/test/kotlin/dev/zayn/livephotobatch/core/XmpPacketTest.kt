@@ -1,5 +1,6 @@
 package dev.zayn.livephotobatch.core
 
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -7,45 +8,35 @@ import org.junit.jupiter.api.Test
 
 class XmpPacketTest {
 
-    /** 模板不再是自己拼字符串，而是与合并路径同一个构造器（增补 2026-10-18b §3 末段）：形状判据共用一套。 */
-    @Test fun `template carries the vivo shape with one group of seven attributes`() {
-        val text = XmpPacket.motionPhoto(987_654L).decodeToString()
-        val host = XmpShape.assertVivoShape(text, 987_654L)
-        listOf(
-            "MicroVideo" to "1",
-            "MicroVideoVersion" to "1",
-            "MicroVideoOffset" to "987654",
-            "MicroVideoPresentationTimestampUs" to "-1",
-            "MotionPhoto" to "1",
-            "MotionPhotoVersion" to "1",
-            "MotionPhotoPresentationTimestampUs" to "-1",
-        ).forEach { (name, value) ->
-            assertEquals(value, host.getAttributeNS(XmpPacket.CAMERA_NS, name), "模板缺少 $name")
-        }
+    /**
+     * spec 增补（2026-10-18c）§2 那份包：真机候选 A 写的就是它，vivo 相册认、能播。
+     * 判据是**字节**，不是"实现现在吐了什么"——A 与 Task 13 产物只差这份包，合并形状已经被真机否掉。
+     */
+    @Test fun `the packet is byte for byte the one the phone accepted`() {
+        val accepted = Fixtures.specPacket(3_863_927L)
+        assertEquals(1_024, accepted.size, "夹具自己就不是那份 1,024 字节的包：抄漏了字符")
+        assertArrayEquals(accepted, XmpPacket.motionPhoto(3_863_927L))
     }
 
-    @Test fun `template declares no container items`() {
-        val root = XmpShape.parse(XmpPacket.motionPhoto(42L).decodeToString()).documentElement
-        assertEquals(
-            0,
-            XmpShape.childrenNamed(XmpShape.childrenNamed(XmpShape.directories(root).single(), "Seq").single(), "li")
-                .size,
-            "模板又往 Seq 里塞项了",
-        )
-        assertTrue(
-            XmpShape.descendantsNamed(root, XmpPacket.CONTAINER_NS, "Item").isEmpty(),
-            "模板还在声明 Container:Item",
-        )
+    @Test fun `both video size slots carry the argument and the packet stays far below the segment limit`() {
+        val size = 3_863_927L
+        val packet = XmpPacket.motionPhoto(size)
+        val text = packet.decodeToString()
+        assertTrue(text.contains("GCamera:MicroVideoOffset=\"$size\""), "偏移量那一格没填视频长度")
+        assertTrue(text.contains("Item:Length=\"$size\""), "容器项的 Item:Length 没填视频长度")
+        assertEquals(2, Regex("\"$size\"").findAll(text).count(), "视频长度出现的地方不止这两处")
+        assertTrue(packet.size < 64 * 1024, "整包 ${packet.size} 字节，逼近 APP1 的 16 位长度字段")
     }
 
-    @Test fun `the video size is carried by exactly one attribute`() {
-        val root = XmpShape.parse(XmpPacket.motionPhoto(42L).decodeToString()).documentElement
-        val carriers = XmpShape.allElements(root).flatMap { el ->
-            (0 until el.attributes.length).map { el.attributes.item(it)!! }
-        }.filter { it.nodeValue == "42" }
-        // 旧模板里视频长度出现两次（MicroVideoOffset 与 MotionPhoto 项的 Item:Length）；
-        // 产物不再声明任何项，所以只剩偏移量这一处。
-        assertEquals(listOf("GCamera:MicroVideoOffset"), carriers.map { it.nodeName })
+    @Test fun `the packet has one rdf RDF block, seven attributes and two items in order`() {
+        val text = XmpPacket.motionPhoto(1L).decodeToString()
+        assertEquals(1, Regex("<rdf:RDF").findAll(text).count(), "又起了第二个 rdf:RDF")
+        assertEquals(1, Regex("<rdf:Description").findAll(text).count(), "又起了第二个 rdf:Description")
+        assertEquals(7, Regex("GCamera:(MicroVideo|MicroVideoVersion|MicroVideoOffset|" +
+            "MicroVideoPresentationTimestampUs|MotionPhoto|MotionPhotoVersion|" +
+            "MotionPhotoPresentationTimestampUs)=").findAll(text).count(), "动照片属性不止七个")
+        assertEquals(listOf("Primary", "MotionPhoto"), Regex("""Item:Semantic="(\w+)"""").findAll(text)
+            .map { it.groupValues[1] }.toList(), "容器项的顺序或写法变了")
     }
 
     @Test fun `app1 segment is marker, length, identifier, nul, packet`() {

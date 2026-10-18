@@ -107,54 +107,52 @@ object Fixtures {
     }
 
     /**
-     * vivo 已识别语料里 191555 与 093558 两片**共用**的那一型源包：正文取自
-     * `IMG_20261015_191555.jpg` 的 APP1 XMP 段（标识符之后 924 字节；结尾那个换行由 `trim()`
-     * 去掉，夹具因此是 923 字节）。三个要点都是 Task 13 的实现被真机推翻的地方：
-     * - 没有 `<?xpacket?>` 头，根元素直接以 `<x:xmpmeta>` 起；
-     * - `rdf:RDF` 用的是**标准** RDF 命名空间 `http://www.w3.org/1999/02/22-rdf-syntax-ns#`
-     *   （[XmpPacket.RDF_NS] 必须与它一致，否则我们在源包之外另起一个 RDF，相册读不到声明）；
-     * - 容器项写成 `<Container:Item Item:Semantic="…" Item:Mime="…"/>`：语义与 MIME 是**子元素的属性**，
-     *   不是 `Item:Semantic` 子元素的文本。
+     * spec「增补（2026-10-18c）」§2 那份包，逐字节照抄：真机候选 A 写的就是它，vivo 相册认、能播。
+     * 行首缩进、属性顺序、`rdf:li` 的单行写法都不许动；两处 `<VIDEO_SIZE>` 填**同一个**视频长度。
+     *
+     * 长度账：文档代码块里那份是 1,035 字节，占位符 `<VIDEO_SIZE>`（12 字符）两处比 7 位数字多 10
+     * 字节，块末那个换行又不属于包 —— 填好后正好 1,024 字节。
+     *
+     * BOM 只能待在普通字符串里：Kotlin 原始字符串不解释 `\uFEFF`，而裸写的 U+FEFF 会被编辑器吞掉。
+     * 这份常量是**判据**而不是实现的副本：实现吐出的字节一变，这里就得红。
      */
-    fun vivoSourcePacket(): String = """
-<x:xmpmeta
-  xmlns:x="adobe:ns:meta/"
-  x:xmptk="Adobe XMP Core 5.1.2">
-  <rdf:RDF
-    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description
-      xmlns:Container="http://ns.google.com/photos/1.0/container/"
-      xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
-      xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
-      hdrgm:Version="1.0">
-      <Container:Directory>
-        <rdf:Seq>
-          <rdf:li
-            rdf:parseType="Resource">
-            <Container:Item
-              Item:Semantic="Primary"
-              Item:Mime="image/jpeg"/>
-          </rdf:li>
-          <rdf:li
-            rdf:parseType="Resource">
-            <Container:Item
-              Item:Semantic="GainMap"
-              Item:Mime="image/jpeg"
-              Item:Length="441963"/>
-          </rdf:li>
-        </rdf:Seq>
-      </Container:Directory>
-    </rdf:Description>
-  </rdf:RDF>
-</x:xmpmeta>
-""".trim()
+    private val specPacketTemplate: String =
+        "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
+            """
+            |<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-106">
+            | <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            |  <rdf:Description rdf:about=""
+            |    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+            |    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+            |    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+            |    GCamera:MicroVideo="1"
+            |    GCamera:MicroVideoVersion="1"
+            |    GCamera:MicroVideoOffset="<VIDEO_SIZE>"
+            |    GCamera:MicroVideoPresentationTimestampUs="-1"
+            |    GCamera:MotionPhoto="1"
+            |    GCamera:MotionPhotoVersion="1"
+            |    GCamera:MotionPhotoPresentationTimestampUs="-1">
+            |   <Container:Directory>
+            |    <rdf:Seq>
+            |     <rdf:li><Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/></rdf:li>
+            |     <rdf:li><Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="<VIDEO_SIZE>"/></rdf:li>
+            |    </rdf:Seq>
+            |   </Container:Directory>
+            |  </rdf:Description>
+            | </rdf:RDF>
+            |</x:xmpmeta>
+            |<?xpacket end="w"?>""".trimMargin()
+
+    /** [specPacketTemplate] 的两处 `<VIDEO_SIZE>` 都填上 [videoSize] 之后的字节。 */
+    fun specPacket(videoSize: Long): ByteArray =
+        specPacketTemplate.replace("<VIDEO_SIZE>", videoSize.toString()).toByteArray(Charsets.UTF_8)
 
     /**
      * vivo HDR gain map 的源 XMP：`hdrgm:Version` + `Container:Directory` 里 Primary 与 GainMap 两项。
      * 形状取自真机抽样（GainMap 项带 `Item:Mime=image/jpeg` 与 `Item:Length`，
      * 那个 Length 就是副图的实际字节数，见 [gainMapJpeg]）。
-     * 这一型把语义写成**子元素文本**（`<Item:Semantic>GainMap</Item:Semantic>`），与
-     * [vivoSourcePacket] 的属性式写法是两种并存的形状。
+     * 这一型把语义写成**子元素文本**（`<Item:Semantic>GainMap</Item:Semantic>`）；产物那份
+     * （[specPacket]）用的是 `Container:Item` 的**属性**写法，两种形状在 vivo 语料里并存。
      */
     fun gainMapXmp(gainMapLength: Long): String = buildString {
         append(XmpPacket.PACKET_BEGIN).append('\n')

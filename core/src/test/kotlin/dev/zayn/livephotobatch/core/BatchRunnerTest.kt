@@ -23,6 +23,11 @@ class BatchRunnerTest {
         return BatchRunner(storage) to storage
     }
 
+    /** 字节层判据要用到段位置：产物与源片都重扫一遍，谁也不许硬编码。 */
+    private fun scan(bytes: ByteArray): JpegStructure =
+        (JpegScanner.scan(java.nio.channels.Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+
     private fun options(deleteOriginals: Boolean = false) =
         BatchOptions("/s", "/t", deleteOriginals)
 
@@ -221,28 +226,36 @@ class BatchRunnerTest {
         assertFalse(storage.tmpFiles.isNotEmpty())
     }
 
-    @Test fun `malformed xmp is a failure not a skip and keeps the originals`() {
-        // Task 13 新增的失败原因：源 XMP 读不动。它绝不能进 SKIPPABLE——"跳过"在 UI 上是
-        // "这张已经是动态照片了"，而真实情况是用户的元数据我们没能保住，必须报失败。
+    @Test fun `a jpeg whose source xmp nobody can parse still composes`() {
+        // 增补 2026-10-18c §2/§3：写路径**不解析**源 XMP，畸形包因此既不是失败理由也不需要那套安全
+        // 解析。它的下场和别的源声明一样——被清空白掉。旧规则里这条报 MALFORMED_XMP，现在必须成功。
         val broken = Fixtures.app1(Fixtures.XAP, "<x:xmpmeta><unclosed>".toByteArray(Charsets.UTF_8))
         val dirty = Fixtures.jpeg(headSegments = listOf(broken, Fixtures.sof0()))
         val (runner, storage) = runnerWith("/s/a.jpg" to dirty, "/s/a.mp4" to video)
         val report = runner.run(runner.plan(options(true)), options(true), CancelToken { false }) { }
         val item = report.items.single()
-        assertEquals(ItemStatus.FAILED, item.status)
-        assertEquals(FailureReason.MALFORMED_XMP, item.reason)
-        assertEquals(0L, item.bytes)
-        assertEquals(0L, report.composedBytes)
-        assertFalse(storage.exists("/t/a_live.jpg"))
+        assertEquals(ItemStatus.SUCCESS, item.status)
+        assertNull(item.reason, "成功项不该带失败原因")
+        val out = storage.bytesOf("/t/a_live.jpg")
+        assertEquals(out.size.toLong(), item.bytes)
+        // 字节账本：源文件整份（旧 XMP 换成新段）+ 视频。
+        assertEquals(
+            out.size.toLong(),
+            dirty.size - scan(dirty).oldXmp!!.length +
+                XmpPacket.app1Segment(video.size.toLong()).size + video.size,
+        )
+        val text = out.toString(Charsets.ISO_8859_1)
+        assertFalse(text.contains("<unclosed"), "旧 XMP 的字节还留在产物里")
+        assertTrue(text.contains("GCamera:MotionPhoto=\"1\""), "产物没写成动态照片")
+        assertTrue(storage.exists("/t/a_live.jpg"))
         assertFalse(storage.tmpFiles.isNotEmpty())
-        // 失败项不删原文件：图还在，用户换个工具还能重来
-        assertTrue(storage.exists("/s/a.jpg"))
-        assertTrue(storage.exists("/s/a.mp4"))
+        // 成功项才删原文件：这里删得掉，正因为合成成功了。
+        assertFalse(storage.exists("/s/a.jpg"))
     }
 
     @Test fun `a gain map jpeg composes through the batch and reports real byte counts`() {
         // 端到端：真机最常见的那张输入（XMP 声明 GainMap + EOI 后躺着副图）必须报成功，
-        // 而 bytes 等于**丢掉副图尾巴之后**的产物长度——UI 的"已写出 N MB"读的就是它。
+        // 而 bytes 等于**源文件整份 + 视频**的产物长度——UI 的"已写出 N MB"读的就是它。
         val dirty = Fixtures.gainMapJpeg()
         val (runner, storage) = runnerWith("/s/a.jpg" to dirty, "/s/a.mp4" to video)
         val report = runner.run(runner.plan(options()), options(), NoCancel) { }
@@ -251,17 +264,18 @@ class BatchRunnerTest {
         val out = storage.bytesOf("/t/a_live.jpg")
         assertEquals(out.size.toLong(), item.bytes)
         assertEquals(out.size.toLong(), report.composedBytes)
-        // 尾巴没被搬进来：重扫产物的 imageEnd 正好等于 文件大小 - MicroVideoOffset。
-        val structure = (JpegScanner.scan(
-            java.nio.channels.Channels.newChannel(java.io.ByteArrayInputStream(out))
-        ) as JpegScanResult.Parsed).structure
+        val source = scan(dirty)
+        val app1 = XmpPacket.app1Segment(video.size.toLong())
+        assertEquals(dirty.size - source.oldXmp!!.length + app1.size + video.size, out.size.toLong())
+        // 尾巴在位：视频起点 = 产物的 imageEnd **再加上那条副图尾巴**。截掉尾巴的算式在这里会红。
+        val structure = scan(out)
         val text = out.toString(Charsets.ISO_8859_1)
         val offset = Regex("""GCamera:MicroVideoOffset="(\d+)"""").find(text)!!.groupValues[1].toLong()
-        assertEquals(structure.imageEnd, out.size - offset, "EOI 与视频之间夹了字节")
+        assertEquals(structure.imageEnd + (dirty.size - source.imageEnd), out.size - offset)
         assertEquals(video.size.toLong(), offset)
-        assertFalse(text.contains("<Item:Semantic>"), "产物不携带副图字节，却还在声明容器项")
+        assertFalse(text.contains("hdrgm"), "源包的 gain map 声明被掺进了产物")
+        assertFalse(text.contains("<Item:Semantic>GainMap</Item:Semantic>"), "源片的容器项还在产物里")
         assertTrue(text.contains("GCamera:MotionPhoto=\"1\""), "批次产物没写成动态照片")
-        assertTrue(text.contains("hdrgm:Version=\"1.0\""), "HDR 版本声明被丢了")
     }
 
     @Test fun `move failure is reported as io error and keeps the originals`() {
