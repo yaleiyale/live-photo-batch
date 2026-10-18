@@ -15,42 +15,89 @@ import java.nio.channels.Channels
 import java.nio.channels.WritableByteChannel
 import java.util.concurrent.TimeUnit
 
+/**
+ * 产物布局（spec「增补（2026-10-18b）」§2）：
+ * `SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, imageEnd)`，**`imageEnd` 之后的字节一个都不搬**。
+ * 新段写回旧段原来的位置，所以源片里排在 XMP 之前的 EXIF `APP1` 仍然在它之前——参考语料就是这个次序。
+ */
 class JpegXmpPatcherTest {
     private val app1 = XmpPacket.app1Segment(7L)
 
-    private fun patch(bytes: ByteArray): ByteArray {
-        val structure = JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed
-        val s = structure.structure
+    private fun scan(bytes: ByteArray): JpegStructure =
+        (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+
+    private fun patchWith(bytes: ByteArray): Pair<ByteArray, JpegStructure> {
+        val structure = scan(bytes)
         val out = ByteArrayOutputStream()
-        val written = JpegXmpPatcher.patch(s, ByteArraySource(bytes), Channels.newChannel(out), app1)
+        val written = JpegXmpPatcher.patch(structure, ByteArraySource(bytes), Channels.newChannel(out), app1)
         // 契约：返回值 = 从源图**实际写入 sink** 的字节数。旧 XMP 被丢弃，它那一段一个字节都没写，
-        // 所以有旧 XMP 时是 imageEnd - oldXmp.length，而不是 imageEnd。
-        // 简报原文在这里写的是 `assertEquals(imageEnd, written)`，与同一个类里
-        // `old xmp is dropped and replaced`（断言输出里没有 "OLD"）自相矛盾：
-        // 既不写旧段字节、又数出 imageEnd 个源字节，是不可能的。实测 115 vs 31，31 = 115 - 84。
-        val oldXmpLength = s.oldXmp?.length ?: 0L
-        assertEquals(s.imageEnd - oldXmpLength, written)
-        // sink 收到的总字节 = 源图字节 + 新 APP1（SOI 已计入 written）
+        // 所以有旧 XMP 时是 imageEnd - oldXmp.length；尾巴在 imageEnd 之后，本来就不在计数里。
+        val oldXmpLength = structure.oldXmp?.length ?: 0L
+        assertEquals(structure.imageEnd - oldXmpLength, written)
+        // sink 收到的总字节 = 写出的源图字节 + 新 APP1
         assertEquals(written + app1.size, out.size().toLong())
-        return out.toByteArray()
+        return out.toByteArray() to structure
     }
 
-    @Test fun `new xmp sits immediately after soi`() {
-        val result = patch(Fixtures.jpeg())
-        assertEquals(0xFF.toByte(), result[0])
-        assertEquals(0xD8.toByte(), result[1])
-        assertEquals(0xFF.toByte(), result[2])
-        assertEquals(0xE1.toByte(), result[3])
+    private fun patch(bytes: ByteArray): ByteArray = patchWith(bytes).first
+
+    /** JFIF APP0：语料里的源片没有它，但"源无 XMP 时新段插在 SOI 之后"会把排好的段次序改掉，要留个证人。 */
+    private fun app0(): ByteArray =
+        Fixtures.segment(0xE0, Fixtures.ascii("JFIF\u0000") + byteArrayOf(1, 1, 0, 0, 1, 0, 1, 0, 0, 0))
+
+    private fun exif(): ByteArray =
+        Fixtures.segment(0xE1, "Exif".toByteArray() + byteArrayOf(0, 0) + ByteArray(16))
+
+    @Test fun `vivo layout keeps exif before the new xmp and drops the gain map trailer`() {
+        val old = Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket)
+        val dqt = Fixtures.segment(0xDB, ByteArray(33) { it.toByte() })
+        val trailer = Fixtures.gainMapImage(entropySize = 200)
+        val bytes = Fixtures.jpeg(
+            headSegments = listOf(app0(), exif(), old, dqt, Fixtures.sof0()),
+            entropy = ByteArray(64) { (it % 251).toByte() },
+            tail = trailer,
+        )
+        val (result, structure) = patchWith(bytes)
+        val oldXmp = structure.oldXmp!!
+        assertArrayEquals(
+            byteArrayOf(0xFF.toByte(), 0xD8.toByte()) +
+                bytes.copyOfRange(2, oldXmp.start.toInt()) + app1 +
+                bytes.copyOfRange(oldXmp.endExclusive.toInt(), structure.imageEnd.toInt()),
+            result,
+        )
+        // EOI 之后零字节：副图一个都不在（它自己的 hdrg 盒与 SOI 都只能来自尾巴）
+        assertFalse(result.toString(Charsets.ISO_8859_1).contains("hdrg"), "gain map 副图还跟着进了产物")
+        assertEquals(structure.imageEnd - oldXmp.length + app1.size, result.size.toLong())
+        // 段次序：APP0 → EXIF → 新 XMP → 其余。EXIF 必须仍然在 XMP 之前。
+        assertEquals(2, result.indexOfSlice(app0()))
+        assertEquals(2 + app0().size, result.indexOfSlice(exif()))
+        assertEquals(2 + app0().size + exif().size, result.indexOfSlice(app1))
+        assertEquals(2 + app0().size + exif().size + app1.size, result.indexOfSlice(dqt))
+        assertEquals(0xFF.toByte(), result[result.size - 2])
+        assertEquals(0xD9.toByte(), result[result.size - 1])
+    }
+
+    @Test fun `source without xmp gets the new segment right after soi`() {
+        // spec §2 的字面是"源无 XMP 时插在 SOI 之后"：新段因此把 APP0 推到它后面。
+        // 语料里的源片都带 XMP，这种形状没有参考实现可比，按字面断言，不为它加特例。
+        val bytes = Fixtures.jpeg(headSegments = listOf(app0(), Fixtures.sof0()))
+        val result = patch(bytes)
+        assertArrayEquals(byteArrayOf(0xFF.toByte(), 0xD8.toByte()), result.copyOfRange(0, 2))
         assertArrayEquals(app1, result.copyOfRange(2, 2 + app1.size))
+        assertEquals(2 + app1.size, result.indexOfSlice(app0()))
+        assertArrayEquals(
+            byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + app1 + bytes.copyOfRange(2, bytes.size),
+            result,
+        )
     }
 
     @Test fun `exif and quant table segments survive byte for byte`() {
-        val exif = Fixtures.segment(0xE1, "Exif".toByteArray() + byteArrayOf(0, 0) + ByteArray(16))
+        val exif = exif()
         val dqt = Fixtures.segment(0xDB, ByteArray(33) { it.toByte() })
         val bytes = Fixtures.jpeg(headSegments = listOf(exif, dqt, Fixtures.sof0()))
         val result = patch(bytes)
-        // 源图里除旧 XMP 外的全部字节顺序不变；这里没有旧 XMP，所以尾部应完全等于源图 EOI 前内容
+        // 源图里除旧 XMP 外的全部字节顺序不变；这里没有旧 XMP，所以 EOI 之前的内容应完全等于源图
         assertArrayEquals(
             bytes.copyOfRange(2, bytes.size - 2),           // 去掉 SOI 与尾部 EOI
             result.copyOfRange(2 + app1.size, result.size - 2)
@@ -61,34 +108,31 @@ class JpegXmpPatcherTest {
         assertEquals(2 + app1.size + exif.size, result.indexOfSlice(dqt))
     }
 
-    @Test fun `old xmp is dropped and replaced by exactly one new xmp`() {
-        // 旧 XMP 前面先放一段 EXIF APP1——真实相机的 JPEG 就是这个顺序。简报原文把旧 XMP
-        // 直接摆在 SOI 之后（oldXmp.start == 2），那条 [2, oldXmp.start) 的区间恒为 0 字节，
-        // "gap 非空时要先搬 gap"这条算术一次都没被走过。加了 EXIF 前缀才真的覆盖到。
+    @Test fun `old xmp is dropped and replaced by exactly one new xmp in its own place`() {
+        // 旧 XMP 前面先放一段 EXIF APP1——真实相机的 JPEG 就是这个顺序，也是语料的顺序。
+        // 把新段插在 SOI 之后（Task 13 的做法）会让 XMP 跑到 EXIF 前面，相册不认。
         val exif = Fixtures.segment(
             0xE1,
             "Exif".toByteArray() + byteArrayOf(0xFF.toByte(), 0xD9.toByte(), 0, 1, 2, 3),
         )
         val old = Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket)
         val bytes = Fixtures.jpeg(headSegments = listOf(exif, old, Fixtures.sof0()))
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
+        val structure = scan(bytes)
         val result = patch(bytes)
         val occurrences = Regex(Regex.escape(Fixtures.XAP)).findAll(result.decodeToString()).count()
         assertEquals(1, occurrences)
         assertTrue(result.decodeToString().contains("MotionPhoto"))
         assertFalse(result.decodeToString().contains("OLD"))
-        // 精确字节映射：source[2,16) 的 EXIF 原样保留，source[16,100) 的旧 XMP（84 字节）整段
-        // 消失，其后 29 字节按原序紧跟新 APP1。这条同时钉住两件事：漏掉"读掉旧段"这一步
-        // （实测写出的是旧段开头 29 字节、真正的图片尾部整个丢失），以及越过 imageEnd 多搬。
+        // 精确字节映射：SOI 之后先是源图的 EXIF，再是落在旧段位置上的新段，其后才是图片尾部。
         val oldXmp = structure.oldXmp!!
-        assertEquals((2 + exif.size).toLong(), oldXmp.start)                  // 16
-        assertEquals((2 + exif.size + old.size).toLong(), oldXmp.endExclusive) // 100
-        assertEquals(bytes.size.toLong(), structure.imageEnd)                  // 129，无追加尾部
-        val expected = byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + app1 +
-            bytes.copyOfRange(2, oldXmp.start.toInt()) +
-            bytes.copyOfRange(oldXmp.endExclusive.toInt(), structure.imageEnd.toInt())
-        assertArrayEquals(expected, result)
+        assertEquals((2 + exif.size).toLong(), oldXmp.start)
+        assertEquals((2 + exif.size + old.size).toLong(), oldXmp.endExclusive)
+        assertEquals(bytes.size.toLong(), structure.imageEnd)
+        assertArrayEquals(
+            byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + exif + app1 +
+                bytes.copyOfRange(oldXmp.endExclusive.toInt(), structure.imageEnd.toInt()),
+            result,
+        )
         // EXIF 里的 FFD9 诱饵不该被当成图片终点：EOI 必须还是输出的最后两字节。
         assertEquals(0xFF.toByte(), result[result.size - 2])
         assertEquals(0xD9.toByte(), result[result.size - 1])
@@ -99,84 +143,42 @@ class JpegXmpPatcherTest {
         val bytes = Fixtures.jpeg(tail = video)
         val result = patch(bytes)
         assertEquals(bytes.size - video.size + app1.size.toLong(), result.size.toLong())
-        // 输出最后两格就是图片段的 EOI（FF 在前、D9 在后）。简报原文写的是
-        // result[result.size - 2 - 1]，即倒数第三格——那一格是熵数据的最后一个字节 0x44，
-        // 实测 expected <-39>(0xD9) but was <68>(0x44)。真正的 D9 在 size-1。
+        // 输出最后两格就是图片段的 EOI（FF 在前、D9 在后）：尾巴丢了，EOI 就是产物的末尾。
         assertEquals(0xFF.toByte(), result[result.size - 2])
         assertEquals(0xD9.toByte(), result[result.size - 1])
-        // 视频一个字节都不许进来：抄进 imageEnd 之后的任何字节都会露出 ftyp 签名。
         assertFalse(result.toString(Charsets.ISO_8859_1).contains("ftyp"))
     }
 
-    // ---------- spec「增补 §2」：尾巴由调用方点名才搬 ----------
-
-    @Test fun `trailer bytes are copied verbatim after the image when asked`() {
-        val trailer = Fixtures.gainMapImage(entropySize = 1024)
-        val bytes = Fixtures.jpeg(tail = trailer)
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
-        val out = ByteArrayOutputStream()
-        val written = JpegXmpPatcher.patch(
-            structure, ByteArraySource(bytes), Channels.newChannel(out), app1, trailerEnd = bytes.size.toLong()
-        )
-        val result = out.toByteArray()
-        // 契约：返回值 = 写出的源图字节数，**含尾巴**，不含新 APP1。
-        assertEquals(structure.imageEnd + trailer.size, written)
-        assertEquals(written + app1.size, out.size().toLong())
-        assertArrayEquals(
-            byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + app1 +
-                bytes.copyOfRange(2, structure.imageEnd.toInt()) + trailer,
-            result,
-        )
-        // 尾巴在前、EOI 在后？不：EOI 属于图片段，尾巴紧跟其后——顺序写反了 HDR 查看器就找不到副图
-        val eoiEnd = 2 + app1.size + (structure.imageEnd - 2).toInt()   // 新 APP1 顶掉了 SOI 之后的位置
-        assertEquals(0xFF.toByte(), result[eoiEnd - 2])
-        assertEquals(0xD9.toByte(), result[eoiEnd - 1])
-        assertArrayEquals(trailer, result.copyOfRange(eoiEnd, result.size))
+    @Test fun `a non video trailer is dropped whatever it holds`() {
+        // 取代 Task 13 的"调用方点名要多少尾巴就搬多少"：现在没有 trailerEnd 这个参数，
+        // gain map、厂商记录、零填充都只有同一个下场——留在源图里，不进产物。
+        for (trailer in listOf(Fixtures.gainMapImage(entropySize = 1024), Fixtures.vendorTrailer(), Fixtures.zeroFill(47))) {
+            val bytes = Fixtures.jpeg(tail = trailer)
+            val structure = scan(bytes)
+            assertEquals((bytes.size - trailer.size).toLong(), structure.imageEnd, "夹具的尾巴确实躺在 EOI 之后")
+            val result = patch(bytes)
+            assertEquals(structure.imageEnd + app1.size, result.size.toLong())
+            assertArrayEquals(
+                byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + app1 + bytes.copyOfRange(2, structure.imageEnd.toInt()),
+                result,
+            )
+            assertFalse(result.toString(Charsets.ISO_8859_1).contains("cameralbum!"), "厂商记录进了产物")
+        }
     }
 
-    @Test fun `old xmp is dropped even when the trailer is copied`() {
+    @Test fun `the old xmp and the trailer are both dropped`() {
         val exif = Fixtures.segment(0xE1, "Exif".toByteArray() + byteArrayOf(0, 1, 2, 3))
         val old = Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket)
         val trailer = Fixtures.vendorTrailer()
         val bytes = Fixtures.jpeg(headSegments = listOf(exif, old, Fixtures.sof0()), tail = trailer)
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
-        val out = ByteArrayOutputStream()
-        val written = JpegXmpPatcher.patch(
-            structure, ByteArraySource(bytes), Channels.newChannel(out), app1, trailerEnd = bytes.size.toLong()
-        )
-        // 被丢弃的旧 XMP 既不在图片段里、也不在尾巴里：返回值只数"真的写出去的源图字节"
-        assertEquals(bytes.size.toLong() - old.size, written)
-        val result = out.toByteArray()
+        val structure = scan(bytes)
+        val result = patch(bytes)
+        // 被丢弃的旧 XMP 与尾巴都不在产物里：返回值只数"真的写出去的源图字节"
+        assertEquals(structure.imageEnd - old.size + app1.size, result.size.toLong())
         assertEquals(1, Regex(Regex.escape(Fixtures.XAP)).findAll(result.decodeToString()).count())
         assertFalse(result.decodeToString().contains("OLD"))
-        assertArrayEquals(trailer, result.copyOfRange(result.size - trailer.size, result.size))
-    }
-
-    @Test fun `trailerEnd below imageEnd is refused`() {
-        val bytes = Fixtures.jpeg()
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
-        val out = ByteArrayOutputStream()
-        // 只准"多搬"，不准"少搬"：少搬就等于悄悄产出一个缺尾巴的文件
-        assertThrows(IllegalArgumentException::class.java) {
-            JpegXmpPatcher.patch(structure, ByteArraySource(bytes), Channels.newChannel(out), app1,
-                trailerEnd = structure.imageEnd - 1)
-        }
-        assertEquals(0, out.size())
-    }
-
-    @Test fun `trailer longer than the source throws instead of emitting a short file`() {
-        val bytes = Fixtures.jpeg(tail = Fixtures.zeroFill(47))
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
-        val out = ByteArrayOutputStream()
-        val error = assertThrows(java.io.EOFException::class.java) {
-            JpegXmpPatcher.patch(structure, ByteArraySource(bytes), Channels.newChannel(out), app1,
-                trailerEnd = bytes.size + 8L)
-        }
-        assertInstanceOf(java.io.IOException::class.java, error)
+        assertFalse(result.toString(Charsets.ISO_8859_1).contains("cameralbum!"))
+        assertEquals(0xD9.toByte(), result[result.size - 1])
     }
 
     @Test fun `extension xmp is left untouched`() {
@@ -190,8 +192,7 @@ class JpegXmpPatcherTest {
 
     @Test fun `truncated source throws instead of emitting a short file`() {
         val bytes = Fixtures.jpeg()
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
+        val structure = scan(bytes)
         val out = ByteArrayOutputStream()
         // structure 说 imageEnd=31，源里却只有 10 字节：必须炸，不能安静写完前 10 字节就返回。
         val error = assertThrows(java.io.EOFException::class.java) {
@@ -207,19 +208,16 @@ class JpegXmpPatcherTest {
         val exif = Fixtures.segment(0xE1, "Exif".toByteArray() + byteArrayOf(0, 1, 2, 3))
         val old = Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket)
         val bytes = Fixtures.jpeg(headSegments = listOf(exif, old, Fixtures.sof0()))
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
+        val structure = scan(bytes)
         val oldXmp = structure.oldXmp!!
         // 源在"要读掉的旧 XMP"中间就断了：写出分支一切正常，缺字节的是丢弃分支。
         // 这条专门盯那一步的短读处理——"能跳多少算多少"式的 skip 到 EOF 只返回 0/-1：
-        // 要么旧段字节被当成图片内容写进输出（实测：把丢弃长度改成 0，本条与第 3 条一起红），
-        // 要么循环条件永不满足而原地挂死——所以整条跑在独立线程 + 超时上，挂死 = 失败，
-        // 而不是卡住整个构建。
+        // 要么旧段字节被当成图片内容写进输出，要么循环条件永不满足而原地挂死——所以整条跑在
+        // 独立线程 + 超时上，挂死 = 失败，而不是卡住整个构建。
         val truncated = bytes.copyOf((oldXmp.start + old.size / 2).toInt())
         val out = ByteArrayOutputStream()
         val error = assertThrows(java.io.EOFException::class.java) {
-            JpegXmpPatcher.patch(structure, ByteArraySource(truncated),
-                Channels.newChannel(out), app1)
+            JpegXmpPatcher.patch(structure, ByteArraySource(truncated), Channels.newChannel(out), app1)
         }
         assertInstanceOf(java.io.IOException::class.java, error)
         // 已经吐给 sink 的部分里不许混进旧段内容：断掉的那一步只能是"读掉并丢弃"。
@@ -229,8 +227,7 @@ class JpegXmpPatcherTest {
     @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
     @Test fun `a sink that refuses the write fails fast instead of spinning`() {
         val bytes = Fixtures.jpeg()
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
+        val structure = scan(bytes)
         val sink = RejectingSink()
         // write 返回 0 既不是"写完"也不是"没东西可写"：必须立刻变成 IOException。
         // 少了这个判断，排空循环原地挂死，Task 5 会把挂死当成成功。
@@ -261,8 +258,7 @@ class JpegXmpPatcherTest {
     @Test fun `partial writes from the sink are drained and memory stays constant`() {
         val entropy = ByteArray(200_000) { (it % 251).toByte() }   // 不含 0xFF，不造出假 marker
         val bytes = Fixtures.jpeg(entropy = entropy)
-        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
-            as JpegScanResult.Parsed).structure
+        val structure = scan(bytes)
         val sink = ChunkSink(3_000)
         val written = JpegXmpPatcher.patch(structure, ByteArraySource(bytes), sink, app1)
         assertEquals(structure.imageEnd, written)                  // 无旧 XMP：整段图片都要搬

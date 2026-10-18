@@ -6,30 +6,46 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class XmpPacketTest {
-    @Test fun `packet carries the exact spec field set`() {
-        val text = XmpPacket.motionPhoto(987654L).decodeToString()
+
+    /** 模板不再是自己拼字符串，而是与合并路径同一个构造器（增补 2026-10-18b §3 末段）：形状判据共用一套。 */
+    @Test fun `template carries the vivo shape with one group of seven attributes`() {
+        val text = XmpPacket.motionPhoto(987_654L).decodeToString()
+        val host = XmpShape.assertVivoShape(text, 987_654L)
         listOf(
-            "GCamera:MicroVideo=\"1\"",
-            "GCamera:MicroVideoVersion=\"1\"",
-            "GCamera:MicroVideoOffset=\"987654\"",
-            "GCamera:MicroVideoPresentationTimestampUs=\"-1\"",
-            "GCamera:MotionPhoto=\"1\"",
-            "GCamera:MotionPhotoVersion=\"1\"",
-            "GCamera:MotionPhotoPresentationTimestampUs=\"-1\"",
-            "http://ns.google.com/photos/1.0/camera/",
-            "http://ns.google.com/photos/1.0/container/",
-            "http://ns.google.com/photos/1.0/container/item/",
-            "<Item:Mime>image/jpeg</Item:Mime>",
-            "<Item:Semantic>Primary</Item:Semantic>",
-            "<Item:Mime>video/mp4</Item:Mime>",
-            "<Item:Semantic>MotionPhoto</Item:Semantic>",
-            "<Item:Length>987654</Item:Length>",
-        ).forEach { assertTrue(text.contains(it), "XMP 缺少：$it") }
+            "MicroVideo" to "1",
+            "MicroVideoVersion" to "1",
+            "MicroVideoOffset" to "987654",
+            "MicroVideoPresentationTimestampUs" to "-1",
+            "MotionPhoto" to "1",
+            "MotionPhotoVersion" to "1",
+            "MotionPhotoPresentationTimestampUs" to "-1",
+        ).forEach { (name, value) ->
+            assertEquals(value, host.getAttributeNS(XmpPacket.CAMERA_NS, name), "模板缺少 $name")
+        }
     }
 
-    @Test fun `only the two size fields carry the value`() {
-        val text = XmpPacket.motionPhoto(42L).decodeToString()
-        assertEquals(2, Regex("42").findAll(text).count())
+    @Test fun `template declares no container items`() {
+        val root = XmpShape.parse(XmpPacket.motionPhoto(42L).decodeToString()).documentElement
+        assertEquals(
+            0,
+            XmpShape.childrenNamed(XmpShape.childrenNamed(XmpShape.directories(root).single(), "Seq").single(), "li")
+                .size,
+            "模板又往 Seq 里塞项了",
+        )
+        assertTrue(
+            XmpShape.descendantsNamed(root, XmpPacket.CONTAINER_NS, "Item").isEmpty(),
+            "模板还在声明 Container:Item",
+        )
+    }
+
+    @Test fun `the video size is carried by exactly one attribute`() {
+        val root = XmpShape.parse(XmpPacket.motionPhoto(42L).decodeToString()).documentElement
+        val carriers = XmpShape.allElements(root).flatMap { el ->
+            (0 until el.attributes.length).map { el.attributes.item(it)!! }
+        }.filter { it.nodeValue == "42" }
+        // 旧模板里视频长度出现两次（MicroVideoOffset 与 MotionPhoto 项的 Item:Length）；
+        // 产物不再声明任何项，所以只剩偏移量这一处。
+        assertEquals(listOf("GCamera:MicroVideoOffset"), carriers.map { it.nodeName })
     }
 
     @Test fun `app1 segment is marker, length, identifier, nul, packet`() {

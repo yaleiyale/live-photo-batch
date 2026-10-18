@@ -107,14 +107,59 @@ object Fixtures {
     }
 
     /**
+     * vivo 已识别语料里 191555 与 093558 两片**共用**的那一型源包：正文逐字节取自
+     * `IMG_20261015_191555.jpg` 的 APP1 XMP 段（段内 926 字节；结尾那个换行由 `trim()` 去掉）。
+     * 三个要点都是 Task 13 的实现被真机推翻的地方：
+     * - 没有 `<?xpacket?>` 头，根元素直接以 `<x:xmpmeta>` 起；
+     * - `rdf:RDF` 用的是**标准** RDF 命名空间 `http://www.w3.org/1999/02/22-rdf-syntax-ns#`
+     *   （[XmpPacket.RDF_NS] 必须与它一致，否则我们在源包之外另起一个 RDF，相册读不到声明）；
+     * - 容器项写成 `<Container:Item Item:Semantic="…" Item:Mime="…"/>`：语义与 MIME 是**子元素的属性**，
+     *   不是 `Item:Semantic` 子元素的文本。
+     */
+    fun vivoSourcePacket(): String = """
+<x:xmpmeta
+  xmlns:x="adobe:ns:meta/"
+  x:xmptk="Adobe XMP Core 5.1.2">
+  <rdf:RDF
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:Container="http://ns.google.com/photos/1.0/container/"
+      xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+      xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
+      hdrgm:Version="1.0">
+      <Container:Directory>
+        <rdf:Seq>
+          <rdf:li
+            rdf:parseType="Resource">
+            <Container:Item
+              Item:Semantic="Primary"
+              Item:Mime="image/jpeg"/>
+          </rdf:li>
+          <rdf:li
+            rdf:parseType="Resource">
+            <Container:Item
+              Item:Semantic="GainMap"
+              Item:Mime="image/jpeg"
+              Item:Length="441963"/>
+          </rdf:li>
+        </rdf:Seq>
+      </Container:Directory>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+""".trim()
+
+    /**
      * vivo HDR gain map 的源 XMP：`hdrgm:Version` + `Container:Directory` 里 Primary 与 GainMap 两项。
      * 形状取自真机抽样（GainMap 项带 `Item:Mime=image/jpeg` 与 `Item:Length`，
      * 那个 Length 就是副图的实际字节数，见 [gainMapJpeg]）。
+     * 这一型把语义写成**子元素文本**（`<Item:Semantic>GainMap</Item:Semantic>`），与
+     * [vivoSourcePacket] 的属性式写法是两种并存的形状。
      */
     fun gainMapXmp(gainMapLength: Long): String = buildString {
         append(XmpPacket.PACKET_BEGIN).append('\n')
         append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"vivo XMP Toolkit 1.0\">\n")
-        append(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999-02-22-rdf-syntax-ns#\">\n")
+        append(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n")
         append("  <rdf:Description rdf:about=\"\"\n")
         append("      xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"\n")
         append("      xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\"\n")

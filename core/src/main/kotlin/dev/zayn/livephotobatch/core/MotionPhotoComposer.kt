@@ -23,13 +23,15 @@ sealed interface ComposeResult {
 }
 
 /**
- * JPEG + MP4 → Google Motion Photo：合并 XMP 段，保留 `imageEnd` 之后的**非视频**尾巴，
- * 再把 MP4 原始字节整段追加到文件末尾。不解码、不转码、不重编码，纯字节拼接 + 元数据。
+ * JPEG + MP4 → Google Motion Photo：以源 XMP 为基底合并出动照片声明，再把 MP4 原始字节整段
+ * 追加到 JPEG 的 `EOI` 之后。不解码、不转码、不重编码，纯字节拼接 + 元数据。
  *
- * 产物布局（spec §7.1 + 增补 §2）：
- * `SOI` + 合并后的 XMP APP1 + `源图[2, imageEnd)` + `源图[imageEnd, fileSize)`（尾巴原样） + 视频字节。
- * `MicroVideoOffset` 与视频项的 `Item:Length` 都等于**追加的视频字节数**：读取方用
- * `fileSize - offset` 从文件末尾倒推，中间夹着 gain map 也不改变这个语义。
+ * 产物布局（spec「增补（2026-10-18b）」§2）：
+ * `SOI` + `源图[2, 旧XMP起点)` + 新 XMP APP1 + `源图[旧XMP终点, imageEnd)` + 视频字节。
+ * `imageEnd` 之后的源字节（gain map 副图、厂商记录、零填充）**一律丢掉**，EOI 与视频之间零字节；
+ * 新 XMP 写回旧段的原位，所以源片里排在 XMP 之前的 EXIF 仍然在它之前。
+ * `GCamera:MicroVideoOffset` 等于**追加的视频字节数**，`文件大小 - MicroVideoOffset == imageEnd`
+ * 是产物自身必须成立的可断言等式（偏移量与文件布局之间没有循环依赖）。
  *
  * 校验顺序按 spec §7.4（增补 §1 取代其中第 3 条），且是**可观测的**：先把最便宜的视频头探测放最前
  * （坏视频绝不让后面白扫一遍 JPEG），再判 SOI、段遍历、扩展 XMP、尾巴分类、XMP 可否解析，
@@ -92,13 +94,14 @@ object MotionPhotoComposer {
         }
         // 增补 §1：只有**视频形状**的尾巴（或源 XMP 已经声明过视频）才算"上一轮已经合成过"。
         // gain map 副图、厂商 JSON、零填充在这里放行——vivo 上每张 JPEG 都有这种尾巴。
+        // 放行的下场是"丢掉"：增补 2026-10-18b §2，EOI 之后只留视频，尾巴不再搬进产物。
         if (TrailerClassifier.classify(trailerHead, structure.oldXmpText) == TrailerKind.VIDEO) {
             return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO)
         }
 
         val app1 = try {
-            // 增补 §3：以源包为基底合并，gain map 的声明必须跟着进产物；畸形包报 MALFORMED_XMP，
-            // 绝不退化成"没有 XMP"然后静默把用户的元数据换掉。
+            // 增补 §3：以源包为基底合并，产物形状照参考语料（单 RDF、单 Description、空 Directory）；
+            // 畸形包报 MALFORMED_XMP，绝不退化成"没有 XMP"然后静默把用户的元数据换掉。
             XmpPacket.app1SegmentFor(XmpMerger.merge(structure.oldXmpText, videoSize))
         } catch (e: MalformedXmpException) {
             return ComposeResult.Failure(FailureReason.MALFORMED_XMP)
@@ -107,8 +110,9 @@ object MotionPhotoComposer {
             return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED)
         }
         return try {
-            // patch 的返回值是"从源图写出的字节数"：含尾巴，不含新 APP1，也不含被丢弃的旧 XMP。
-            val patched = JpegXmpPatcher.patch(structure, image, sink, app1, trailerEnd = fileSize)
+            // patch 的返回值是"从源图写出的字节数"：不含新 APP1，不含被丢弃的旧 XMP，
+            // 也不含 imageEnd 之后被丢掉的尾巴。
+            val patched = JpegXmpPatcher.patch(structure, image, sink, app1)
             copyToEnd(video, sink)
             ComposeResult.Success(videoSize, patched + app1.size + videoSize)
         } catch (e: IOException) {

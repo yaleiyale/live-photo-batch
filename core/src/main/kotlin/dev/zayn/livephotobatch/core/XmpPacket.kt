@@ -4,14 +4,13 @@ object XmpPacket {
     const val XAP_IDENTIFIER = "http://ns.adobe.com/xap/1.0/"
     private const val MAX_SEGMENT_BODY = 65533 // 长度字段自身占 2 字节，字段上限 65535
 
-    // spec §7.3 用到的命名空间；Task 13 的合并器按限定名增删节点，所以这些常量对外可见。
+    // spec §7.3 用到的命名空间；合并器按限定名增删节点，所以这些常量对外可见。
+    // 这几个 URI 一个都不能"顺手改"：值错了，源包里的 rdf:RDF 就匹配不上，我们会在它之外
+    // 另起一个 RDF——真机产物不被 vivo 相册认作动态照片的根因就是这个（spec 增补 2026-10-18b §3.1）。
     const val CAMERA_NS = "http://ns.google.com/photos/1.0/camera/"
     const val CONTAINER_NS = "http://ns.google.com/photos/1.0/container/"
-    const val ITEM_NS = "http://ns.google.com/photos/1.0/container/item/"
-    const val RDF_NS = "http://www.w3.org/1999-02-22-rdf-syntax-ns#"
+    const val RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     const val XMPMETA_NS = "adobe:ns:meta/"
-    const val ITEM_SEMANTIC_PRIMARY = "Primary"
-    const val ITEM_SEMANTIC_MOTION_PHOTO = "MotionPhoto"
 
     /**
      * 包的起止处理指令：XMP 规范要求 `<?xpacket begin>` 用 U+FEFF 声明字节序，
@@ -21,44 +20,8 @@ object XmpPacket {
     const val PACKET_BEGIN = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
     const val PACKET_END = "<?xpacket end=\"w\"?>"
 
-    /**
-     * 行拼接而不是整块原始字符串：`<?xpacket begin=...>` 里的 U+FEFF 在 Kotlin 原始字符串中
-     * 不会被解释成转义，写成字面量又极易被编辑器吞掉。
-     */
-    fun motionPhoto(videoSize: Long): ByteArray {
-        val size = videoSize.toString()
-        val lines = buildList {
-            add(PACKET_BEGIN)
-            add("<x:xmpmeta xmlns:x=\"$XMPMETA_NS\">")
-            add(" <rdf:RDF xmlns:rdf=\"$RDF_NS\">")
-            add("  <rdf:Description xmlns:GCamera=\"$CAMERA_NS\"")
-            add("      GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"")
-            add("      GCamera:MotionPhotoPresentationTimestampUs=\"-1\"/>")
-            add("  <rdf:Description xmlns:GCamera=\"$CAMERA_NS\"")
-            add("      GCamera:MicroVideo=\"1\" GCamera:MicroVideoVersion=\"1\"")
-            add("      GCamera:MicroVideoOffset=\"$size\"")
-            add("      GCamera:MicroVideoPresentationTimestampUs=\"-1\"/>")
-            add("  <rdf:Description xmlns:Container=\"$CONTAINER_NS\">")
-            add("   <Container:Directory>")
-            add("    <rdf:Seq>")
-            add("     <rdf:li xmlns:Item=\"$ITEM_NS\" rdf:parseType=\"Resource\">")
-            add("      <Item:Mime>image/jpeg</Item:Mime>")
-            add("      <Item:Semantic>Primary</Item:Semantic>")
-            add("     </rdf:li>")
-            add("     <rdf:li xmlns:Item=\"$ITEM_NS\" rdf:parseType=\"Resource\">")
-            add("      <Item:Mime>video/mp4</Item:Mime>")
-            add("      <Item:Semantic>MotionPhoto</Item:Semantic>")
-            add("      <Item:Length>$size</Item:Length>")
-            add("     </rdf:li>")
-            add("    </rdf:Seq>")
-            add("   </Container:Directory>")
-            add("  </rdf:Description>")
-            add(" </rdf:RDF>")
-            add("</x:xmpmeta>")
-            add(PACKET_END)
-        }
-        return requireFitsInSegment(lines.joinToString("\n").toByteArray(Charsets.UTF_8))
-    }
+    /** 无源 XMP 时的包：与合并产物同一个构造器（spec 增补 2026-10-18b §3 末段）。 */
+    fun motionPhoto(videoSize: Long): ByteArray = XmpMerger.merge(null, videoSize)
 
     /** 完整 APP1 段：FF E1 + 16 位长度 + 标识符 + NUL + XMP 包。 */
     fun app1Segment(videoSize: Long): ByteArray = app1SegmentFor(motionPhoto(videoSize))

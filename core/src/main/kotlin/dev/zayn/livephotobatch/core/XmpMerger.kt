@@ -17,22 +17,27 @@ import org.xml.sax.SAXParseException
 class MalformedXmpException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
- * spec「增补 §3」：XMP 从**整体替换**改成**以源包为基底合并**。
+ * spec「增补（2026-10-18b）」§3：产物 XMP 必须与 **vivo 相册已经认可**的那批合成结果同形。
+ * 逐字节比对的语料（17 张，其中 3 张验到字节）里那张宿主描述是：
+ * 一个 `rdf:RDF`、七个动照片属性挤在**同一个** `rdf:Description` 上、
+ * `<Container:Directory>` 里是**空的** `<rdf:Seq/>`——既不声明 gain map 项，也不声明视频项，
+ * 读取方靠 `GCamera:MicroVideoOffset` 定位视频。
  *
- * 为什么非合并不可：真机抽样里 8 张有 6 张是 HDR gain map，副图字节就躺在主图 EOI 之后，而
- * `Container:Directory` 里的 `Item:Semantic="GainMap"` + `Item:Length` 是它唯一的声明。整体替换会
- * 留下一段"字节还在、元数据说它不存在"的副图——HDR 查看器读出来的亮度就是错的。
+ * 四条规则（§3.1-§3.4）：
+ * 1. 只用 `<x:xmpmeta>` 下**第一个** `rdf:RDF` 作宿主；一个都没有才新建并追加。
+ *    Task 13 的实现产出过两个兄弟 RDF：源包被掏空只剩 `hdrgm:Version` 留在第一个 RDF 里，我们的声明
+ *    挂在第二个 RDF 上。XML 仍然合法所以解析不报错，但按 `xmpmeta/rdf:RDF/rdf:Description` 取属性的
+ *    读取方（相册、Exiv2）只看得见那个空壳——等于没声明，真机就是这么判我们不是动态照片的。
+ * 2. 七属性只写在一个 Description 上：宿主 = 带 `Container:Directory` 的那个，没有 Directory 就用第一个
+ *    Description，一个都没有才新建；其余 Description 上的七属性（[MOTION_PHOTO_ATTRIBUTES]）一律剔掉。
+ * 3. `Container:Directory` 只有一个、且 `rdf:Seq` 为空：全树任何位置的 Directory 连同项一起摘掉，
+ *    再往宿主上追加一份空的。vivo 把项写成 `<Container:Item Item:Semantic="…" Item:Mime="…"/>`，
+ *    语义与 MIME 是**子元素的属性**，逐个识别语义既做不到也不需要——产物不声明项。
+ * 4. 其余内容一概不动：`hdrgm:*`、`dc:*`、厂商命名空间、`GCamera:BoostCorrection` 这类非动照片属性、
+ *    根上的 `x:xmptk`（源值优先）全部原样留着。
  *
- * 规则逐条对应 spec：
- * - 源包为空（或整段只是空白）→ 直接交 §7.3 的模板字节，与旧实现完全一致；
- * - 保留无关命名空间与属性（`hdrgm:`、`dc:`、根元素上的 `x:xmptk`…），保留既有 `Container:Directory`
- *   的 Primary/GainMap 项，`Item:Length` 一个都不改（副图字节没挪动，值就不能改）；
- * - **只**剔掉七个动态照片专用的 `GCamera:*` 属性（见 [MOTION_PHOTO_ATTRIBUTES]）与 `Item:Semantic`
- *   为 `MotionPhoto` 的项，再按 §7.3 写回我们自己的全部 `GCamera:*` 与 MotionPhoto 项；其余属性
- *   ——包括 `GCamera:BoostCorrection` 这类 HDR 增益记录——原样保留（增补 §3，修 round 1 裁定）；
- *   因此合并**幂等**：拿自己的产物再合一次，字节相同；
- * - 项顺序固定 Primary → GainMap → MotionPhoto（视频在最后），spec 增补 §2；
- * - 解析失败 → [MalformedXmpException]，由 composer 折成 `MALFORMED_XMP`（spec 增补 §3 最后一条）。
+ * 源包为 null 或整段空白时走 [newDocument]，与合并路径共用同一个构造器：模板与合并产物同形，
+ * 形状不可能在两条路径上各自漂移（§3 末段）。
  *
  * ## 为什么解析与序列化都自己组织
  * 解析、增删全部走 `javax.xml` DOM（不对 XML 文本动一次正则）。输出没有用 `Transformer`：它的缩进
@@ -41,19 +46,15 @@ class MalformedXmpException(message: String, cause: Throwable? = null) : Excepti
  * **结构增删之后**的空白归属）。这里写的输出把空白变成"树深度的纯函数"：纯空白文本节点、注释与
  * 处理指令一律丢弃，缩进按层级补空格，属性按 DOM 顺序输出，元素用到而祖先未声明的前缀按字典序补在
  * 属性表末尾。于是"字节幂等"只取决于树是不是不动点——而上面那对剔除/追加规则本身就互逆。
- *
- * 合并产物的换行写法与 §7.3 模板不同（模板把 `GCamera:*` 属性分三行续写）：XMP 的空白不参与语义，
- * 字段集合由 `XmpMergerTest` 逐条对着模板数；没有源包时仍然交模板字节。
  */
 object XmpMerger {
     /** `xmlns:prefix="uri"` 这类声明在 DOM 里就住在这个命名空间下。 */
     private const val XMLNS_NS = "http://www.w3.org/2000/xmlns/"
 
     /**
-     * 增补 §3（修 round 1 裁定）的剔除白名单：**只有**这七个动态照片专用属性会被剔掉重写，
-     * 按 GCamera 命名空间 + 本地名精确匹配。其余任何属性——`GCamera:BoostCorrection`（HDR 增益
-     * 记录）、`GCamera:ImageEmbeddings`、`GCamera:Burst*`、`hdrgm:*`、厂商命名空间——一律原样保留。
-     * 这不是"其他都删"的黑名单的反写：规则就是七个名字的白名单，一个都不能多。
+     * 剔除白名单：**只有**这七个动态照片属性会被剔掉重写，按 GCamera 命名空间 + 本地名精确匹配。
+     * 其余任何属性——`GCamera:BoostCorrection`（HDR 增益记录）、`GCamera:ImageEmbeddings`、`GCamera:Burst*`、
+     * `hdrgm:*`、厂商命名空间——一律原样保留（§3.4）。这不是"其他都删"的黑名单：规则就是七个名字。
      */
     private val MOTION_PHOTO_ATTRIBUTES = setOf(
         "MicroVideo",
@@ -65,45 +66,60 @@ object XmpMerger {
         "MotionPhotoPresentationTimestampUs",
     )
 
-    private const val MOTION_PHOTO = XmpPacket.ITEM_SEMANTIC_MOTION_PHOTO
-    private const val PRIMARY = XmpPacket.ITEM_SEMANTIC_PRIMARY
+    /** 语料里那七属性与它们的值，次序照参考语料的宿主描述（MicroVideo 组在前、MotionPhoto 组在后）。 */
+    private fun MOTION_PHOTO_VALUES(videoSize: Long): List<Pair<String, String>> {
+        val size = videoSize.toString()
+        return listOf(
+            "GCamera:MicroVideo" to "1",
+            "GCamera:MicroVideoVersion" to "1",
+            "GCamera:MicroVideoOffset" to size,
+            "GCamera:MicroVideoPresentationTimestampUs" to "-1",
+            "GCamera:MotionPhoto" to "1",
+            "GCamera:MotionPhotoVersion" to "1",
+            "GCamera:MotionPhotoPresentationTimestampUs" to "-1",
+        )
+    }
 
     fun merge(sourcePacket: String?, videoSize: Long): ByteArray {
-        val source = sourcePacket?.takeIf { it.isNotBlank() } ?: return XmpPacket.motionPhoto(videoSize)
-        val doc = parse(source)
+        val doc = if (sourcePacket.isNullOrBlank()) newDocument() else parse(sourcePacket)
         val root = doc.documentElement
             ?: throw MalformedXmpException("XMP 包没有根元素，无法合并")
         rejectDeepNesting(root)
         if (local(root) != "xmpmeta") {
             throw MalformedXmpException("XMP 包的根元素不是 x:xmpmeta，而是 <${root.tagName}>")
         }
+        // §3.1 单根：有则用第一个，没有才新建并追加。绝不另起第二个 rdf:RDF 挂我们的声明。
+        // 这一步成不成立全靠 [XmpPacket.RDF_NS] 与源包的 RDF 命名空间是同一个 URI：对不上号时
+        // childElements 找不到宿主的 RDF，我们就在源 RDF 旁边又起了一个——真机的两个兄弟 RDF 就是这么来的。
         val rdf = childElements(root, XmpPacket.RDF_NS, "RDF").firstOrNull()
-            ?: newElement(doc, XmpPacket.RDF_NS, "rdf", "RDF").also { root.appendChild(it) }
-
-        // §3 的剔除（修 round 1）：只有 Motion Photo 专用的那七个 GCamera 属性与 MotionPhoto 项
-        // 由我们重写；其余 GCamera 属性（BoostCorrection 等）留在原处，一个字节都不动。
+            ?: newElement(doc, XmpPacket.RDF_NS, "rdf", "RDF")
+                .declare("rdf", XmpPacket.RDF_NS).also { root.appendChild(it) }
+        // §3.2 宿主 = 带 Directory 的 Description；没有则第一个 Description；再没有才新建（带 rdf:about=""）。
+        // 只认这个 RDF 里的 Description：x:xmpmeta/rdf:RDF/rdf:Description 是读取方走的形状，
+        // 躲在别处的 Description 不是宿主候选。
+        val descriptions = descendants(rdf).filter { local(it) == "Description" && it.namespaceURI == XmpPacket.RDF_NS }
+        val host = descriptions.firstOrNull { hasDirectory(it) }
+            ?: descriptions.firstOrNull()
+            ?: newElement(doc, XmpPacket.RDF_NS, "rdf", "Description")
+                .also { it.setAttributeNS(XmpPacket.RDF_NS, "rdf:about", "") }
+                .also { rdf.appendChild(it) }
+        // 先剔干净：全树七属性 + 全树 Directory（vivo 的项是 Container:Item 的属性形状，
+        // 逐个识别语义既做不到也不需要——产物不声明项）。宿主的旧 Directory 也在这里被摘掉，
+        // 随后重新追加空的一份，所以"只有一个 Directory 且 Seq 为空"是构造出来的性质。
         stripCameraAttributes(root)
-        val harvested = harvestContainerItems(doc)
-        installDirectory(doc, rdf, harvested, videoSize)
-        installCameraDescriptions(doc, rdf, videoSize)
-        dropEmptyDescriptions(doc)
+        descendants(root).forEach { dropDirectories(it) }
+        host.declare("GCamera", XmpPacket.CAMERA_NS)
+        MOTION_PHOTO_VALUES(videoSize).forEach { (name, value) ->
+            host.setAttributeNS(XmpPacket.CAMERA_NS, name, value)
+        }
+        host.appendChild(emptyDirectory(doc))
         return packet(doc)
     }
 
     // ---------- 解析（不可信输入） ----------
 
     private fun parse(text: String): Document = try {
-        val factory = DocumentBuilderFactory.newInstance().apply {
-            isNamespaceAware = true
-            // 逐个 try：JVM 的 Xerces 全都支持；厂商 ROM 万一对某个开关说"不认识"，
-            // 也不能让整条安全策略崩掉——下面还有 EntityResolver 与 doctype 复查两道兜底。
-            feature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-            feature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            feature("http://xml.org/sax/features/external-general-entities", false)
-            feature("http://xml.org/sax/features/external-parameter-entities", false)
-            feature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-        }
-        val builder = factory.newDocumentBuilder()
+        val builder = docBuilder().newDocumentBuilder()
         // 任何外部实体一律给一个空文档：既不联网，也不读盘。
         builder.setEntityResolver(EntityResolver { _, _ -> InputSource(StringReader("")) })
         builder.setErrorHandler(Reject)
@@ -114,6 +130,30 @@ object XmpMerger {
         throw e
     } catch (e: Exception) {
         throw MalformedXmpException("源 XMP 无法解析：${e.message}", e)
+    }
+
+    /**
+     * 安全解析的开关集中一处：新建空文档与解析源包共用它。逐个 try——JVM 的 Xerces 全都支持，
+     * 但厂商 ROM 万一对某个开关说"不认识"，也不能让整条安全策略崩掉：下面还有 EntityResolver
+     * 与 doctype 复查两道兜底。
+     */
+    private fun docBuilder(): DocumentBuilderFactory = DocumentBuilderFactory.newInstance().apply {
+        isNamespaceAware = true
+        feature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+        feature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        feature("http://xml.org/sax/features/external-general-entities", false)
+        feature("http://xml.org/sax/features/external-parameter-entities", false)
+        feature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+    }
+
+    /** 没有源包时的文档：与合并路径同一个构造器，两条路径不可能各自漂出一种形状。 */
+    private fun newDocument(): Document {
+        val doc = docBuilder().newDocumentBuilder().newDocument()
+        doc.appendChild(
+            newElement(doc, XmpPacket.XMPMETA_NS, "x", "xmpmeta").declare("x", XmpPacket.XMPMETA_NS)
+        )
+        // 根上不写 x:xmptk：那是别人的写入方签名，我们不冒充它。
+        return doc
     }
 
     /** warning 也不放过：需要警告才能读进去的包，不值得替用户猜。 */
@@ -149,7 +189,7 @@ object XmpMerger {
         }
     }
 
-    // ---------- 剔除 ----------
+    // ---------- 剔除与写回 ----------
 
     private fun stripCameraAttributes(root: Element) {
         for (el in descendants(root)) {
@@ -160,137 +200,23 @@ object XmpMerger {
         }
     }
 
-    /**
-     * 摘走所有 `Container:Directory` 里的容器项（**搬动节点本身**，命名空间声明与属性跟着走），
-     * 顺手删掉每一处旧的 `MotionPhoto` 项，并把第一个 Directory 的宿主 `rdf:Description` 留着复用
-     * ——复用而不是重建，是"再合一次字节相同"的关键：宿主在 `rdf:RDF` 里的位置与它自有的属性
-     * （`rdf:about` 一类）都原样不动。多余的宿主（源里写了两个 Directory 的情况）在只剩空壳后删掉。
-     */
-    private class Harvested(val items: List<Element>, val host: Element?)
-
-    private fun harvestContainerItems(doc: Document): Harvested {
-        val dirs = descendants(doc.documentElement!!)
-            .filter { local(it) == "Directory" && it.namespaceURI == XmpPacket.CONTAINER_NS }
-        val seen = HashSet<String>()
-        val items = ArrayList<Element>()
-        for (dir in dirs) {
-            for (seq in childElementsOf(dir).filter { local(it) == "Seq" && it.namespaceURI == XmpPacket.RDF_NS }) {
-                for (li in childElementsOf(seq).filter { local(it) == "li" && it.namespaceURI == XmpPacket.RDF_NS }) {
-                    val semantic = textOfChild(li, XmpPacket.ITEM_NS, "Semantic")
-                    // MotionPhoto 项整条扔掉（下面重新生成）；同一个 semantic 只留第一项，
-                    // 否则重复声明会一路复制到产物里。
-                    if (semantic == MOTION_PHOTO || (semantic != null && !seen.add(semantic))) {
-                        li.parentNode?.removeChild(li)
-                    } else {
-                        items += li
-                    }
-                }
-            }
-        }
-        val host = dirs.firstOrNull()?.parentNode as? Element
-        val extraHosts = dirs.mapNotNull { it.parentNode as? Element }.distinct().filterNot { it === host }
-        items.forEach { it.parentNode?.removeChild(it) }
-        dirs.forEach { it.parentNode?.removeChild(it) }
-        extraHosts.filter { childElementsOf(it).isEmpty() }.forEach { it.parentNode?.removeChild(it) }
-        return Harvested(items, host.takeIf { it?.parentNode != null })
-    }
-
-    // ---------- 写回 ----------
+    private fun hasDirectory(description: Element): Boolean =
+        childElements(description, XmpPacket.CONTAINER_NS, "Directory").isNotEmpty()
 
     /**
-     * 项顺序 Primary →（GainMap 及其余既有项）→ MotionPhoto：spec 增补 §2 定死的排列，
-     * 读取方按 `rdf:Seq` 的顺序与 `Item:Length` 定位副图和视频。
+     * 摘掉 [parent] 名下**直接**的 `Container:Directory`。对全树每个元素各调一次，等价于"任何深度、
+     * 任何归属"的 Directory 都被摘光（语料里它是 Description 的直接子元素）。项住在 Directory 里面，
+     * 所以跟着一起消失，不需要单独认语义。
      */
-    private fun installDirectory(doc: Document, rdf: Element, harvested: Harvested, videoSize: Long) {
-        val kept = harvested.items
-        val ordered = ArrayList<Element>()
-        val primary = kept.firstOrNull { textOfChild(it, XmpPacket.ITEM_NS, "Semantic") == PRIMARY }
-        if (primary != null) ordered += primary
-        ordered += kept.filterNot { it === primary }
-        if (primary == null) ordered.add(0, newItem(doc, mime = "image/jpeg", semantic = PRIMARY, length = null))
-        ordered.add(newItem(doc, mime = "video/mp4", semantic = MOTION_PHOTO, length = videoSize))
-
-        val seq = newElement(doc, XmpPacket.RDF_NS, "rdf", "Seq")
-        ordered.forEach { seq.appendChild(it) }
-        val directory = newElement(doc, XmpPacket.CONTAINER_NS, "Container", "Directory")
-        directory.appendChild(seq)
-
-        val host = harvested.host
-        if (host != null && local(host) == "Description" && host.namespaceURI == XmpPacket.RDF_NS) {
-            host.declare("Container", XmpPacket.CONTAINER_NS)
-            host.appendChild(directory)
-        } else {
-            val description = newElement(doc, XmpPacket.RDF_NS, "rdf", "Description")
-            description.declare("Container", XmpPacket.CONTAINER_NS)
-            description.appendChild(directory)
-            rdf.appendChild(description)
-        }
+    private fun dropDirectories(parent: Element) {
+        childElements(parent, XmpPacket.CONTAINER_NS, "Directory").forEach { parent.removeChild(it) }
     }
 
-    private fun installCameraDescriptions(doc: Document, rdf: Element, videoSize: Long) {
-        val size = videoSize.toString()
-        fun description(vararg pairs: Pair<String, String>): Element =
-            newElement(doc, XmpPacket.RDF_NS, "rdf", "Description")
-                .declare("GCamera", XmpPacket.CAMERA_NS)
-                .also { el -> pairs.forEach { (name, value) -> el.setAttributeNS(XmpPacket.CAMERA_NS, name, value) } }
-
-        val micro = description(
-            "GCamera:MicroVideo" to "1",
-            "GCamera:MicroVideoVersion" to "1",
-            "GCamera:MicroVideoOffset" to size,
-            "GCamera:MicroVideoPresentationTimestampUs" to "-1",
-        )
-        val motion = description(
-            "GCamera:MotionPhoto" to "1",
-            "GCamera:MotionPhotoVersion" to "1",
-            "GCamera:MotionPhotoPresentationTimestampUs" to "-1",
-        )
-        // 模板的先后顺序是 MotionPhoto 组、MicroVideo 组；两次 insertBefore 正好排成这一对。
-        rdf.insertBefore(micro, rdf.firstChild)
-        rdf.insertBefore(motion, rdf.firstChild)
-    }
-
-    /**
-     * `Item:Length` 只在合成项上写我们自己的视频长度；源里的每一项都保持原值（spec 增补 §2：
-     * gain map 的字节没动，所以它的 `Item:Length` 也不动）。
-     */
-    private fun newItem(doc: Document, mime: String, semantic: String, length: Long?): Element {
-        val li = newElement(doc, XmpPacket.RDF_NS, "rdf", "li")
-            .declare("Item", XmpPacket.ITEM_NS)
-            .also { it.setAttributeNS(XmpPacket.RDF_NS, "rdf:parseType", "Resource") }
-        textElement(doc, XmpPacket.ITEM_NS, "Item", "Mime", mime).also { li.appendChild(it) }
-        textElement(doc, XmpPacket.ITEM_NS, "Item", "Semantic", semantic).also { li.appendChild(it) }
-        if (length != null) {
-            textElement(doc, XmpPacket.ITEM_NS, "Item", "Length", length.toString()).also { li.appendChild(it) }
-        }
-        return li
-    }
-
-    /**
-     * 剔除之后剩下的空壳：属性只剩命名空间声明、子元素与文本一个都不剩的 `rdf:Description`。
-     * 上一轮我们写进去的那两组 `GCamera:*` 被 [stripCameraAttributes] 掏空之后就长这样。
-     * 文本内容也算信息——`<rdf:Description>一句说明</rdf:Description>` 不许被当空壳删掉。
-     */
-    private fun dropEmptyDescriptions(doc: Document) {
-        for (el in descendants(doc.documentElement!!).filter {
-                local(it) == "Description" && it.namespaceURI == XmpPacket.RDF_NS
-            }
-        ) {
-            val carriesInformation = attributesOf(el).any { !isNamespaceDeclaration(it) } ||
-                childElementsOf(el).isNotEmpty() ||
-                directText(el).isNotBlank()
-            if (!carriesInformation) el.parentNode?.removeChild(el)
-        }
-    }
-
-    private fun directText(el: Element): String {
-        val out = StringBuilder()
-        for (i in 0 until el.childNodes.length) {
-            val n = el.childNodes.item(i) ?: continue
-            if (n.nodeType == Node.TEXT_NODE || n.nodeType == Node.CDATA_SECTION_NODE) out.append(n.nodeValue)
-        }
-        return out.toString()
-    }
+    /** §3.3 的产物形态：`<Container:Directory><rdf:Seq/></Container:Directory>`，一个项都不声明。 */
+    private fun emptyDirectory(doc: Document): Element =
+        newElement(doc, XmpPacket.CONTAINER_NS, "Container", "Directory")
+            .declare("Container", XmpPacket.CONTAINER_NS)
+            .also { it.appendChild(newElement(doc, XmpPacket.RDF_NS, "rdf", "Seq")) }
 
     // ---------- 输出 ----------
 
@@ -327,22 +253,11 @@ object XmpMerger {
         return out
     }
 
-    private fun textOfChild(parent: Element, ns: String, localName: String): String? =
-        childElements(parent, ns, localName).firstOrNull()?.textContent?.trim()
-
     private fun isNamespaceDeclaration(node: Node): Boolean =
         node.namespaceURI == XMLNS_NS || node.nodeName == "xmlns" || node.prefix == "xmlns"
 
     private fun newElement(doc: Document, ns: String, prefix: String, localName: String): Element =
         doc.createElementNS(ns, "$prefix:$localName")
-
-    private fun textElement(
-        doc: Document,
-        ns: String,
-        prefix: String,
-        localName: String,
-        value: String,
-    ): Element = newElement(doc, ns, prefix, localName).also { it.textContent = value }
 
     private fun Element.declare(prefix: String, uri: String): Element = apply {
         setAttributeNS(XMLNS_NS, "xmlns:$prefix", uri)

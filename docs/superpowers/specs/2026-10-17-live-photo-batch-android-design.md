@@ -108,7 +108,7 @@ XMP 包模板（`<VIDEO_SIZE>` 处填 `videoSize`，时间戳固定 `-1`）：
 ```xml
 <?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
- <rdf:RDF xmlns:rdf="http://www.w3.org/1999-02-22-rdf-syntax-ns#">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
   <rdf:Description xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
       GCamera:MotionPhoto="1" GCamera:MotionPhotoVersion="1"
       GCamera:MotionPhotoPresentationTimestampUs="-1"/>
@@ -340,6 +340,10 @@ SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, imageEnd) + 
    上一节实现实测产出**两个兄弟 `rdf:RDF`**——源包被掏空成只剩 `hdrgm:Version="1.0"` 的空壳留在
    第一个 RDF 里，我们的三组声明挂在第二个 RDF 里。XML 仍然合法所以解析不报错，但按
    `xmpmeta/rdf:RDF/rdf:Description` 取属性的读取方（相册、Exiv2）只会看到那个空壳 → 等于没声明。
+   根因是 `XmpPacket.RDF_NS` 当年把 URI 抄成了 `1999-02-22`（短横线）：命名空间对不上，源片那个 RDF
+   就匹配不到，我们才在它旁边另起一个。语料的源片与产物用的都是标准 RDF 命名空间
+   `http://www.w3.org/1999/02/22-rdf-syntax-ns#`（逐字节验过），常量必须与它一致；
+   `XmpMergerTest` 的真实 vivo 源包夹具就是这条的回归用例。
 2. **动照片七属性只写在一个 `rdf:Description` 上**：宿主 = 携带 `Container:Directory` 的那个
    Description；没有 Directory 就用第一个 Description；一个 Description 都没有才新建。其余
    Description 上的七属性（`MOTION_PHOTO_ATTRIBUTES`）一律剔掉，不再新建第二组。

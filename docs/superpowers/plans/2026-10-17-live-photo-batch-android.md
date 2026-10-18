@@ -751,7 +751,7 @@ object XmpPacket {
         val lines = buildList {
             add("<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>")
             add("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">")
-            add(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999-02-22-rdf-syntax-ns#\">")
+            add(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">")
             add("  <rdf:Description xmlns:GCamera=\"$CAMERA_NS\"")
             add("      GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"")
             add("      GCamera:MotionPhotoPresentationTimestampUs=\"-1\"/>")
@@ -2943,7 +2943,7 @@ val vivo = """
   xmlns:x="adobe:ns:meta/"
   x:xmptk="Adobe XMP Core 5.1.2">
   <rdf:RDF
-    xmlns:rdf="http://www.w3.org/1999-02-22-rdf-syntax-ns#">
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description
       xmlns:Container="http://ns.google.com/photos/1.0/container/"
       xmlns:Item="http://ns.google.com/photos/1.0/container/item/"

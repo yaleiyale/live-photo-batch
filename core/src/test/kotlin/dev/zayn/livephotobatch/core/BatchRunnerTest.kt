@@ -242,7 +242,7 @@ class BatchRunnerTest {
 
     @Test fun `a gain map jpeg composes through the batch and reports real byte counts`() {
         // 端到端：真机最常见的那张输入（XMP 声明 GainMap + EOI 后躺着副图）必须报成功，
-        // 而 bytes 要等于**含尾巴**的产物长度——UI 的"已写出 N MB"读的就是它。
+        // 而 bytes 等于**丢掉副图尾巴之后**的产物长度——UI 的"已写出 N MB"读的就是它。
         val dirty = Fixtures.gainMapJpeg()
         val (runner, storage) = runnerWith("/s/a.jpg" to dirty, "/s/a.mp4" to video)
         val report = runner.run(runner.plan(options()), options(), NoCancel) { }
@@ -251,9 +251,16 @@ class BatchRunnerTest {
         val out = storage.bytesOf("/t/a_live.jpg")
         assertEquals(out.size.toLong(), item.bytes)
         assertEquals(out.size.toLong(), report.composedBytes)
+        // 尾巴没被搬进来：重扫产物的 imageEnd 正好等于 文件大小 - MicroVideoOffset。
+        val structure = (JpegScanner.scan(
+            java.nio.channels.Channels.newChannel(java.io.ByteArrayInputStream(out))
+        ) as JpegScanResult.Parsed).structure
         val text = out.toString(Charsets.ISO_8859_1)
-        assertTrue(text.contains("<Item:Semantic>GainMap</Item:Semantic>"), "批次产物把副图声明弄丢了")
-        assertTrue(text.contains("<Item:Semantic>MotionPhoto</Item:Semantic>"), "批次产物没写成动态照片")
+        val offset = Regex("""GCamera:MicroVideoOffset="(\d+)"""").find(text)!!.groupValues[1].toLong()
+        assertEquals(structure.imageEnd, out.size - offset, "EOI 与视频之间夹了字节")
+        assertEquals(video.size.toLong(), offset)
+        assertFalse(text.contains("<Item:Semantic>"), "产物不携带副图字节，却还在声明容器项")
+        assertTrue(text.contains("GCamera:MotionPhoto=\"1\""), "批次产物没写成动态照片")
         assertTrue(text.contains("hdrgm:Version=\"1.0\""), "HDR 版本声明被丢了")
     }
 
