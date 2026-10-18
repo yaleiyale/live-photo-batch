@@ -160,14 +160,56 @@ class XmpMergerTest {
         assertTrue(text.contains("<Item:Semantic>GainMap</Item:Semantic>"), "副图声明被连带删了")
     }
 
-    @Test fun `camera namespace attributes are rewritten from scratch`() {
-        // §3 的字面规则：GCamera 这一段由我们重写，源里带什么都先剔掉。
-        // 抽样里 vivo 的包写着 GCamera:BoostCorrection="1.3600"，它按这条规则不会留下
-        // （报告 Concern 1 讨论该不该保留）。其余命名空间不受影响。
+    @Test fun `only the seven motion photo gcamera attributes are stripped`() {
+        // 修 round 1 的裁定（spec 增补 §3 改写）：剔除规则是**七个**动态照片专用属性的白名单，
+        // 不是"整个 GCamera 命名空间"。抽样里 vivo 的包带着 GCamera:BoostCorrection="1.3600"
+        // （HDR 增益记录，不是 Motion Photo 标记），删它会改变 HDR 渲染——与本增补"保住 gain map"
+        // 的目的相反，必须原样保留。其余命名空间照旧不受影响。
         val text = merge(Fixtures.gainMapXmp(441_963L), 5_000L)
-        assertEquals(0, count(text, "GCamera:BoostCorrection"))
+        assertEquals(1, count(text, "GCamera:BoostCorrection=\"1.3600\""), "HDR 增益记录被剔了")
         assertEquals(1, Regex("""GCamera:MicroVideoOffset="(\d+)"""").findAll(text).count())
         assertTrue(text.contains("hdrgm:GainMapHeadroom"), "同一元素上的非 GCamera 属性被连带删了")
+    }
+
+    @Test fun `stale motion photo attributes are stripped by name while every other gcamera attribute survives`() {
+        // 同一个源描述里混着"该留的 HDR/厂商 GCamera 属性"与"该换掉的陈旧 Motion Photo 属性"：
+        // 白名单按**属性名**精确剔除七个，其余（BoostCorrection、ImageEmbeddings、Burst*）一个都不许动。
+        val stale = Fixtures.gainMapXmp(441_963L).replace(
+            """      GCamera:BoostCorrection="1.3600"""",
+            """      GCamera:BoostCorrection="1.3600"
+      GCamera:ImageEmbeddings="checksum-abcdef"
+      GCamera:BurstId="burst7"
+      GCamera:BurstMasterPhoto="true"
+      GCamera:MicroVideo="0"
+      GCamera:MicroVideoVersion="0"
+      GCamera:MicroVideoOffset="999"
+      GCamera:MicroVideoPresentationTimestampUs="424242"
+      GCamera:MotionPhoto="0"
+      GCamera:MotionPhotoVersion="0"
+      GCamera:MotionPhotoPresentationTimestampUs="424242"""",
+        )
+        val text = merge(stale, 5_000L)
+        // 留下的：原值、原属性名，一条不多一条不少
+        listOf(
+            "GCamera:BoostCorrection=\"1.3600\"",
+            "GCamera:ImageEmbeddings=\"checksum-abcdef\"",
+            "GCamera:BurstId=\"burst7\"",
+            "GCamera:BurstMasterPhoto=\"true\"",
+        ).forEach { assertEquals(1, count(text, it), "保留属性丢了或重了：$it") }
+        // 剔掉的：陈旧值只准以我们算出来的值出现一次
+        assertEquals(1, count(text, "GCamera:MicroVideoOffset=\""), "MicroVideoOffset 没被换成单一计算值")
+        assertTrue(text.contains("GCamera:MicroVideoOffset=\"5000\""), "陈旧偏移没被计算值取代")
+        assertEquals(0, count(text, "GCamera:MicroVideoOffset=\"999\""))
+        assertEquals(0, count(text, "424242"), "陈旧时间戳残留")
+        assertEquals(0, count(text, "GCamera:MicroVideo=\"0\""))
+        assertEquals(0, count(text, "GCamera:MotionPhoto=\"0\""))
+        // 其余声明与我们的字段集照旧
+        assertTrue(text.contains("hdrgm:Version=\"1.0\""))
+        assertTrue(text.contains("<Item:Semantic>GainMap</Item:Semantic>"))
+        assertHasFullSpecFieldSet(text, 5_000L)
+        // 保留属性参与下的字节幂等：merge(merge(x)) 与 merge(x) 一字不差
+        val bytes = XmpMerger.merge(stale, 5_000L)
+        assertArrayEquals(bytes, XmpMerger.merge(String(bytes, Charsets.UTF_8), 5_000L))
     }
 
     // ---------- 源包的其他形状 ----------

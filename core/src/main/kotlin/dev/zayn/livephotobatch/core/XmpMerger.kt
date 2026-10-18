@@ -27,8 +27,10 @@ class MalformedXmpException(message: String, cause: Throwable? = null) : Excepti
  * - 源包为空（或整段只是空白）→ 直接交 §7.3 的模板字节，与旧实现完全一致；
  * - 保留无关命名空间与属性（`hdrgm:`、`dc:`、根元素上的 `x:xmptk`…），保留既有 `Container:Directory`
  *   的 Primary/GainMap 项，`Item:Length` 一个都不改（副图字节没挪动，值就不能改）；
- * - 剔掉任何旧的 `GCamera:*` 属性与 `Item:Semantic` 为 `MotionPhoto` 的项，再按 §7.3 写回我们自己的
- *   全部 `GCamera:*` 与 MotionPhoto 项；因此合并**幂等**：拿自己的产物再合一次，字节相同；
+ * - **只**剔掉七个动态照片专用的 `GCamera:*` 属性（见 [MOTION_PHOTO_ATTRIBUTES]）与 `Item:Semantic`
+ *   为 `MotionPhoto` 的项，再按 §7.3 写回我们自己的全部 `GCamera:*` 与 MotionPhoto 项；其余属性
+ *   ——包括 `GCamera:BoostCorrection` 这类 HDR 增益记录——原样保留（增补 §3，修 round 1 裁定）；
+ *   因此合并**幂等**：拿自己的产物再合一次，字节相同；
  * - 项顺序固定 Primary → GainMap → MotionPhoto（视频在最后），spec 增补 §2；
  * - 解析失败 → [MalformedXmpException]，由 composer 折成 `MALFORMED_XMP`（spec 增补 §3 最后一条）。
  *
@@ -47,6 +49,22 @@ object XmpMerger {
     /** `xmlns:prefix="uri"` 这类声明在 DOM 里就住在这个命名空间下。 */
     private const val XMLNS_NS = "http://www.w3.org/2000/xmlns/"
 
+    /**
+     * 增补 §3（修 round 1 裁定）的剔除白名单：**只有**这七个动态照片专用属性会被剔掉重写，
+     * 按 GCamera 命名空间 + 本地名精确匹配。其余任何属性——`GCamera:BoostCorrection`（HDR 增益
+     * 记录）、`GCamera:ImageEmbeddings`、`GCamera:Burst*`、`hdrgm:*`、厂商命名空间——一律原样保留。
+     * 这不是"其他都删"的黑名单的反写：规则就是七个名字的白名单，一个都不能多。
+     */
+    private val MOTION_PHOTO_ATTRIBUTES = setOf(
+        "MicroVideo",
+        "MicroVideoVersion",
+        "MicroVideoOffset",
+        "MicroVideoPresentationTimestampUs",
+        "MotionPhoto",
+        "MotionPhotoVersion",
+        "MotionPhotoPresentationTimestampUs",
+    )
+
     private const val MOTION_PHOTO = XmpPacket.ITEM_SEMANTIC_MOTION_PHOTO
     private const val PRIMARY = XmpPacket.ITEM_SEMANTIC_PRIMARY
 
@@ -62,7 +80,8 @@ object XmpMerger {
         val rdf = childElements(root, XmpPacket.RDF_NS, "RDF").firstOrNull()
             ?: newElement(doc, XmpPacket.RDF_NS, "rdf", "RDF").also { root.appendChild(it) }
 
-        // §3 的剔除：GCamera 这一段整个由我们重写，MotionPhoto 项也一样。
+        // §3 的剔除（修 round 1）：只有 Motion Photo 专用的那七个 GCamera 属性与 MotionPhoto 项
+        // 由我们重写；其余 GCamera 属性（BoostCorrection 等）留在原处，一个字节都不动。
         stripCameraAttributes(root)
         val harvested = harvestContainerItems(doc)
         installDirectory(doc, rdf, harvested, videoSize)
@@ -134,7 +153,9 @@ object XmpMerger {
 
     private fun stripCameraAttributes(root: Element) {
         for (el in descendants(root)) {
-            val names = attributesOf(el).filter { it.namespaceURI == XmpPacket.CAMERA_NS }
+            val names = attributesOf(el).filter {
+                it.namespaceURI == XmpPacket.CAMERA_NS && localNameOf(it) in MOTION_PHOTO_ATTRIBUTES
+            }
             names.forEach { el.removeAttributeNS(XmpPacket.CAMERA_NS, localNameOf(it)) }
         }
     }
