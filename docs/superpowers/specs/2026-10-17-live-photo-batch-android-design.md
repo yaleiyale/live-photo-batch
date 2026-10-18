@@ -482,3 +482,71 @@ Exif APP1 与其余段仍按源字节原样保留（A 就是这么做的，42 KB
   源包里有 `hdrgm:`/`dc:`/厂商属性时，产物包里**一个都不出现**。
 - 真机判据（决定性，唯一成功标准）：vivo 相册把 `<stem>_live.jpg` 当动态照片。
 - 上一节"产物必须丢掉 gain map"的要求作废。
+
+---
+
+## 增补（2026-10-18d，对齐 Google Motion Photo 1.0）：目录必须声明每一段字节
+
+依据：Android 官方 [Motion Photo format 1.0](https://developer.android.com/media/platform/motion-photo-format)。
+用户裁定「完全按照 Google 规范来」。这一节只改 **XMP 目录的内容**，不改 2026-10-18c 的字节布局
+（源 JPEG 整文件 + 尾巴保留 + 视频追加），也不改「清空重写、不掺源包属性」那条规则。
+
+### 1. 规范里咬得住我们的四条
+
+1. 媒体项**必须**按目录顺序排列且**紧密封装**（tightly packed）——任何落在两项之间、没被声明的字节都是违规。
+2. 主图是 Ultra HDR 的动态照片**必须**含 `Item:Semantic="GainMap"` 的项，且该项**必须**排在视频项之前。
+3. `Mime` 与 `Semantic` 每项必填；`Length` 对**次要项必填**；主图项的 `Length` 若写则应为 `0`（本规范不要求写）。
+4. `Padding` 只允许出现在**第一项**，语义是"已编码主图结尾与下一媒体项之间的额外字节"。
+
+vivo 源片自己是第 2 条的模范生：目录 `[Primary, GainMap]`，`Item:Length="371541"`，主图 XMP 带
+`hdrgm:Version="1.0"`。但它自己**不满足第 1 条**：副图 JPEG 之后还有 387 字节 `streamdataDEGS…`
+厂商记录没被任何项声明（092349：尾巴 371,928 = 副图 371,541 + 387）。
+
+### 2. 目录规则（取代 2026-10-18c §2 的包内容，布局不变）
+
+先给 `imageEnd` 之后那段尾巴定性，再按定性生成目录：
+
+| 尾巴是什么 | 目录项 | 附带 |
+|---|---|---|
+| 空（`imageEnd == 文件大小`） | `Primary` → `MotionPhoto` | 无 `Padding`、无 `hdrgm` |
+| 一张 **gain map**（`FFD8` 起头，内部段里出现 `urn:iso:std:iso:ts:21496-1` 或 `http://ns.adobe.com/hdr-gain-map/1.0/`） | `Primary` → `GainMap` → `MotionPhoto` | `GainMap` 的 `Item:Length` = **整条尾巴的字节数**；主图 XMP 写 `hdrgm:Version="1.0"` |
+| 另一张 JPEG 但**不是** gain map（MPF 副图、连拍缩略图等），或厂商记录/零填充 | `Primary` → `MotionPhoto` | `Primary` 写 `Item:Padding="<尾巴字节数>"` |
+
+**为什么 `GainMap` 的 `Length` 要含那 387 字节厂商记录**：规范只给第一项 `Padding`，副图与视频之间的
+空隙没有任何合法字段可以声明。写 `Length=371541`（副图 JPEG 自身的诚实长度）就必然留下 387 字节未声明，
+直接违反第 1 条 MUST；写 `Length=371928`（整条尾巴）则两项之间零空隙、每个字节都有归属，
+而 JPEG 解码器读到自己的 `FFD9` 就停，多出来的尾巴对它无害。二者只能选一，选合规的那个。
+诊断日志里要同时留下诚实长度（`371541`），便于人核对。
+
+`Item:Semantic` 的顺序固定 `Primary → GainMap → MotionPhoto`；`MotionPhoto` 项必须是最后一项，
+其后不得再有字节（现状已满足）。`GCamera` 前缀保留：规范的默认前缀是 `Camera`，但前缀只是标签，
+URI 才是语义，且 Pixel 自己的文件写的就是 `GCamera`。四个 `MicroVideo*` 属性保留：规范明确它们
+"已从本规范删除，若存在必须被忽略"，而 vivo 恰恰只读它们。
+
+### 3. 尾巴定性要可测试、可解释
+
+新增 `TrailerModel`（`:core`）：输入 `imageEnd`、文件大小与可重开的 `ChannelSource`，输出
+`object Description { gainMapBytes: Long?, paddingBytes: Long?, innerJpegBytes: Long? }`。
+
+- 尾巴为 0 → 全 null。
+- 头两字节不是 `FFD8` → `paddingBytes = 尾巴长度`。
+- 是 `FFD8` → 从 `imageEnd` 起做一次**流式** marker 遍历（常数内存、64 KiB 缓冲，规则同 §7.2：
+  按段长度跳、进 SOS 后只认非 `FF00`/非 `RSTn` 的 marker），得到副图自身的 `innerJpegBytes`；
+  遍历途中检查每个 `APPn` 载荷里有没有 `urn:iso:std:iso:ts:21496-1` 或 `hdr-gain-map`：
+  命中 → `gainMapBytes = 尾巴长度`（含厂商记录），否则 → `paddingBytes = 尾巴长度`。
+- 遍历不收敛（畸形副图）→ 按 `paddingBytes` 处理，**不报错**：尾巴能不能被声明不影响产物合法，
+  但如果它其实是张坏图，声明成 GainMap 才是真骗人。
+
+`TrailerClassifier`（`ALREADY_MOTION_PHOTO` 判据）与 `TrailerModel` 是两件事，不许合并：前者只问
+"这尾巴是不是上一轮追加的视频"，后者问"这段字节该被声明成什么"。
+
+### 4. 验收补充
+
+- 包必须与 §2 规则逐条对应，且**每个字节都被某个项声明**：单测断言
+  `Primary.Padding(若有) + (GainMap.Length 若有) + MotionPhoto.Length + 主图编码长度 == 文件大小`。
+  这条等式是"紧密封装"的可执行形式。
+- 三种尾巴（空 / gain map / 非副图的 JPEG 或厂商记录）各一条包断言；`hdrgm:Version` 只在
+  gain map 那条里出现。
+- `Item:Length` 只出现在 `GainMap` 与 `MotionPhoto` 两项上，`Padding` 只出现在 `Primary` 上。
+- 畸形副图（`FFD8` 起头但遍历不收敛）→ 降级成 `Padding`，不抛异常。
+- 真机判据不变：vivo 相册认作动态照片。这条**每次改包都要重跑**，因为上一轮的判定就是包决定的。

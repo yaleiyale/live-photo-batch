@@ -3228,3 +3228,106 @@ Run: `./gradlew :core:test` 然后 `./gradlew :app:testDebugUnitTest :app:assemb
 
 装这个包，跑一批，取一张产物验 `文件大小 - MicroVideoOffset == 视频起点` 且尾巴在位，
 然后 vivo 相册判定。不认就回到 §1 的对照表继续加变量，不许拿"测试全绿"当替代。
+
+---
+
+## Task 16: 目录声明每一段字节——对齐 Google Motion Photo 1.0
+
+spec 依据：设计文档最后一段「增补（2026-10-18d，对齐 Google Motion Photo 1.0）」§1-§4。
+字节布局沿用 2026-10-18c（源 JPEG 整文件 + 尾巴 + 视频），只改 XMP 目录的内容与"清空重写"的例外
+（`hdrgm:Version` 要带回来，但只在有副图时）。
+
+改动只在 `:core`。`XmpPacket.motionPhoto` 仍是包的唯一生成处；`TrailerClassifier` 不动。
+
+- [ ] **Step 1: 失败的 `TrailerModelTest`**
+
+`core/src/test/.../TrailerModelTest.kt`，夹具用 `Fixtures.kt` 里现成的三种尾巴：
+- `gainMapJpeg()`（主图 EOI 后是一张带 `urn:iso:std:iso:ts:21496-1` 或 `hdr-gain-map` 声明的第二张 JPEG）
+  → `describe` 必须给出 `gainMapBytes == 尾巴总长`、`innerJpegBytes == 副图 JPEG 自身长度`、`paddingBytes == null`；
+  夹具的尾巴要在副图 JPEG 之后**再塞一段非 JPEG 字节**（照 vivo 的 387 字节 `streamdata`），
+  这样才测得到"Length 含厂商记录"这条决定；
+- 第二张 JPEG 但**不带**任何 gain map 声明（模拟 MPF 副图）→ `paddingBytes == 尾巴总长`、`gainMapBytes == null`；
+- 厂商 JSON / 零填充尾巴（`vendorTrailerJpeg()`）→ `paddingBytes == 尾巴总长`；
+- 无尾巴 → 三个字段全 null；
+- `FFD8` 起头但遍历不收敛（把副图的某个段长度改成越界值）→ 降级成 `paddingBytes`，**不抛异常**；
+- 断言 `describe` 不整图进内存：给它一个只允许有限次 `open()` 的来源，或断言它只读到 `imageEnd` 之后
+  的字节（用一个记录读取量的 `ChannelSource` 包装）。
+
+Run: `JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew :core:test --tests '*TrailerModelTest*'` → 编译失败即 RED 成立。
+
+- [ ] **Step 2: 实现 `TrailerModel`**
+
+```kotlin
+/** `imageEnd` 之后那段字节该被目录声明成什么（spec 2026-10-18d §3）。 */
+object TrailerModel {
+    data class Description(
+        val gainMapBytes: Long?,   // 声明成 GainMap 项的字节数（含副图之后的厂商记录）
+        val paddingBytes: Long?,   // 声明成主图 Padding 的字节数
+        val innerJpegBytes: Long?, // 副图 JPEG 自身的诚实长度，只为诊断与测试
+    )
+
+    fun describe(image: ChannelSource, imageEnd: Long, fileSize: Long): Description
+}
+```
+
+- 尾巴为 0 → `Description(null, null, null)`。
+- 从 `imageEnd` 起流式遍历第二张 JPEG 的 marker（规则同 §7.2：`FF` 填充串、`FF00` 转义、`RSTn` 都要处理；
+  进 SOS 后扫到下一个非填充 marker 即 `FFD9`），途中把每个 `APPn` 载荷的头若干字节与
+  `urn:iso:std:iso:ts:21496-1` / `http://ns.adobe.com/hdr-gain-map/1.0/` 比对。
+  **常数内存**：定长缓冲，绝不 `readBytes()` 整段尾巴。
+- 命中声明 → `gainMapBytes = fileSize - imageEnd`（整条尾巴，理由见 spec §2 末段）、
+  `innerJpegBytes = 副图自身长度`；未命中或不是 JPEG 或不收敛 → `paddingBytes = fileSize - imageEnd`。
+- 遍历越界/不收敛一律降级，不抛。
+
+- [ ] **Step 3: 失败的包测试（三种尾巴 + 全字节声明等式）**
+
+`XmpPacketTest` 改/加：
+- `motionPhoto(videoSize = 5_032_601, gainMapBytes = 371_928)` 的包必须含
+  `<Container:Item Item:Semantic="GainMap" Item:Mime="image/jpeg" Item:Length="371928"/>`，
+  顺序 Primary → GainMap → MotionPhoto，且 `hdrgm:Version="1.0"` 与 `xmlns:hdrgm` 出现在宿主
+  `rdf:Description` 上；
+- `motionPhoto(videoSize, paddingBytes = 387)` 的包必须含 `Item:Padding="387"` 且**只**在 Primary 项上，
+  不含 GainMap、不含 `hdrgm`；
+- 两者都不给 → 包与 2026-10-18c 那份逐字节相同（回归钉桩：无副图无填充时形状不许漂移）；
+- `Item:Length` 只出现在 GainMap 与 MotionPhoto 两项上（Primary 项不许出现 Length）；
+- **声明完备性等式**（spec §4 第一条，"紧密封装"的可执行形式）：用夹具跑一次完整合成，断言
+  `主图编码长度(imageEnd) + padding + (gainMapBytes ?: 0) + videoSize == 产物文件大小`。
+  这条断言要写成对 `XmpPacket` 生成的包里读出来的数字做校验，不是拿常量硬凑。
+
+- [ ] **Step 4: `XmpPacket.motionPhoto` 接受尾巴描述**
+
+```kotlin
+fun motionPhoto(
+    videoSize: Long,
+    gainMapBytes: Long? = null,
+    paddingBytes: Long? = null,
+): ByteArray
+```
+- `gainMapBytes != null` 与 `paddingBytes != null` **互斥**：`require` 挡住同时给的情况
+  （那意味着上游定性逻辑出错，静默挑一个会产出一个骗人的目录）。
+- 有副图时在宿主 Description 的属性表里加 `xmlns:hdrgm` 与 `hdrgm:Version="1.0"`；
+  `Padding` 写在 Primary 项的属性里（只有第一项可以有）。
+- `app1Segment(...)` 同步带上这两个参数；`MotionPhotoComposer` 把 `TrailerModel.describe` 的结果传进去。
+- 包超过 64 KiB 仍走 `EXTENDED_XMP_UNSUPPORTED`（现在多了两项，仍远不到上限，守卫别删）。
+
+- [ ] **Step 5: 合成器接线 + 全量回归 + 提交**
+
+`MotionPhotoComposer`：`TrailerClassifier` 判完不是视频之后，调 `TrailerModel.describe(...)`，
+把结果喂给 `XmpPacket.app1Segment`。类头 KDoc 补一句"目录声明了 EOI 与视频之间的每一段字节"。
+`BatchRunnerTest` 里凡按旧包字节数断言的用例按新算式改正，不许放宽。
+
+Run: `./gradlew :core:test` 然后 `./gradlew :app:testDebugUnitTest :app:assembleDebug`（不许有警告）。
+绿了立刻 `git add core/src docs && git commit -m
+"feat(core): declare every container item so the product matches motion photo 1.0"`，再做 Step 6。
+**变异脚本只能在提交之后跑**（Task 14 的教训：`git checkout --` 会抹掉未提交的编辑）。
+
+- [ ] **Step 6: 变异验证（三条，各自必须红，跑完撤回并确认 `git status` 干净）**
+
+- `GainMap` 的 `Length` 改成副图诚实长度（`innerJpegBytes`）→ 声明完备性等式那条必须红；
+- 有副图时不写 `hdrgm:Version` → 副图那条包断言必须红；
+- 把 `paddingBytes` 也写进 GainMap 那条（两项并存）→ 互斥 `require` 必须红。
+
+- [ ] **Step 7: 真机复验（控制者执行，不可省）**
+
+包又变了，而上一轮的相册判定恰恰是由包决定的。装这个包、跑一批、拉一张产物核对目录与等式，
+然后 vivo 相册再判一次。不认就回 §2 逐条比，不许拿"单测全绿"当替代。
