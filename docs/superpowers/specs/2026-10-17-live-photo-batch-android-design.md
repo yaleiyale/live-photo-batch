@@ -240,6 +240,11 @@ XML 文本，因此不进入模板。
 `vivo{...}` + `cameralbum!<UUID>` 厂商记录、1 张 47 字节零填充。原 §7.4.3「EOI 后有任何残留即判为
 已是动态照片」会让用户的全部真实输入被跳过，功能等于不可用。用户裁定如下，取代 §7.4.3 的第 3 条。
 
+> **2026-10-18b 再取代**：本节 §1（尾巴分类作为「已是动态照片」的判据）继续有效；§2「保留 trailer」、
+> §3「合并并保留 Container 项」、§4「必须保住 gain map」三条被下面的同名小节整体替换。原因：按 §1-§3
+> 产出的文件真机**不被 vivo 相册识别**，而参考语料（vivo 自己认可的合成结果）既不保留 trailer，
+> 也不声明任何 Container 项。用户裁定「目标是做到和这个路径的合成结果一致，只是 app 的带 live 后缀」。
+
 ### 1. 尾巴分类（只有视频尾巴才算「已是动态照片」）
 
 - `VIDEO`（跳过，报 `ALREADY_MOTION_PHOTO`）满足任一：
@@ -253,31 +258,124 @@ XML 文本，因此不进入模板。
 
 ### 2. 保留 trailer 时的产物布局
 
-`SOI` + 新 XMP APP1 + `源图[2, imageEnd)` + **`源图[imageEnd, fileSize)`（trailer 原样）** + 视频字节。
-`MicroVideoOffset` 与视频项 `Item:Length` 仍等于**追加的视频字节数**：该值从文件末尾倒推，与中间是否
-夹着 gain map 无关，因此偏移语义不变。gain map 项的 `Item:Length` 保持源值不变（字节没动）。
-项顺序固定为 Primary → GainMap → MotionPhoto(视频在最后)，符合 Google container 规范。
+（2026-10-18b 起作废，见文末同名小节 §2。）
 
 ### 3. XMP 从「整体替换」改为「合并」
 
-旧实现丢掉源 XMP 再写我们的模板，这会让 gain map 失去声明（字节还在 → 解码器可能误读或渲染错）。
-新规则：
-
-- 源无 XMP → 输出 §7.3 的模板（与现在一致）。
-- 源有 XMP → 以源包为基底合并：保留 `hdrgm:` 等无关命名空间与属性、保留既有 `Container:Directory`
-  的 Primary/GainMap 项、**只**剔除动态照片专用的那批 `GCamera:*` 属性（`MicroVideo`、`MicroVideoVersion`、`MicroVideoOffset`、
-  `MicroVideoPresentationTimestampUs`、`MotionPhoto`、`MotionPhotoVersion`、
-  `MotionPhotoPresentationTimestampUs`）与 `Item:Semantic` 为 `MotionPhoto` 的项；其余 `GCamera:*`
-  （例如 vivo 包里的 `GCamera:BoostCorrection`，HDR 增益记录）必须原样保留 —— 删掉它会改变 HDR 渲染，
-  与本增补「保住 gain map」的目的相反，
-  然后追加我们的 MotionPhoto 项并写入 §7.3 要求的全部 `GCamera:*` 属性。
-- 实现手段：JDK/Android 自带的 `javax.xml` DOM（不引新依赖，不手写正则改 XML）。
-- 源 XMP 无法解析（畸形）→ 该项 `FAILED`，原因 `MALFORMED_XMP`（新增枚举值），不静默丢用户元数据。
+（2026-10-18b 起作废，见文末同名小节 §3。旧实现丢掉源 XMP 再写模板会让 gain map 失去声明的顾虑已消解：
+产物不再携带副图字节，所以也不需要声明副图项。）
 
 ### 4. 验收补充
 
-- 真机：取 vivo 相机原片 + 同名 mp4 合成，产物必须（a）仍被系统相册当动态照片，
-  （b）保留 gain map（对比合成前后同一张图在支持 HDR 的查看器里亮度一致），
-  （c）XMP 同时声明 GainMap 与 MotionPhoto 两项。
-- 单测必须覆盖：VIDEO 尾巴被跳过、gain map 尾巴被保留且 XMP 合并正确、厂商 JSON 尾巴被保留、
-  零填充被保留、无 XMP 时模板不变、畸形 XMP 报 `MALFORMED_XMP`。
+（2026-10-18b 起作废，见文末同名小节 §4。原 (b)「保留 gain map」与 (c)「同时声明 GainMap 与
+MotionPhoto 两项」被推翻——参考语料两者都不做。）
+
+---
+
+## 增补（2026-10-18b，对照 vivo 已识别语料）：产物形态收敛
+
+参考语料 = `D:\file\图像\carl的vivo X200 Pro mini+6665a2\图片\相机\合成图片文件夹` 里 17 张
+**vivo 相册正常当动态照片**的合成结果；同名源片与 mp4 在上一级 `<stem>(动态图)/` 目录里。
+本节逐字节验证了 3 张（`IMG_20261015_191555`、`IMG_20261018_093558`、`IMG_20261016_125806`），
+取代上一节 §2、§3、§4；上一节 §1（尾巴分类）继续作为「已是动态照片」的判据。
+
+### 1. 实测到的参考形态
+
+| stem | 源 jpg | 源 imageEnd | 源 trailer | 产物 | 产物 imageEnd | 产物 trailer | MicroVideoOffset |
+|---|---|---|---|---|---|---|---|
+| 191555 | 5,025,864 | 4,583,514 | 442,350 | 5,516,857 | 1,652,930 | **0** | 3,863,927 = mp4 |
+| 093558 | 3,894,226 | 3,466,139 | 428,087 | 1,476,734 | 1,054,759 | **0** | 421,975 = mp4 |
+| 125806 | 8,347,228 | 7,286,943 | 1,060,285 | 11,967,974 | 2,972,768 | **0** | 8,995,206 = mp4 |
+
+- 产物里 **EOI 之后紧跟 mp4 的第一个字节，中间零字节**；`文件大小 - MicroVideoOffset == imageEnd`
+  三张全部成立。源片那 40 万~106 万字的 gain map 副图在产物里**不存在**——vivo 自己的合成把它丢了。
+- 段的先后顺序保持源片的样子：`SOI` → `APP0(JFIF)` → **EXIF `APP1`（42 KB）** → **XMP `APP1`** →
+  量化表/帧头/熵数据 → `FFD9`。XMP 不在 EXIF 之前。源片本身也是 EXIF 在前、XMP 在后。
+- 产物的 XMP 包是**一个** `rdf:RDF`、动照片属性全在**一个** `rdf:Description` 上，
+  `<Container:Directory>` 里是**空的 `<rdf:Seq/>`**：既不再声明 gain map 项，也不声明视频项，
+  读取方靠 `GCamera:MicroVideoOffset` 定位视频。摘录（191555，包体 2,813 字节，尾段是 Exiv2 的
+  空格填充，属于可选装饰）：
+
+  ```xml
+  <rdf:Description rdf:about="" xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
+      xmlns:Container="http://ns.google.com/photos/1.0/container/"
+      xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+      hdrgm:Version="1.0"
+      GCamera:MicroVideoVersion="1" GCamera:MicroVideo="1"
+      GCamera:MicroVideoOffset="3863927" GCamera:MicroVideoPresentationTimestampUs="-1"
+      GCamera:MotionPhoto="1" GCamera:MotionPhotoVersion="1"
+      GCamera:MotionPhotoPresentationTimestampUs="-1">
+    <Container:Directory><rdf:Seq/></Container:Directory>
+  </rdf:Description>
+  ```
+
+  七属性（四 `MicroVideo*` + 三 `MotionPhoto*`）与 §7.3 一致；参考语料两组都写，两组都保留。
+  `x:xmptk` 是写入方签名（语料里是 `XMP Core 4.4.0-Exiv2`），不属于形态要求：本 app 保留源值。
+
+### 2. 产物布局：EOI 之后只放视频
+
+取代上一节 §2。
+
+```
+SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, imageEnd) + 视频字节
+```
+
+- `imageEnd` 之后的源字节**一律不搬**（gain map、厂商记录、零填充都丢掉）。分类器只保留一件事：
+  `TrailerKind.VIDEO` → `ALREADY_MOTION_PHOTO` 跳过；`OTHER`/`NONE` 一律放行并丢弃尾巴。
+- 新 XMP APP1 **写回旧 XMP 段原来的位置**。上一节实现把它插在 SOI 之后，于是产物里 XMP 跑到了 EXIF
+  前面，与参考语料相反；源没有 XMP 时仍插在 `SOI` 之后（此时它前面最多只有一个 `APP0`）。
+- 包与 APP1 都不携带 `Container` 视频项，`MicroVideoOffset` 取 `videoSize`：偏移量与文件布局之间
+  没有循环依赖，`文件大小 - MicroVideoOffset == imageEnd` 是产物自身必须成立的可断言等式。
+- `JpegXmpPatcher.patch` 的 `trailerEnd` 参数删除：不再有"越过 EOI 还要搬字节"的调用方。
+
+代价与裁定：产物丢掉 gain map → HDR 源片在相册里按 SDR 显示。用户裁定「目标是做到和这个路径的合成
+结果一致，只是 app 的带 live 后缀」，而参考语料本身就不带 gain map；两个源文件仍在源目录里
+（除非勾选删除原片），信息没有丢。**放弃**上一节 §4 的「保住 gain map」验收项。
+
+### 3. XMP：单根、单 Description、空 Directory
+
+取代上一节 §3。合并规则重写为四条，全部可在单测里断言：
+
+1. **只有一个 `rdf:RDF`**：取 `<x:xmpmeta>` 下第一个 `rdf:RDF` 作宿主，一个都没有才新建并追加。
+   上一节实现实测产出**两个兄弟 `rdf:RDF`**——源包被掏空成只剩 `hdrgm:Version="1.0"` 的空壳留在
+   第一个 RDF 里，我们的三组声明挂在第二个 RDF 里。XML 仍然合法所以解析不报错，但按
+   `xmpmeta/rdf:RDF/rdf:Description` 取属性的读取方（相册、Exiv2）只会看到那个空壳 → 等于没声明。
+2. **动照片七属性只写在一个 `rdf:Description` 上**：宿主 = 携带 `Container:Directory` 的那个
+   Description；没有 Directory 就用第一个 Description；一个 Description 都没有才新建。其余
+   Description 上的七属性（`MOTION_PHOTO_ATTRIBUTES`）一律剔掉，不再新建第二组。
+3. **`Container:Directory` 只有一个，且 `rdf:Seq` 为空**：把宿主上已有的 Directory 替换成
+   `<Container:Directory><rdf:Seq/></Container:Directory>`；源里的项一律丢弃——vivo 把项写成
+   `<Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/>`，语义与 MIME 是一个
+   `Container:Item` **子元素上的属性**，上一节实现按「`Item:Semantic` 子元素的文本」去找，
+   永远找不到，于是源项既没被识别也没被重建。副图字节不再进产物、视频项无需声明，空 Seq 即参考形态。
+   其他位置重复出现的 Directory 同样丢弃。
+4. **其余内容一概不动**：源包里任何命名空间的属性与子元素（`hdrgm:*`、`dc:*`、`photoshop:*`、
+   厂商命名空间、非 `Container:Directory` 的元素）原样保留；`x:xmptk` 保留源值，源没有就缺省。
+
+源无 XMP（或整段只是空白）→ 输出一个**与合并产物同形**的包：单 RDF、单 Description、七属性、
+空 `Container:Directory`。§7.3 的旧模板（三组 Description + 两项 `rdf:li`）作废，
+`XmpPacket.motionPhoto()` 与合并路径共用同一个构造器，两条路径不得产出两种形状。
+
+实现手段仍是 `javax.xml` DOM（不引依赖、不用正则改 XML）+ 上一节那套确定性序列化：`XmpMerger` 的
+`Writer`、`MAX_DEPTH`、实体解析与 `MalformedXmpException` 全部保留，只换上面四条规则。
+
+### 4. 验收补充
+
+取代上一节 §4。
+
+- **fixture 用真实 vivo 包**：上一节 §3 那份 957 字节 APP1（`http://ns.adobe.com/xap/1.0/` + NUL 起头、
+  无 `<?xpacket?>`、`Container:Item` 属性式、`hdrgm:Version` 与 Directory 同居一个 Description）。
+  它就是 `XmpMerger` 的回归用例——上一节实现被它产出了两个 `rdf:RDF`。
+- 合并产物的**形状断言**（重解析后检查，不比字符串）：
+  (a) `documentElement` 名下 `rdf:RDF` 子元素恰好 1 个；
+  (b) 七属性只出现在 1 个 `rdf:Description` 上，且该 Description 是 `Container:Directory` 的父节点；
+  (c) 那个 Directory 的 `rdf:Seq` 没有 `rdf:li` 子元素；
+  (d) `GCamera:MicroVideoOffset` 等于 `videoSize`；
+  (e) 源的 `hdrgm:Version` 仍在。
+- 布局断言：`产物大小 - MicroVideoOffset == 产物 imageEnd`，且 `imageEnd` 起前 12 字节内出现 `ftyp`；
+  EOI 与视频起点之间零字节；EXIF `APP1` 仍在 XMP `APP1` 之前（源里有的话）。
+- 幂等：本 app 的产物再合成一次必须报 `ALREADY_MOTION_PHOTO`（尾巴是视频形状）；把合并产物再喂给
+  合并器，字节必须相同。
+- **真机判据（本轮唯一成功标准）**：vivo 相册把 `<stem>_live.jpg` 当动态照片。
+- 明确放弃：产物保留 gain map；`Container` 里声明 MotionPhoto 视频项。
+

@@ -2913,3 +2913,246 @@ git commit -m "docs: add acceptance checklist and measured numbers"
 - [ ] 9. `./gradlew :core:test` 全绿；`git add core/src docs && git commit -m
   "feat(core): keep non-video jpeg trailers and merge motion photo xmp"`。
 - [ ] 10. 真机复验（并入 Task 12 验收清单）：vivo 原片配对必须报成功且相册可播、gain map 未丢。
+
+---
+
+## Task 14: 产物形态收敛到 vivo 已识别的合成结果（取代 Task 13 的 §2/§3/§4）
+
+spec 依据：设计文档「增补（2026-10-18b，对照 vivo 已识别语料）：产物形态收敛」§1-§4。Task 13 的
+「搬非视频尾巴」+「保留/重建 Container 项」两条实现被参考语料推翻，本任务把它们改掉。
+
+现场证据（已实测，不需要重做）：17 张被 vivo 相册当动态照片的合成结果里，抽验 3 张逐字节确认
+**EOI 之后零字节、紧跟 mp4**，源片的 gain map 副图（40 万~106 万字）根本没进产物；EXIF `APP1`
+在 XMP `APP1` **之前**（源序如此，产物也如此）；XMP 是**单个** `rdf:RDF`、七属性写在**同一个**
+`rdf:Description` 上、`Container:Directory` 里是**空的** `<rdf:Seq/>`。而我们 Task 13 的真机产物
+`g_live.jpg` 有两个兄弟 `rdf:RDF`（源包被掏空只剩 `hdrgm:Version="1.0"` 留在第一个 RDF，我们的声明
+在第二个 RDF 里）、XMP 被挪到 EXIF 之前、EOI 与视频之间夹着 442,350 字节的副图——相册不认。
+
+改动范围只有 `:core`；`:app`、`BatchRunner`、`PairPlanner`、UI 一律不动。
+
+- [ ] **Step 1: 先把三条新形状要求写成失败的测试**
+
+在 `core/src/test/.../XmpMergerTest.kt` 里加真实 vivo 源包作 fixture（**逐字节照抄**，这是回归用例；
+放在 `Fixtures.kt` 里命名 `vivoSourcePacket()`，它是 191555 与 093558 两片共用的那一型）：
+
+```kotlin
+// 源包：<x:xmpmeta> 无 <?xpacket?> 头；Container 项写成 <Container:Item Item:Semantic="…"/>
+// 这种"语义与 MIME 是子元素的属性"的形状；hdrgm:Version 与 Directory 同居一个 Description。
+val vivo = """
+<x:xmpmeta
+  xmlns:x="adobe:ns:meta/"
+  x:xmptk="Adobe XMP Core 5.1.2">
+  <rdf:RDF
+    xmlns:rdf="http://www.w3.org/1999-02-22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:Container="http://ns.google.com/photos/1.0/container/"
+      xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+      xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
+      hdrgm:Version="1.0">
+      <Container:Directory>
+        <rdf:Seq>
+          <rdf:li
+            rdf:parseType="Resource">
+            <Container:Item
+              Item:Semantic="Primary"
+              Item:Mime="image/jpeg"/>
+          </rdf:li>
+          <rdf:li
+            rdf:parseType="Resource">
+            <Container:Item
+              Item:Semantic="GainMap"
+              Item:Mime="image/jpeg"
+              Item:Length="441963"/>
+          </rdf:li>
+        </rdf:Seq>
+      </Container:Directory>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+""".trim()
+```
+
+断言全部**重解析 DOM 后检查节点数**，不许比对字符串（spec 增补 2026-10-18b §4）：
+
+1. `merge(vivo, 3_863_927)` 的产物里 `x:xmpmeta` 名下 `rdf:RDF` **恰好 1 个**（这条现在必红——
+   就是 Task 13 产出的两个 RDF）；
+2. 七个动照片属性只出现在**1 个** `rdf:Description` 上，且该 Description 就是 `Container:Directory`
+   的父节点；`GCamera:MicroVideoOffset` 等于传入的 `videoSize`；
+3. Directory 的 `rdf:Seq` **没有** `rdf:li` 子元素（副图项与视频项都不声明）；
+4. `hdrgm:Version="1.0"` 与根上的 `x:xmptk="Adobe XMP Core 5.1.2"` 仍在（源值优先）；
+5. `merge(merge(vivo, size), size)` 与 `merge(vivo, size)` **字节相同**（幂等）；
+6. 无源包 `merge(null, size)` 的形状与上面 1-3 条一致：单 RDF、七属性同在一个 Description、空 Seq
+   （即 §7.3 旧模板作废，模板与合并产物同形）；
+7. 源的 `Container:Directory` 出现在第二个 Description、或源里有多个 Directory 时：产物只剩宿主上
+   那一个空 Directory，其他位置的 Directory 连同项一起消失；
+8. 源里另一个 Description 带着 `GCamera:MotionPhoto="1"`：合并后该属性只在宿主 Description 上出现，
+   不会有两组；
+9. 源里的非 Directory 内容（例如 `<dc:title><rdf:Alt><rdf:li xml:lang="x-default">标题</rdf:li></rdf:Alt></dc:title>`）
+   原样保留——这条守住"只动 Directory 与七属性"的边界。
+
+- [ ] **Step 2: 跑 `./gradlew :core:test --tests '*XmpMergerTest*'` 确认失败**
+
+Expected: 1/2/3/6/7 红（两个 RDF、Directory 带项、模板形状不同形）。红不过就说明断言没咬住旧行为。
+
+- [ ] **Step 3: 重写 `XmpMerger` 的规则（保留 Writer、深度上限、实体防护与 `MalformedXmpException`）**
+
+删掉 `harvestContainerItems`、`installDirectory`、`installCameraDescriptions`、`dropEmptyDescriptions`
+和 `Harvested`、`MOTION_PHOTO`/`PRIMARY` 常量（项不再被重建，语义识别没有存在必要），`merge` 换成
+下面四步，顺序不许调换：
+
+```kotlin
+fun merge(sourcePacket: String?, videoSize: Long): ByteArray {
+    val doc = if (sourcePacket.isNullOrBlank()) newDocument() else parse(sourcePacket)
+    val root = doc.documentElement
+        ?: throw MalformedXmpException("XMP 包没有根元素，无法合并")
+    rejectDeepNesting(root)
+    if (local(root) != "xmpmeta") {
+        throw MalformedXmpException("XMP 包的根元素不是 x:xmpmeta，而是 <${root.tagName}>")
+    }
+    // §3.1 单根：有则用第一个，没有才新建并追加。绝不另起第二个 rdf:RDF 挂我们的声明。
+    val rdf = childElements(root, XmpPacket.RDF_NS, "RDF").firstOrNull()
+        ?: newElement(doc, XmpPacket.RDF_NS, "rdf", "RDF")
+            .declare("rdf", XmpPacket.RDF_NS).also { root.appendChild(it) }
+    // §3.2 宿主 = 带 Directory 的 Description；没有则第一个 Description；再没有才新建（带 rdf:about=""）。
+    val descriptions = descendants(rdf).filter { local(it) == "Description" && it.namespaceURI == XmpPacket.RDF_NS }
+    val host = descriptions.firstOrNull { hasDirectory(it) }
+        ?: descriptions.firstOrNull()
+        ?: newElement(doc, XmpPacket.RDF_NS, "rdf", "Description")
+            .also { it.setAttributeNS(XmpPacket.RDF_NS, "rdf:about", "") }
+            .also { rdf.appendChild(it) }
+    // 先剔干净：全树七属性 + 全树 Directory（vivo 的项是 Container:Item 的属性形状，
+    // 逐个识别语义既做不到也不需要——产物不声明项）。宿主的旧 Directory 也在这里被摘掉，
+    // 随后重新追加空的一份，所以"只有一个 Directory 且 Seq 为空"是构造出来的性质。
+    stripCameraAttributes(root)
+    descendants(root).forEach { dropDirectories(it) }
+    host.declare("GCamera", XmpPacket.CAMERA_NS)
+    MOTION_PHOTO_VALUES(videoSize).forEach { (name, value) ->
+        host.setAttributeNS(XmpPacket.CAMERA_NS, name, value)
+    }
+    host.appendChild(emptyDirectory(doc))
+    return packet(doc)
+}
+```
+
+要点：
+- `descendants(rdf)` 只用于找 Description：`x:xmpmeta/rdf:RDF/rdf:Description` 是读取方走的形状，
+  躲在别处的 Description 不是宿主候选。
+- `dropDirectories(parent)` 摘掉该元素名下**直接**的 `Container:Directory` 子元素；对全树每个元素
+  各调一次，等价于"任何深度、任何归属"的 Directory 都被摘光（vivo 形状里它是 Description 的直接子元素）。
+  项（`rdf:li`）住在 Directory 里面，所以跟着一起消失，不需要单独认语义。
+- `emptyDirectory(doc)` = `<Container:Directory><rdf:Seq/></Container:Directory>`，`Container` 前缀
+  声明补在 Directory 元素上（`Writer` 的 `usedPrefixes` 已负责补齐，显式 `declare` 更贴近参考语料）。
+- `MOTION_PHOTO_VALUES(videoSize)` = 有序七项：`GCamera:MicroVideo="1"`、`MicroVideoVersion="1"`、
+  `MicroVideoOffset=videoSize.toString()`、`MicroVideoPresentationTimestampUs="-1"`、
+  `MotionPhoto="1"`、`MotionPhotoVersion="1"`、`MotionPhotoPresentationTimestampUs="-1"`。
+  `MOTION_PHOTO_ATTRIBUTES`（剔除白名单）与参考语料一致，保持七个本地名不变。
+- `newDocument()`：`docBuilder().newDocument()` + `appendChild(x:xmpmeta)`，`x` 前缀声明照 §7.3；
+  根上没有 `x:xmptk`（我们不冒充别人的写入方签名）。
+- 源包为 null/空白时走 `newDocument()`，**不再有**「直接返回 `XmpPacket.motionPhoto()`」这一支：
+  模板与合并共用同一个构造器，形状无法各自漂移。
+
+- [ ] **Step 4: `XmpPacket.motionPhoto()` 改为委托，模板不再自带 Container 项**
+
+```kotlin
+/** 无源 XMP 时的包：与合并产物同一个构造器（spec 增补 2026-10-18b §3 末段）。 */
+fun motionPhoto(videoSize: Long): ByteArray = XmpMerger.merge(null, videoSize)
+```
+
+删掉 `buildList` 那套三组 `rdf:Description` + 两项 `rdf:li` 的模板字符串与 `ITEM_SEMANTIC_PRIMARY`/
+`ITEM_SEMANTIC_MOTION_PHOTO`/`ITEM_NS`/`XMPMETA_NS` 中不再被引用的常量（`ITEM_NS` 若 Writer/其他
+地方还在用就留着，按实际引用判）。`app1Segment`、`app1SegmentFor`、`requireFitsInSegment`、
+`PACKET_BEGIN`/`PACKET_END`、`XAP_IDENTIFIER` 一律不动。
+`XmpPacketTest` 里断言旧模板形状（三组 Description、两项 `rdf:li`、`Item:Length`）的用例必须改写为
+新形状；`app1SegmentFor` 与 64 KiB 上限的用例不动。
+
+- [ ] **Step 5: 布局测试——EOI 之后只放视频、XMP 写回原位**
+
+`JpegXmpPatcherTest` 新增/改写：
+- 源图布局 `SOI + APP0 + APP1(EXIF) + APP1(XMP) + 段 + FFD9 + 442B 副图`，`patch` 之后产物必须是
+  `SOI + APP0 + APP1(EXIF) + APP1(新XMP) + 段 + FFD9`，**副图一个字节都不在**；EXIF 仍在新 XMP 之前。
+- 源图无 XMP：`SOI + APP0 + 段 + FFD9 + 尾巴` → `SOI + APP1(新XMP) + APP0 + 段 + FFD9`。spec §2
+  的字面是「源无 XMP 时插在 SOI 之后」，即新段会**把 APP0 推到后面**。这条要在测试里按实际顺序断言，
+  并在 `patch` 的 KDoc 里写明这个后果（vivo 源片本来就没有 APP0，参考语料也没有这种形状，
+  不为它加特例）。
+- 返回值仍然是「从源图写入 sink 的字节数」= `imageEnd - 旧XMP.length`，**不再含尾巴**；
+  所有 `trailerEnd = …` 的调用与断言删除。
+
+`MotionPhotoComposerTest` 改写（这些用例现在钉的是被推翻的旧规则）：
+- 带 gain map 尾巴的源 → 必须成功，且 `产物大小 == imageEnd - 旧XMP长度 + app1.size + videoSize`、
+  `产物大小 - MicroVideoOffset == 产物自己的 imageEnd`、`imageEnd` 起 12 字节内出现 `ftyp`
+  （EOI 与视频之间零字节，用重扫产物得到 `imageEnd` 来断言，不许硬编码偏移）。
+- `vendorTrailerJpeg()` / 零填充夹具 → 仍然成功，但尾巴不再出现在产物里。
+- 上一轮自己的产物（EOI 后紧跟 mp4）再合成 → 仍然 `ALREADY_MOTION_PHOTO`。
+- `Success.totalBytes` 必须等于产物文件的真实字节数（`patched + app1.size + videoSize` 这条算式在
+  去掉尾巴后依然成立，`patch` 的返回值已不含尾巴，别重复加）。
+
+`TrailerClassifier`/`TrailerKind` 的 API 与测试**不动**：分类器仍然三态，变的是 composer 对
+`OTHER`/`NONE` 的处置——从「把尾巴搬到 XMP 之后、视频之前」改成「丢尾巴」。
+
+- [ ] **Step 6: 实现 `JpegXmpPatcher.patch` 的原位写回**
+
+```kotlin
+fun patch(structure: JpegStructure, image: ChannelSource, sink: WritableByteChannel, app1: ByteArray): Long {
+    val emit: (ByteBuffer) -> Unit = { sink.writeAll(it) }
+    val discard: (ByteBuffer) -> Unit = { }
+    val buf = ByteArray(COPY_BUFFER)
+    var copied = 0L
+    image.open().use { ch ->
+        val input = Channels.newInputStream(ch)
+        val oldXmp = structure.oldXmp
+        if (oldXmp == null) {
+            // 源里没有 XMP 段：没有"原位"可回，就按 §7.3 插在 SOI 之后。
+            copied += transfer(input, buf, 2L, emit)
+            sink.writeAll(ByteBuffer.wrap(app1))
+            copied += transfer(input, buf, structure.imageEnd - 2L, emit)
+        } else {
+            // 旧段之前的段（EXIF、ICC、APP0…）必须留在新 XMP 之前——参考语料就是这个顺序。
+            copied += transfer(input, buf, oldXmp.start, emit)         // SOI + [2, 旧段)
+            sink.writeAll(ByteBuffer.wrap(app1))
+            transfer(input, buf, oldXmp.length, discard)
+            copied += transfer(input, buf, structure.imageEnd - oldXmp.endExclusive, emit)
+        }
+    }
+    return copied
+}
+```
+
+`require(trailerEnd >= imageEnd)` 与那行 trailer 搬运整条删除。KDoc 改：产物布局、返回值语义
+（不含尾巴）、以及"新段写回旧段原位"这条为什么存在（相册按 `EXIF 在前` 的形状读，且参考语料如此）。
+
+- [ ] **Step 7: `MotionPhotoComposer` 停止搬尾巴**
+
+`patch(structure, image, sink, app1)` 去掉 `trailerEnd = fileSize` 实参；类头 KDoc 的产物布局一行
+改成 spec 增补 2026-10-18b §2 那串，并删掉"中间夹着 gain map 也不改变这个语义"那段——现在不夹了。
+校验顺序不变（视频头 → SOI → 段遍历 → 扩展 XMP → 尾巴分类 → XMP 合并），`readAt` 取 trailer head
+仍然要（VIDEO 判据依赖它），`TrailerKind.OTHER`/`NONE` 落到"继续，但不搬尾巴"。
+
+- [ ] **Step 8: 全量回归**
+
+Run: `./gradlew :core:test` 然后 `./gradlew :app:testDebugUnitTest :app:assembleDebug`
+Expected: `:core` 全绿（条数会比 127 多，因为新增了形状用例）；`:app` 24 绿；`assembleDebug` 无警告。
+`BatchRunnerTest` 里若有按旧字节数断言 `totalBytes` 的用例，按新算式改正——**不许**为了让旧断言变绿
+而保留尾巴搬运。
+
+- [ ] **Step 9: 变异验证（三条各杀一次，spec 增补 2026-10-18b §4）**
+
+- 把 `patch` 的 EXIF 保序那步改成「先写 app1 再写 `oldXmp.start - 2` 字节」（即恢复旧顺序）→ 必须有
+  用例红；
+- 把 `dropDirectories` 去掉（保留源 Directory 及其项）→ 必须有用例红；
+- 把 `transfer(input, buf, structure.imageEnd - oldXmp.endExclusive, emit)` 改成搬到 `fileSize`
+  （恢复搬尾巴）→ 必须有用例红。
+三次变异都要在报告里写清命令与红掉的用例名，然后把改动撤回。
+
+- [ ] **Step 10: 提交**
+
+```bash
+git add core/src docs
+git commit -m "fix(core): match the vivo-recognised motion photo layout and single-root xmp"
+```
+
+- [ ] **Step 11: 真机复验（并入 Task 12 的验收清单，本轮唯一成功判据）**
+
+装机后对 15 对 vivo 原片跑一批，取一张产物拉回本机验证：`文件大小 - MicroVideoOffset == 重扫得到的
+imageEnd`、EXIF 在 XMP 之前、XMP 单 RDF；然后**在 vivo 相册里看它是不是动态照片**。不识别就回到
+本节继续比差异，不许把「测试全绿」当成这一条的替代。
+
