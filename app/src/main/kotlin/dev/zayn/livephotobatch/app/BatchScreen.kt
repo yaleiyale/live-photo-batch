@@ -144,6 +144,18 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
         if (state.items.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             Text("报告", style = MaterialTheme.typography.titleSmall)
+            // spec §9：单项失败不中断批次，但 UI 要在末尾汇总计数（磁盘写满就是逐项 IO_ERROR）。
+            val counts = state.items.groupingBy { it.status }.eachCount()
+            val warned = state.items.count { it.deleteFailures.isNotEmpty() }
+            Text(
+                buildString {
+                    append("成功 ${counts[ItemStatus.SUCCESS] ?: 0}")
+                    append(" · 跳过 ${counts[ItemStatus.SKIPPED] ?: 0}")
+                    append(" · 失败 ${counts[ItemStatus.FAILED] ?: 0}")
+                    if (warned > 0) append(" · 原文件没删掉 $warned")
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
             state.items.forEach { item ->
                 Text(itemLine(item), Modifier.padding(vertical = 2.dp))
             }
@@ -258,14 +270,17 @@ private fun itemLine(item: ItemResult): String {
     return head + warning
 }
 
-/** `ItemResult.reason` 是 `FailureReason?`，核心层只给枚举，中文说法在这里翻译。 */
-private fun reasonText(reason: FailureReason?): String = when (reason) {
-    null -> "未说明"
-    FailureReason.NOT_JPEG -> "不是 JPEG"
-    FailureReason.MALFORMED_JPEG -> "JPEG 结构损坏"
-    FailureReason.ALREADY_MOTION_PHOTO -> "已是动态照片"
-    FailureReason.EXTENDED_XMP_UNSUPPORTED -> "扩展 XMP 不支持"
-    FailureReason.NOT_MP4 -> "不是 MP4"
-    FailureReason.IO_ERROR -> "读写故障"
-    FailureReason.NO_PAIR -> "没有配对的文件"
+/** `FailureReason` 的中文说法；spec §9 要求面向用户给中文短语，同时保留机器可读的枚举名。 */
+private fun reasonText(reason: FailureReason?): String {
+    val zh = when (reason) {
+        null -> "未说明"
+        FailureReason.NOT_JPEG -> "不是 JPEG"
+        FailureReason.MALFORMED_JPEG -> "JPEG 结构损坏"
+        FailureReason.ALREADY_MOTION_PHOTO -> "已是动态照片"
+        FailureReason.EXTENDED_XMP_UNSUPPORTED -> "扩展 XMP 不支持"
+        FailureReason.NOT_MP4 -> "不是 MP4"
+        FailureReason.IO_ERROR -> "读写故障"
+        FailureReason.NO_PAIR -> "没有配对的文件"
+    }
+    return if (reason == null) zh else "$zh（${reason.name}）"
 }
