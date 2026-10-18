@@ -3156,3 +3156,75 @@ git commit -m "fix(core): match the vivo-recognised motion photo layout and sing
 imageEnd`、EXIF 在 XMP 之前、XMP 单 RDF；然后**在 vivo 相册里看它是不是动态照片**。不识别就回到
 本节继续比差异，不许把「测试全绿」当成这一条的替代。
 
+
+---
+
+## Task 15: 回到桌面端语义——尾巴保留 + XMP 清空重写（取代 Task 13/14 的 XMP 与布局规则）
+
+spec 依据：设计文档最后一段「增补（2026-10-18c，真机单变量对照）：尾巴保留 + XMP 清空重写」§1-§4。
+真机对照已经定死判据：A（源 JPEG 整文件 + 尾巴 + 清空重写的包）**被 vivo 相册认**；B（重编码主图、
+无尾巴、同一个包）不认；Task 14 产物（截到 EOI、合并保留源 XMP）不认；Task 13 产物（有尾巴、包是
+合并出来的两个兄弟 RDF）不认。所以本任务同时撤销 Task 14 的"丢尾巴"和 Task 13 的"合并源包"。
+
+改动只在 `:core`。`RDF_NS` 的修正、`XmpPacket.motionPhoto` 作为唯一包生成入口、新 XMP 写回旧段原位
+这三件事**保留**，不要回退。
+
+- [ ] **Step 1: 先写失败的包字面量测试**
+
+`XmpPacketTest` 里加一条：`motionPhoto(3_863_927)` 的字节必须与 spec 2026-10-18c §2 那份包**逐字节相同**
+（把那份包原样写成 fixture 常量，两处 `<VIDEO_SIZE>` 用同一个长度替换；换行是 `
+`，行首缩进照抄，
+`<?xpacket begin>` 里的 BOM 用 `﻿`）。再加一条：`MicroVideoOffset` 与 `Item:Length` 两处都等于
+传入的 `videoSize`，且整包小于 64 KiB 上限。
+
+Run: `./gradlew :core:test --tests '*XmpPacketTest*'` → 红（现在的实现产出的是合并形状）。
+
+- [ ] **Step 2: 重写 `XmpPacket.motionPhoto`，删掉合并器**
+
+- `motionPhoto(videoSize)` 直接按 §2 那份模板拼字节（`buildList` 逐行 join 的写法可以留用，
+  `﻿` 必须留在普通字符串里，理由见现有注释）。属性顺序、缩进、`rdf:li` 单行写法都要与 fixture 一致。
+- 删除 `XmpMerger.kt`、测试侧的 `XmpShape.kt`、`XmpMergerTest.kt`，以及 `Fixtures.kt` 里只被它们用的
+  夹具（`vivoSourcePacket()` 若还被 `TrailerClassifierTest`/composer 测试用作"源包"输入就留着，
+  按实际引用判）。
+- 删除 `FailureReason.MALFORMED_XMP` 与 `MotionPhotoComposer` 里那个 `catch (e: MalformedXmpException)`
+  分支（不再有产生它的路径）。`EXTENDED_XMP_UNSUPPORTED` 的守卫留着（包超 64 KiB 仍要报）。
+- `XmpPacket` 里不再被引用的常量（`ITEM_SEMANTIC_*`、`XMPMETA_NS`、`PACKET_BEGIN/END` 等）按实际引用删。
+
+- [ ] **Step 3: 恢复尾巴搬运**
+
+`JpegXmpPatcher.patch` 加回 `trailerEnd: Long = structure.imageEnd` 参数，在写完
+`源图[旧XMP末, imageEnd)` 之后再搬 `trailerEnd - imageEnd` 字节；返回值 = `imageEnd - 旧XMP.length +
+(trailerEnd - imageEnd)`。KDoc 写清为什么尾巴必须留（真机单变量对照：截掉尾巴的产物不被认）。
+`MotionPhotoComposer` 调用处传 `trailerEnd = fileSize`，类头 KDoc 换成 2026-10-18c §1 那串布局。
+
+- [ ] **Step 4: 布局与"不掺源声明"的测试**
+
+`MotionPhotoComposerTest` / `JpegXmpPatcherTest` 改到 §4 的判据：
+- 带 gain map 尾巴的源 → 成功，且产物里 `imageEnd` 之后那段尾巴**逐字节等于源的那段**，
+  尾巴之后紧跟视频字节；
+- 产物大小 - `MicroVideoOffset` == 视频起点，该处前 12 字节内出现 `ftyp`；
+- EXIF `APP1` 仍在 XMP `APP1` 之前，XMP 落在旧 XMP 原位；
+- 源包里有 `hdrgm:Version`、`dc:description`、`GCamera:BoostCorrection` 时，产物包内**一个都不出现**
+  （这条是"清空重写"与"合并"的分水岭，必须能红）；
+- 上一轮自己的产物再合成 → 仍 `ALREADY_MOTION_PHOTO`；
+- `Success.totalBytes` == 产物真实字节数。
+`TrailerClassifierTest` 不动。
+
+- [ ] **Step 5: 全量回归 + 提交**
+
+Run: `./gradlew :core:test` 然后 `./gradlew :app:testDebugUnitTest :app:assembleDebug`（不许有警告）。
+`BatchRunnerTest` 里按旧字节数断言的用例按新算式改正，不许放宽断言。
+测试绿了**立刻提交**（`git add core/src docs && git commit -m
+"fix(core): keep the jpeg trailer and rewrite xmp from scratch, like the desktop tool"`），
+再做 Step 6——变异脚本只能在提交之后跑。
+
+- [ ] **Step 6: 变异验证（三条，各自必须红，跑完撤回并确认 `git status` 干净）**
+
+- 把尾巴搬运算式去掉（恢复截到 EOI）→ 必须有用例红；
+- 把 `Item:Semantic` 从 `Container:Item` 的属性改成 `Item:Semantic` 子元素文本 → 包字面量用例必须红；
+- 把源包的 `hdrgm:Version` 掺进产物（恢复合并语义）→ "不掺源声明"那条必须红。
+
+- [ ] **Step 7: 真机复验（控制者执行）**
+
+装这个包，跑一批，取一张产物验 `文件大小 - MicroVideoOffset == 视频起点` 且尾巴在位，
+然后 vivo 相册判定。不认就回到 §1 的对照表继续加变量，不许拿"测试全绿"当替代。

@@ -383,3 +383,102 @@ SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, imageEnd) + 
 - **真机判据（本轮唯一成功标准）**：vivo 相册把 `<stem>_live.jpg` 当动态照片。
 - 明确放弃：产物保留 gain map；`Container` 里声明 MotionPhoto 视频项。
 
+
+---
+
+## 增补（2026-10-18c，真机单变量对照）：尾巴保留 + XMP 清空重写
+
+上一节的裁定来自"照着被识别的语料比形态"，但语料是别人（Exiv2 + 重编码）产出的，形态一致不等于
+判据一致。这次改成**在真机上做单变量对照**：同一对源片（`IMG_20261015_191555`，源 jpg 5,025,864 +
+mp4 3,863,927）、同一份 XMP 包、同一个视频，只改一个变量，推进 `Pictures/LivePhoto/` 让 vivo 相册判。
+
+| 候选 | 主图字节 | EOI 后的尾巴 | XMP 包 | 相册判定 |
+|---|---|---|---|---|
+| `..._A_live.jpg`（8,889,891） | 源 JPEG **整文件** | **保留** 442,350 字节 gain map | 清空重写（下面那份） | **认，能播** |
+| `..._B_live.jpg`（6,375,403） | ffmpeg 重编码的干净 JPEG | 无（视频紧贴 EOI） | 与 A 同一份 | 不认 |
+| app 的 2026-10-18b 产物（8,447,407） | 源 JPEG 截到 EOI | 无 | 以源包为基底合并（单 RDF、空 Seq、留 hdrgm） | 不认 |
+| app 的 Task 13 产物（8,890,749） | 源 JPEG 整文件 | 保留 | 以源包为基底合并（实测两个兄弟 `rdf:RDF`） | 不认 |
+
+A 与 B 只差"主图是不是源片原样 + 尾巴在不在"，包完全相同 → **尾巴必须保留**（重编码反而坏事）。
+A 与 Task 13 只差 XMP 包 → **包必须清空重写**，不能把源包的声明掺进来。两条同时成立才被认。
+
+### 1. 产物布局（取代 2026-10-18b §2）
+
+```
+源 JPEG 整文件（SOI 到文件末，含 imageEnd 之后的 gain map 副图/厂商记录/零填充，原样一个字节不改）
+    其中旧 XMP APP1 原位换成新 XMP APP1
+  + 视频原始字节
+```
+
+- 这就是桌面端 `livemaker.vala` 的 `export_with_main_image()`：`write_main_image()` 对受支持的
+  JPEG 走 `Utils.write_stream(main_input_stream, output_stream)` 整文件拷贝，然后
+  `live_file.append_to(...)` 追加视频。Android 侧一一对应。
+- `GCamera:MicroVideoOffset` 与视频项的 `Item:Length` 都等于 `videoSize`（从文件末尾倒推），
+  与中间夹多少尾巴无关。A 实测：`文件大小 - 3,863,927 == 视频起点`，而 EOI 在更前面 442,350 字节。
+- 2026-10-18b §2 的"截到 EOI、丢掉尾巴"作废；`JpegXmpPatcher` 的 `trailerEnd` 参数恢复，
+  合成器再传源文件大小。**保留** 2026-10-18b §2 的另一半：新 XMP 写回旧段的原位（EXIF 仍在前）。
+- gain map 因此回到产物里，HDR 不丢——上一节记下的那条代价撤销。
+
+### 2. XMP：清空重写，不合并（取代 2026-10-18b §3）
+
+桌面端 `export()` 在写标签前先 `this.metadata.clear_xmp()`。Android 侧照做：**源 XMP 一个属性都不带进
+产物**（`hdrgm:Version`、`dc:*`、厂商命名空间、源片的 `Container:Directory` 项全部丢掉），只写下面这份。
+Exif APP1 与其余段仍按源字节原样保留（A 就是这么做的，42 KB Exif 一字未动）。
+
+整包逐字节照抄（`<VIDEO_SIZE>` 两处都填 `videoSize`；这就是真机认下来的那份，1,024 字节）：
+
+```xml
+<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-106">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+    GCamera:MicroVideo="1"
+    GCamera:MicroVideoVersion="1"
+    GCamera:MicroVideoOffset="<VIDEO_SIZE>"
+    GCamera:MicroVideoPresentationTimestampUs="-1"
+    GCamera:MotionPhoto="1"
+    GCamera:MotionPhotoVersion="1"
+    GCamera:MotionPhotoPresentationTimestampUs="-1">
+   <Container:Directory>
+    <rdf:Seq>
+     <rdf:li><Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/></rdf:li>
+     <rdf:li><Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="<VIDEO_SIZE>"/></rdf:li>
+    </rdf:Seq>
+   </Container:Directory>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+```
+
+三个必须照抄的形状要点，都是上一版栽过的地方：
+1. **一个** `rdf:RDF`、**一个** `rdf:Description`，七属性与 `Container:Directory` 同居其上；
+2. 容器项写成 `<Container:Item Item:Semantic="…" Item:Mime="…" Item:Length="…"/>`——语义与 MIME 是
+   **`Container:Item` 这个子元素上的属性**（与 vivo 源包同形），不是 `Item:Mime` 子元素的文本；
+3. 项顺序 Primary → MotionPhoto，视频项在最后。
+
+时间戳取 `-1`（桌面端会先读源包里已有的 `MotionPhotoPresentationTimestampUs`/
+`MicroVideoPresentationTimestampUs`，能解析成整数就沿用，否则 `-1`）。本 app 的输入是 vivo 原片，
+源包里没有这两个标签，读与不读结果都是 `-1`；实现按固定 `-1` 走，不做那次读取（YAGNI，
+且读源包正是上一版掺脏东西的入口）。
+
+### 3. 代码后果
+
+- `XmpMerger`（DOM 解析、`Writer`、深度上限、实体防护、`MalformedXmpException`）**整体删除**：
+  不再解析源 XMP，就没有需要防护的不可信 XML。包由 `XmpPacket.motionPhoto(videoSize)` 一处生成。
+- `FailureReason.MALFORMED_XMP` 随之删除（不再有产生它的路径）。
+- `TrailerClassifier` 留着，但只用于 `ALREADY_MOTION_PHOTO` 判据（`TrailerKind.VIDEO`）；
+  它读源 XMP 文本只是为了认出"上一轮已经追加过视频"，与写包无关。
+- 源 XMP 文本仍由 `JpegStructure.oldXmpText` 提供，消费方只剩分类器。
+
+### 4. 验收补充（取代 2026-10-18b §4）
+
+- 单测必须钉住：产物 = 源文件字节 + 视频字节，且 `imageEnd` 之后那段尾巴**逐字节在产物里**；
+  新 XMP 落在旧 XMP 原来的位置、EXIF 仍在它之前；产物大小 - `MicroVideoOffset` == 视频起点，
+  且该处 12 字节内出现 `ftyp`；包与 §2 那份**逐字节相同**（只有两处 `<VIDEO_SIZE>` 随长度变）；
+  源包里有 `hdrgm:`/`dc:`/厂商属性时，产物包里**一个都不出现**。
+- 真机判据（决定性，唯一成功标准）：vivo 相册把 `<stem>_live.jpg` 当动态照片。
+- 上一节"产物必须丢掉 gain map"的要求作废。
