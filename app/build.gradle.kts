@@ -3,6 +3,9 @@ plugins {
     // 否则插件自己会拒绝加载（"no longer required for Kotlin support since AGP 9.0"，
     // 本地 `:app:tasks` 实测）。见 gradle/libs.versions.toml 的 [plugins] 注释。
     alias(libs.plugins.android.application)
+    // Task 11 Step 0：@Composable 需要 Compose 编译器插件（Kotlin 2.x 起它不再随 Kotlin 自带），
+    // 版本与 Kotlin 同一个 ref，见 libs.versions.toml。
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -34,6 +37,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // Task 11 Step 0：没有这一行，androidx.compose 的运行时在依赖图里，但 :app 的源码里
+    // 一个 @Composable 都编译不出来（AGP 不会自动开启 compose）。
+    buildFeatures { compose = true }
     // 这个 kotlin { } 不是 AGP 的子块（android { } 没有 kotlin 成员），
     // 它走的是外层 Project 接收者上的内置 Kotlin 扩展，写在 android 里只是为了和 compileOptions 对齐。
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
