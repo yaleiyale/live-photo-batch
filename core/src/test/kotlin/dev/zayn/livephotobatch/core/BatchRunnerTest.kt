@@ -265,15 +265,26 @@ class BatchRunnerTest {
         assertEquals(out.size.toLong(), item.bytes)
         assertEquals(out.size.toLong(), report.composedBytes)
         val source = scan(dirty)
-        val app1 = XmpPacket.app1Segment(video.size.toLong())
+        // 尾巴是 gain map 副图 + 387 字节厂商记录 → 目录用 GainMap 项声明**整条尾巴**。
+        val gainMapBytes = dirty.size - source.imageEnd
+        val app1 = XmpPacket.app1Segment(video.size.toLong(), gainMapBytes = gainMapBytes)
         assertEquals(dirty.size - source.oldXmp!!.length + app1.size + video.size, out.size.toLong())
         // 尾巴在位：视频起点 = 产物的 imageEnd **再加上那条副图尾巴**。截掉尾巴的算式在这里会红。
         val structure = scan(out)
         val text = out.toString(Charsets.ISO_8859_1)
         val offset = Regex("""GCamera:MicroVideoOffset="(\d+)"""").find(text)!!.groupValues[1].toLong()
-        assertEquals(structure.imageEnd + (dirty.size - source.imageEnd), out.size - offset)
+        assertEquals(structure.imageEnd + gainMapBytes, out.size - offset)
         assertEquals(video.size.toLong(), offset)
-        assertFalse(text.contains("hdrgm"), "源包的 gain map 声明被掺进了产物")
+        assertFalse(text.contains("hdrgm:GainMapHeadroom"), "源包的 hdrgm 属性被掺进了产物")
+        // spec 2026-10-18d §2：有副图时**我们自己清空白写**的 hdrgm:Version 必须在场且只有一条；
+        // 出现两条 = 源包没被丢干净。
+        assertEquals(1, Regex(Regex.escape("hdrgm:Version=\"1.0\"")).findAll(text).count(),
+            "批次产物没带（或掺重了）hdrgm:Version=\"1.0\"")
+        assertEquals(
+            listOf("Primary", "GainMap", "MotionPhoto"),
+            Regex("""Item:Semantic="(\w+)"""").findAll(text).map { it.groupValues[1] }.toList(),
+            "批次产物的目录项顺序不是 Primary → GainMap → MotionPhoto",
+        )
         assertFalse(text.contains("<Item:Semantic>GainMap</Item:Semantic>"), "源片的容器项还在产物里")
         assertTrue(text.contains("GCamera:MotionPhoto=\"1\""), "批次产物没写成动态照片")
     }

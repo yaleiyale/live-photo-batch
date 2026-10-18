@@ -43,8 +43,10 @@ sealed interface ComposeResult {
  *
  * sink 由调用方拥有并负责关闭：本函数绝不关它（Task 8 用 `use { }` 包着它）。
  * 全程流式、定长 64 KiB 缓冲，常数内存；同一个来源要读两遍（扫描 + 搬运）靠 [ChannelSource]
- * 可重开这一契约实现，:core 因此不需要真实的文件路径抽象。尾巴探测另开第三次读，但**只取 16 字节**：
- * 来源可定位（Task 9 的 `RandomAccessFile.channel`）时是一次 seek，不可定位时才退化成定长缓冲跳过。
+ * 可重开这一契约实现，:core 因此不需要真实的文件路径抽象。尾巴探测另开第三次读：分类器只取
+ * `imageEnd` 起 16 字节；[TrailerModel.describe] 从 `imageEnd` 流式走完尾巴的 marker（可定位来源
+ * 是一次 seek，上限是文件大小，绝不整尾巴进内存）。目录因此**声明了 EOI 与视频之间的每一段字节**
+ * （spec 增补 2026-10-18d §2）：副图整条声明成 GainMap 项，其余整条声明成主图 Padding。
  */
 object MotionPhotoComposer {
     private const val COPY_BUFFER = 64 * 1024
@@ -100,9 +102,16 @@ object MotionPhotoComposer {
             return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO)
         }
 
+        // 增补 §3：给尾巴定性——副图整条声明成 GainMap，其余整条声明成主图 Padding，
+        // EOI 与视频之间不留一个没人声明的字节。畸形尾巴在这里降级成 Padding 而不是抛。
+        val trailerDescription = TrailerModel.describe(image, structure.imageEnd, fileSize)
         val app1 = try {
             // 增补 §2：清空重写，源 XMP 一个属性都不带进产物；包由 XmpPacket 一处生成。
-            XmpPacket.app1Segment(videoSize)
+            XmpPacket.app1Segment(
+                videoSize,
+                gainMapBytes = trailerDescription.gainMapBytes,
+                paddingBytes = trailerDescription.paddingBytes,
+            )
         } catch (e: IllegalArgumentException) {
             // 包体大到一个 APP1 的 16 位长度字段装不下——和分块扩展 XMP 同一个下场：不做处理。
             return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED)

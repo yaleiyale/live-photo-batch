@@ -48,13 +48,18 @@ class MotionPhotoComposerTest {
 
     /**
      * 产物里那段 XMP 必须与真机认下来的那份（[Fixtures.specPacket]）**逐字节**相同。
-     * 起点 = APP1 里的 XAP 标识符 + 结尾 NUL 之后；标识符在产物里只出现一次，由别的条款钉住。
+     * 起点 = APP1 里的 XAP 标识符 + 结尾 NUL 之后；标识符在产物里只出现一次，由别的条款钉。
+     * 这条只用于**无尾巴**输入：有尾巴时目录必须带 GainMap/Padding 声明，见 [assertPacket]。
      */
     private fun assertPacketIsTheAcceptedOne(out: ByteArray, videoSize: Long) {
-        val accepted = Fixtures.specPacket(videoSize)
+        assertPacket(out, Fixtures.specPacket(videoSize))
+    }
+
+    /** 产物里的包必须与 [expected] 逐字节相同——位置同样从 XAP 标识符倒推，不硬编码偏移。 */
+    private fun assertPacket(out: ByteArray, expected: ByteArray) {
         val at = out.indexOfSlice(XmpPacket.XAP_IDENTIFIER.toByteArray(Charsets.ISO_8859_1)) +
             XmpPacket.XAP_IDENTIFIER.length + 1
-        assertArrayEquals(accepted, out.copyOfRange(at, at + accepted.size))
+        assertArrayEquals(expected, out.copyOfRange(at, at + expected.size))
     }
 
     @Test fun `happy path writes image then video and records video size`() {
@@ -108,7 +113,8 @@ class MotionPhotoComposerTest {
         val (result, out) = compose(image, video)
         val success = assertInstanceOf(ComposeResult.Success::class.java, result)
         val oldXmp = structure.oldXmp ?: fail("gain map 夹具必须带一段源 XMP")
-        val app1 = XmpPacket.app1Segment(video.size.toLong())
+        // 有副图 → 目录里多了 GainMap 项与 hdrgm 声明，新段比 18c 那份长：字节账本要用这一份。
+        val app1 = XmpPacket.app1Segment(video.size.toLong(), gainMapBytes = trailer.size.toLong())
 
         // 产物 = 源文件整份（旧 XMP 原位换成新段）+ 视频：一段不少、一字节不改。
         val imagePart = byteArrayOf(0xFF.toByte(), 0xD8.toByte()) +
@@ -126,13 +132,14 @@ class MotionPhotoComposerTest {
         // 副图字节在场，所以它自己的 APP2 标识符也在场（上一版这里断言的是"必须消失"）。
         assertTrue(out.toString(Charsets.ISO_8859_1).contains("21496"), "gain map 副图没被搬进产物")
 
-        // 包是真机认下来的那一份，逐字节。
-        assertPacketIsTheAcceptedOne(out, video.size.toLong())
+        // 包必须把整条尾巴（副图 + 厂商记录）声明成 GainMap：逐字节对照带声明的那一份。
+        assertPacket(out, XmpPacket.motionPhoto(video.size.toLong(), gainMapBytes = trailer.size.toLong()))
         assertEquals(video.size.toLong(), assertVideoAtFileSizeMinusOffset(out))
     }
 
     @Test fun `source xmp declarations never reach the product`() {
-        // 清空重写与合并的分水岭：源包里的 hdrgm、dc、厂商 GCamera 属性一个都不许出现在产物里。
+        // 清空重写与合并的分水岭：源包里的 dc、厂商 GCamera 与 hdrgm 增益属性一个都不许出现在产物里；
+        // 产物自己那份干净的 hdrgm:Version 由下面的"恰好一条"断言放进来。
         val source = """
             <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="vivo XMP Toolkit 1.0">
              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -153,11 +160,17 @@ class MotionPhotoComposerTest {
         val (result, out) = compose(image, video)
         assertInstanceOf(ComposeResult.Success::class.java, result)
         val text = out.toString(Charsets.ISO_8859_1)
-        listOf("hdrgm", "dc:description", "sunset by the sea", "BoostCorrection", "vivo XMP Toolkit").forEach {
+        listOf("dc:description", "sunset by the sea", "BoostCorrection", "vivo XMP Toolkit",
+            "hdrgm:GainMapHeadroom").forEach {
             assertFalse(text.contains(it), "源包的 $it 被掺进了产物")
         }
+        // hdrgm 前缀本身**允许**出现——但只能是我们清空白写的那一条 hdrgm:Version="1.0"
+        // （spec 2026-10-18d §2：有副图时目录必须带它）。出现两条就是源包被掺进来了。
+        assertEquals(1, Regex(Regex.escape("hdrgm:Version=\"1.0\"")).findAll(text).count(),
+            "产物里的 hdrgm:Version 必须恰好一条，且是我们写的那份")
         assertTrue(text.contains("GCamera:MotionPhoto=\"1\""), "产物没写成动态照片")
-        assertPacketIsTheAcceptedOne(out, video.size.toLong())
+        // 尾巴是 gain map 副图 → 目录声明整条尾巴（这里副图之后没有厂商记录，尾巴 == 副图）。
+        assertPacket(out, XmpPacket.motionPhoto(video.size.toLong(), gainMapBytes = Fixtures.gainMapImage(entropySize = 128).size.toLong()))
     }
 
     @Test fun `the product of the previous run is refused as already a motion photo`() {
@@ -207,7 +220,8 @@ class MotionPhotoComposerTest {
 
         val (result, out) = compose(image, video)
         assertInstanceOf(ComposeResult.Success::class.java, result)
-        val app1 = XmpPacket.app1Segment(video.size.toLong())
+        // 厂商 JSON 不是 gain map → 整条尾巴声明成主图 Padding（spec 2026-10-18d §2 第二行）。
+        val app1 = XmpPacket.app1Segment(video.size.toLong(), paddingBytes = trailer.size.toLong())
         assertEquals(expectedSize(image.size, 0, app1.size, video.size), out.size.toLong())
         // 厂商记录原样躺在 EOI 与视频之间：这张图没有源 XMP，新段插在 SOI 之后，
         // 所以尾巴整体后移了 app1.size 字节。
@@ -219,7 +233,7 @@ class MotionPhotoComposerTest {
             "厂商记录在产物里不止一次",
         )
         assertArrayEquals(video, out.copyOfRange(out.size - video.size, out.size))
-        // 没有源 XMP 的图仍然走那份模板：产物里的 APP1 与 XmpPacket.app1Segment 一字不差
+        // 没有源 XMP 的图也照样带目录声明：产物里的 APP1 与带 Padding 的那份一字不差
         assertArrayEquals(app1, out.copyOfRange(2, 2 + app1.size))
     }
 
@@ -231,26 +245,28 @@ class MotionPhotoComposerTest {
         assertInstanceOf(ComposeResult.Success::class.java, result)
         val trailer = image.copyOfRange(structure.imageEnd.toInt(), image.size)
         assertEquals(47, trailer.size)
+        val app1 = XmpPacket.app1Segment(video.size.toLong(), paddingBytes = trailer.size.toLong())
         assertEquals(
-            expectedSize(image.size, 0, XmpPacket.app1Segment(video.size.toLong()).size, video.size),
+            expectedSize(image.size, 0, app1.size, video.size),
             out.size.toLong(),
         )
         // 47 个零字节确实被搬进来了：视频起点比 imageEnd 多挪了 47 字节，
         // 少搬（截到 EOI）或搬错位置都会让这条等式先红。
         assertEquals(
-            structure.imageEnd + 47 + XmpPacket.app1Segment(video.size.toLong()).size,
+            structure.imageEnd + 47 + app1.size,
             out.size - assertVideoAtFileSizeMinusOffset(out),
         )
     }
 
     @Test fun `gain map trailer with no xmp at all is copied`() {
-        val image = Fixtures.jpeg(tail = Fixtures.gainMapImage(entropySize = 128))
+        val inner = Fixtures.gainMapImage(entropySize = 128)
+        val image = Fixtures.jpeg(tail = inner)
         val video = Fixtures.mp4(128)
         val (result, out) = compose(image, video)
         assertInstanceOf(ComposeResult.Success::class.java, result)
         assertTrue(out.toString(Charsets.ISO_8859_1).contains("21496"), "副图字节没被搬进产物")
-        // 源文件整份 + 视频：一个字节都不许多，也不许少。
-        val app1 = XmpPacket.app1Segment(video.size.toLong())
+        // 源文件整份 + 视频：一个字节都不许多，也不许少。尾巴是 gain map → 目录带 GainMap 项。
+        val app1 = XmpPacket.app1Segment(video.size.toLong(), gainMapBytes = inner.size.toLong())
         assertArrayEquals(
             byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + app1 + image.copyOfRange(2, image.size) + video,
             out,

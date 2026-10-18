@@ -13,6 +13,8 @@ object XmpPacket {
     private const val CONTAINER_NS = "http://ns.google.com/photos/1.0/container/"
     private const val ITEM_NS = "http://ns.google.com/photos/1.0/container/item/"
     private const val RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    // Ultra HDR 副图（GainMap 项）的版本命名空间：Google Motion Photo 1.0 与 Adobe 增益图声明同一个 URI。
+    private const val HDRGM_NS = "http://ns.adobe.com/hdr-gain-map/1.0/"
 
     /**
      * 包的起止处理指令：XMP 规范要求 `<?xpacket begin>` 用 U+FEFF 声明字节序，
@@ -32,7 +34,14 @@ object XmpPacket {
      * 1. **一个** `rdf:RDF`、**一个** `rdf:Description`，七个动照片属性与 `Container:Directory` 同居其上；
      * 2. 容器项写成 `<Container:Item Item:Semantic="…" Item:Mime="…" Item:Length="…"/>`：语义与 MIME 是
      *    这个**子元素上的属性**（与 vivo 源包同形），不是 `Item:Semantic` 子元素的文本；
-     * 3. 项顺序 Primary → MotionPhoto，视频项在最后。
+     * 3. 项顺序 Primary →（GainMap）→ MotionPhoto，视频项在最后。
+     *
+     * 目录必须声明 EOI 与视频之间的**每一段字节**（增补 2026-10-18d §2，"紧密封装"MUST）：
+     * [gainMapBytes] 把整条尾巴声明成排在视频前的 `GainMap` 项，并给宿主 Description 带回
+     * `xmlns:hdrgm` + `hdrgm:Version="1.0"`（只在有副图时写）；[paddingBytes] 把整条尾巴声明成
+     * 主图的 `Item:Padding`（规范只允许第一项有）。两者**互斥**且至多其一非 null；都不给时产出的
+     * 包与 2026-10-18c 那份**逐字节相同**（回归钉桩：无副图无填充时形状不许漂移）。
+     * 定性由 [TrailerModel.describe] 做出，调用方不得自己猜。
      *
      * 两个时间戳固定 `-1`：桌面端会先读源包里已有的 `*PresentationTimestampUs`，能解析成整数就沿用，
      * 否则 `-1`。输入是 vivo 原片，源包里没有这两个标签，读与不读都是 `-1`；这里不做那次读取——
@@ -40,7 +49,15 @@ object XmpPacket {
      *
      * 逐行 `joinToString("\n")` 而不是整块原始字符串：见 [PACKET_BEGIN] 的 BOM 理由。
      */
-    fun motionPhoto(videoSize: Long): ByteArray {
+    fun motionPhoto(
+        videoSize: Long,
+        gainMapBytes: Long? = null,
+        paddingBytes: Long? = null,
+    ): ByteArray {
+        require(gainMapBytes == null || paddingBytes == null) {
+            "gainMapBytes 与 paddingBytes 互斥：一条尾巴只有一个身份，两个都给说明上游定性出错，" +
+                "静默挑一个会产出一个骗人的目录"
+        }
         val size = videoSize.toString()
         val lines = buildList {
             add(PACKET_BEGIN)
@@ -50,6 +67,10 @@ object XmpPacket {
             add("    xmlns:GCamera=\"$CAMERA_NS\"")
             add("    xmlns:Container=\"$CONTAINER_NS\"")
             add("    xmlns:Item=\"$ITEM_NS\"")
+            if (gainMapBytes != null) {
+                add("    xmlns:hdrgm=\"$HDRGM_NS\"")
+                add("    hdrgm:Version=\"1.0\"")
+            }
             add("    GCamera:MicroVideo=\"1\"")
             add("    GCamera:MicroVideoVersion=\"1\"")
             add("    GCamera:MicroVideoOffset=\"$size\"")
@@ -59,7 +80,13 @@ object XmpPacket {
             add("    GCamera:MotionPhotoPresentationTimestampUs=\"-1\">")
             add("   <Container:Directory>")
             add("    <rdf:Seq>")
-            add("     <rdf:li><Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"/></rdf:li>")
+            val padding = if (paddingBytes != null) " Item:Padding=\"$paddingBytes\"" else ""
+            add("     <rdf:li><Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"$padding/></rdf:li>")
+            if (gainMapBytes != null) {
+                // Length 是**整条尾巴**（含副图 JPEG 之后的厂商记录），不是副图诚实内长：
+                // 规范只给第一项 Padding，内长会在副图与视频之间留下没人声明的字节（spec §2 末段）。
+                add("     <rdf:li><Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"$gainMapBytes\"/></rdf:li>")
+            }
             add("     <rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" Item:Mime=\"video/mp4\" Item:Length=\"$size\"/></rdf:li>")
             add("    </rdf:Seq>")
             add("   </Container:Directory>")
@@ -72,8 +99,12 @@ object XmpPacket {
     }
 
     /** 完整 APP1 段：FF E1 + 16 位长度 + 标识符 + NUL + XMP 包。超长由 [motionPhoto] 里的守卫报。 */
-    fun app1Segment(videoSize: Long): ByteArray {
-        val packet = motionPhoto(videoSize)
+    fun app1Segment(
+        videoSize: Long,
+        gainMapBytes: Long? = null,
+        paddingBytes: Long? = null,
+    ): ByteArray {
+        val packet = motionPhoto(videoSize, gainMapBytes, paddingBytes)
         val identifier = XAP_IDENTIFIER.toByteArray(Charsets.ISO_8859_1) + byteArrayOf(0)
         val body = identifier.size + packet.size
         return byteArrayOf(0xFF.toByte(), 0xE1.toByte(), (body + 2 shr 8).toByte(), (body + 2).toByte()) +

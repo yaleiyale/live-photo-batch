@@ -88,6 +88,15 @@ object Fixtures {
     fun zeroFill(n: Int): ByteArray = ByteArray(n)
 
     /**
+     * vivo 副图 JPEG 之后那段**非 JPEG** 的厂商记录（参考语料里是 387 字节的 `streamdataDEGS…`）。
+     * spec 2026-10-18d §1 数的正是它：GainMap 的 `Length` 必须把它也算进尾巴，否则它没人声明。
+     */
+    fun vendorRecord(size: Int = 387): ByteArray {
+        require(size >= STREAMDATA_TAG.length) { "厂商记录夹具装不下 tag: size=$size" }
+        return ascii(STREAMDATA_TAG) + ByteArray(size - STREAMDATA_TAG.length)
+    }
+
+    /**
      * 真机抽样到的厂商记录：`vivo{...json...}` + `cameralbum!<UUID>`，实测 399 字节。
      * 尾巴开头是 ASCII `vivo`——前 4 字节按大端读是 1986653807，远大于尾巴长度，
      * 所以它**不是**任何合法的 ISO-BMFF 盒子；这正是"长度自洽"检查存在的理由。
@@ -201,14 +210,17 @@ object Fixtures {
     }
 
     /**
-     * 真机最常见的输入：XMP 声明 GainMap 的主图 + EOI 之后原样躺着的副图 JPEG。
-     * 返回 `主图（含尾巴）`，尾巴长度等于 [gainMapXmp] 里声明的 `Item:Length`。
+     * 真机最常见的输入：XMP 声明 GainMap 的主图 + EOI 之后原样躺着的副图 JPEG，
+     * **副图之后还有 387 字节的厂商记录**（照 vivo 092349 的 `streamdataDEGS`）。
+     * 源 XMP 声明的 `Item:Length` 只到副图 JPEG 自身为止——vivo 自己就是这么漏掉那 387 字节的，
+     * spec 2026-10-18d §2 的裁定（我们的目录要把**整条尾巴**声明成 GainMap）正是对着这个形状做的。
+     * 返回 `主图（含尾巴）`。
      */
     fun gainMapJpeg(entropySize: Int = 4096): ByteArray {
         val gainMap = gainMapImage(entropySize)
         val xmp = gainMapXmp(gainMap.size.toLong()).toByteArray(Charsets.UTF_8)
         return jpeg(headSegments = listOf(app1(XAP, xmp), sof0()), entropy = ByteArray(2048) { (it % 251).toByte() }) +
-            gainMap
+            gainMap + vendorRecord()
     }
 
     /** 尾巴是厂商 JSON 记录的输入（无 XMP，抽样里那 1 张就是这个形状）。 */
@@ -227,4 +239,5 @@ object Fixtures {
     }
 
     private const val TARGET = 399
+    private const val STREAMDATA_TAG = "streamdataDEGS"
 }

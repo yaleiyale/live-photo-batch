@@ -2,15 +2,20 @@ package dev.zayn.livephotobatch.core
 
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.ByteArrayOutputStream
+import java.nio.channels.Channels
 
 class XmpPacketTest {
 
     /**
      * spec 增补（2026-10-18c）§2 那份包：真机候选 A 写的就是它，vivo 相册认、能播。
      * 判据是**字节**，不是"实现现在吐了什么"——A 与 Task 13 产物只差这份包，合并形状已经被真机否掉。
+     * 增补 2026-10-18d 的回归钉桩：尾巴既非副图也无需 Padding 时（两个参数都不给），
+     * 这份包**一个字节都不许多**——无副图无填充时形状不许漂移。
      */
     @Test fun `the packet is byte for byte the one the phone accepted`() {
         val accepted = Fixtures.specPacket(3_863_927L)
@@ -58,6 +63,113 @@ class XmpPacketTest {
             // 用超大数字无法撑爆包体；这里直接断言上限保护存在
             XmpPacket.requireFitsInSegment(ByteArray(65534 - XmpPacket.XAP_IDENTIFIER.length))
         }
+    }
+
+    // ---------- spec 增补（2026-10-18d）：目录必须声明每一段字节 ----------
+
+    @Test fun `a gain map trailer gets a GainMap item ordered before the video`() {
+        val text = XmpPacket.motionPhoto(5_032_601L, gainMapBytes = 371_928L).decodeToString()
+        assertTrue(
+            text.contains("<Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"371928\"/>"),
+            "GainMap 项缺失或属性拼写/顺序变了（Length 必须是**整条尾巴**，含副图之后的厂商记录）",
+        )
+        assertEquals(
+            listOf("Primary", "GainMap", "MotionPhoto"),
+            Regex("""Item:Semantic="(\w+)"""").findAll(text).map { it.groupValues[1] }.toList(),
+            "项顺序固定 Primary → GainMap → MotionPhoto，视频项必须最后",
+        )
+        assertEquals(1, Regex("hdrgm:Version=\"1.0\"").findAll(text).count(), "主图 XMP 必须恰好一条 hdrgm:Version=\"1.0\"")
+        assertTrue(
+            text.contains("xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""),
+            "hdrgm 前缀没有声明命名空间，URI 对不上就等于没写",
+        )
+        assertEquals(1, Regex("<rdf:Description").findAll(text).count(), "hdrgm 属性必须住在宿主 Description 上")
+    }
+
+    @Test fun `a padding trailer declares Padding on the Primary item only`() {
+        val text = XmpPacket.motionPhoto(5_032_601L, paddingBytes = 387L).decodeToString()
+        val items = Regex("<Container:Item[^>]*>").findAll(text).map { it.value }.toList()
+        assertEquals(2, items.size, "非副图尾巴只许两项：Primary 与 MotionPhoto")
+        assertEquals(1, items.count { it.contains("Item:Padding=\"387\"") }, "Padding 必须恰好出现一次")
+        assertTrue(items.first().contains("Item:Semantic=\"Primary\"") && items.first().contains("Item:Padding=\"387\""),
+            "Padding 写在 Primary 之外去了——规范只允许第一项有 Padding")
+        assertTrue(!text.contains("GainMap"), "尾巴不是 gain map，就不许声明 GainMap 项")
+        assertTrue(!text.contains("hdrgm"), "没有副图就没有 hdrgm，Version 也不许出现")
+    }
+
+    @Test fun `Item Length appears only on GainMap and MotionPhoto items, never on Primary`() {
+        for (bytes in listOf(
+            XmpPacket.motionPhoto(9_999L, gainMapBytes = 371_928L),
+            XmpPacket.motionPhoto(9_999L, paddingBytes = 387L),
+            XmpPacket.motionPhoto(9_999L),
+        )) {
+            val text = bytes.decodeToString()
+            val items = Regex("<Container:Item[^>]*>").findAll(text).map { it.value }.toList()
+            val primary = items.single { it.contains("Item:Semantic=\"Primary\"") }
+            assertTrue(!primary.contains("Item:Length"), "主图项写出了 Length：$primary")
+            for (item in items.filter { "Item:Length" in it }) {
+                assertTrue(
+                    item.contains("Item:Semantic=\"GainMap\"") || item.contains("Item:Semantic=\"MotionPhoto\""),
+                    "Length 落在了 GainMap/MotionPhoto 之外的项上：$item",
+                )
+            }
+        }
+    }
+
+    @Test fun `a trailer cannot be GainMap and Padding at the same time`() {
+        // 上游定性出错才会两个都给；静默挑一个会产出一个骗人的目录。
+        assertThrows(IllegalArgumentException::class.java) {
+            XmpPacket.motionPhoto(1L, gainMapBytes = 2L, paddingBytes = 3L)
+        }
+    }
+
+    @Test fun `the app1 segment carries the trailer declaration too`() {
+        val withGainMap = XmpPacket.app1Segment(5_032_601L, gainMapBytes = 371_928L)
+        val packet = withGainMap.copyOfRange(4 + XmpPacket.XAP_IDENTIFIER.length + 1, withGainMap.size)
+        assertArrayEquals(XmpPacket.motionPhoto(5_032_601L, gainMapBytes = 371_928L), packet)
+    }
+
+    /**
+     * spec §4 第一条——"紧密封装"的可执行形式：主图编码长度 + Padding + GainMap.Length +
+     * MotionPhoto.Length == 产物文件大小。数字**全部从产物里读回来**（目录属性 + 重扫 EOI +
+     * 落盘字节数），任何一项 Length 写小、写大或漏写都会让等式先红，不是拿常量硬凑。
+     */
+    @Test fun `every byte between the primary image and the video is declared by the directory`() {
+        val video = Fixtures.mp4(300)
+        for (image in listOf(
+            Fixtures.jpeg(),                    // 无尾巴：等式退化为主图 + 视频
+            Fixtures.gainMapJpeg(),             // gain map + 387 字节厂商记录 → GainMap 声明整条
+            Fixtures.vendorTrailerJpeg(),       // 厂商 JSON → Primary 的 Padding
+            Fixtures.zeroFilledJpeg(),          // 零填充 → Primary 的 Padding
+        )) {
+            val out = composeOut(image, video)
+            assertEveryByteDeclared(out)
+        }
+    }
+
+    private fun composeOut(image: ByteArray, video: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        val result = MotionPhotoComposer.compose(
+            ByteArraySource(image), ByteArraySource(video), Channels.newChannel(out)
+        )
+        assertTrue(result is ComposeResult.Success, "合成失败，等式无从谈起：$result")
+        return out.toByteArray()
+    }
+
+    private fun scan(image: ByteArray): JpegStructure =
+        (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(image)))
+            as JpegScanResult.Parsed).structure
+
+    private fun assertEveryByteDeclared(out: ByteArray) {
+        val text = out.toString(Charsets.ISO_8859_1)
+        val padding = Regex("""Item:Padding="(\d+)"""").find(text)?.groupValues?.get(1)?.toLong() ?: 0L
+        val gainMap = Regex("""Item:Semantic="GainMap"[^>]*Item:Length="(\d+)"""")
+            .find(text)?.groupValues?.get(1)?.toLong() ?: 0L
+        val videoMatch = Regex("""Item:Semantic="MotionPhoto"[^>]*Item:Length="(\d+)"""").find(text)
+        assertNotNull(videoMatch, "目录里没有带 Length 的 MotionPhoto 项：等式的视频段没人声明")
+        val video = videoMatch!!.groupValues[1].toLong()
+        val primary = scan(out).imageEnd
+        assertEquals(out.size.toLong(), primary + padding + gainMap + video, "等式：主图+Padding+GainMap+视频 == 文件大小")
     }
 
     private fun ByteArray.startsWith(other: ByteArray, at: Int): Boolean {
