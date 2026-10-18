@@ -2,6 +2,8 @@ package dev.zayn.livephotobatch.core
 
 import java.io.IOException
 import java.nio.ByteBuffer
+import java.nio.channels.ReadableByteChannel
+import java.nio.channels.SeekableByteChannel
 import java.nio.channels.WritableByteChannel
 
 enum class FailureReason {
@@ -9,6 +11,7 @@ enum class FailureReason {
     MALFORMED_JPEG,
     ALREADY_MOTION_PHOTO,
     EXTENDED_XMP_UNSUPPORTED,
+    MALFORMED_XMP,
     NOT_MP4,
     IO_ERROR,
     NO_PAIR,
@@ -20,19 +23,25 @@ sealed interface ComposeResult {
 }
 
 /**
- * JPEG + MP4 → Google Motion Photo：换掉 XMP 段，再把 MP4 原始字节整段追加到 EOI 之后。
- * 不解码、不转码、不重编码，纯字节拼接 + 元数据。
+ * JPEG + MP4 → Google Motion Photo：合并 XMP 段，保留 `imageEnd` 之后的**非视频**尾巴，
+ * 再把 MP4 原始字节整段追加到文件末尾。不解码、不转码、不重编码，纯字节拼接 + 元数据。
  *
- * 校验顺序按 spec §7.4，且是**可观测的**：先把最便宜的视频头探测放最前（坏视频绝不让后面
- * 白扫一遍 JPEG），再判 SOI、段遍历、扩展 XMP、嵌套防护，全部通过后才开始写 sink。
- * 被校验拒掉的项对 sink 一个字节都不写；**写入阶段**的 I/O 故障就不一定了——它可能在 patch 之后、
- * 甚至视频搬了一半时才炸，sink 里实打实留着半截文件。两种失败都只报 [FailureReason]、不报字节数：
- * spec §7.5 的清理是无条件的（失败就删 .part），计数没有读者，而一个恒为 0 的字段只会被误读成
+ * 产物布局（spec §7.1 + 增补 §2）：
+ * `SOI` + 合并后的 XMP APP1 + `源图[2, imageEnd)` + `源图[imageEnd, fileSize)`（尾巴原样） + 视频字节。
+ * `MicroVideoOffset` 与视频项的 `Item:Length` 都等于**追加的视频字节数**：读取方用
+ * `fileSize - offset` 从文件末尾倒推，中间夹着 gain map 也不改变这个语义。
+ *
+ * 校验顺序按 spec §7.4（增补 §1 取代其中第 3 条），且是**可观测的**：先把最便宜的视频头探测放最前
+ * （坏视频绝不让后面白扫一遍 JPEG），再判 SOI、段遍历、扩展 XMP、尾巴分类、XMP 可否解析，
+ * 全部通过后才开始写 sink。被校验拒掉的项对 sink 一个字节都不写；**写入阶段**的 I/O 故障就不一定了——
+ * 它可能在 patch 之后、甚至视频搬了一半时才炸，sink 里实打实留着半截文件。两种失败都只报 [FailureReason]、
+ * 不报字节数：spec §7.5 的清理是无条件的（失败就删 .part），计数没有读者，而一个恒为 0 的字段只会被误读成
  * "0 表示什么都没写过"，那在半途失败这条路上恰恰是假的。
  *
  * sink 由调用方拥有并负责关闭：本函数绝不关它（Task 8 用 `use { }` 包着它）。
  * 全程流式、定长 64 KiB 缓冲，常数内存；同一个来源要读两遍（扫描 + 搬运）靠 [ChannelSource]
- * 可重开这一契约实现，:core 因此不需要真实的文件路径抽象。
+ * 可重开这一契约实现，:core 因此不需要真实的文件路径抽象。尾巴探测另开第三次读，但**只取 16 字节**：
+ * 来源可定位（Task 9 的 `RandomAccessFile.channel`）时是一次 seek，不可定位时才退化成定长缓冲跳过。
  */
 object MotionPhotoComposer {
     private const val COPY_BUFFER = 64 * 1024
@@ -47,7 +56,7 @@ object MotionPhotoComposer {
     ): ComposeResult {
         val videoSize = video.size()
         val head = try {
-            readHead(video, minOf(PROBE_BYTES.toLong(), videoSize).toInt())
+            readAt(video, 0L, minOf(PROBE_BYTES.toLong(), videoSize).toInt())
         } catch (e: IOException) {
             return ComposeResult.Failure(FailureReason.IO_ERROR)
         }
@@ -66,18 +75,40 @@ object MotionPhotoComposer {
         if (structure.hasExtendedXmp) {
             return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED)
         }
-        // 嵌套防护两个信号缺一不可：EOI 后还有字节 = 上一轮已经追加过视频；
-        // 源 XMP 自带 Motion Photo 语义 = 同一张图已经标记过偏移。
-        if (structure.imageEnd < image.size() ||
-            MotionDetector.looksLikeMotionPhoto(structure.oldXmpText)
-        ) {
+
+        val fileSize = image.size()
+        // fileSize - imageEnd 万一为负（源文件在扫描之后被别的进程截短），按"没有尾巴"处理：
+        // ByteArray(负数) 会直接把批次炸成 NegativeArraySizeException，那是运行故障不是输入形状。
+        val trailerBytes = maxOf(0L, fileSize - structure.imageEnd)
+        val trailerHead = try {
+            readAt(
+                image,
+                structure.imageEnd,
+                // 精确的窗口长度：短于 PROBE_BYTES 就代表整条尾巴都在手里，分类器靠这个区分上界。
+                minOf(PROBE_BYTES.toLong(), trailerBytes).toInt(),
+            )
+        } catch (e: IOException) {
+            return ComposeResult.Failure(FailureReason.IO_ERROR)
+        }
+        // 增补 §1：只有**视频形状**的尾巴（或源 XMP 已经声明过视频）才算"上一轮已经合成过"。
+        // gain map 副图、厂商 JSON、零填充在这里放行——vivo 上每张 JPEG 都有这种尾巴。
+        if (TrailerClassifier.classify(trailerHead, structure.oldXmpText) == TrailerKind.VIDEO) {
             return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO)
         }
 
-        val app1 = XmpPacket.app1Segment(videoSize)
+        val app1 = try {
+            // 增补 §3：以源包为基底合并，gain map 的声明必须跟着进产物；畸形包报 MALFORMED_XMP，
+            // 绝不退化成"没有 XMP"然后静默把用户的元数据换掉。
+            XmpPacket.app1SegmentFor(XmpMerger.merge(structure.oldXmpText, videoSize))
+        } catch (e: MalformedXmpException) {
+            return ComposeResult.Failure(FailureReason.MALFORMED_XMP)
+        } catch (e: IllegalArgumentException) {
+            // 包体大到一个 APP1 的 16 位长度字段装不下——和分块扩展 XMP 同一个下场：不做处理。
+            return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED)
+        }
         return try {
-            // patch 的返回值是"从源图写出的字节数"，既不含新 APP1，也不含被丢弃的旧 XMP。
-            val patched = JpegXmpPatcher.patch(structure, image, sink, app1)
+            // patch 的返回值是"从源图写出的字节数"：含尾巴，不含新 APP1，也不含被丢弃的旧 XMP。
+            val patched = JpegXmpPatcher.patch(structure, image, sink, app1, trailerEnd = fileSize)
             copyToEnd(video, sink)
             ComposeResult.Success(videoSize, patched + app1.size + videoSize)
         } catch (e: IOException) {
@@ -87,17 +118,39 @@ object MotionPhotoComposer {
         }
     }
 
-    /** 定长读视频头；不足就留零，[containsFtyp] 自己会拒绝过短的头部。 */
-    private fun readHead(video: ChannelSource, n: Int): ByteArray {
+    /**
+     * 定长读 [from] 处起的 [n] 字节；不足就留零，[containsFtyp] 与分类器自己会拒绝过短的头部。
+     * 来源可定位就是 seek + 一次小读；管道一类不可定位的来源退化成用同一个 64 KiB 缓冲一路读掉，
+     * 内存仍是常数（生产路径给的是 `RandomAccessFile.channel`，不会走到这一支）。
+     */
+    private fun readAt(src: ChannelSource, from: Long, n: Int): ByteArray {
         val buf = ByteArray(n)
         if (n == 0) return buf
-        video.open().use { ch ->
+        src.open().use { ch ->
+            skipTo(ch, from, ByteArray(COPY_BUFFER))
             val dst = ByteBuffer.wrap(buf)
             while (dst.hasRemaining()) {
                 if (ch.read(dst) <= 0) break
             }
         }
         return buf
+    }
+
+    private fun skipTo(ch: ReadableByteChannel, from: Long, scratch: ByteArray) {
+        if (from <= 0) return
+        if (ch is SeekableByteChannel) {
+            ch.position(from)
+            return
+        }
+        // 不可定位：只能一路读过去。每次最多要 `left` 个字节——一次大读会把 [from] 之后的字节
+        // 一并吞进缓冲区，探测到的就成了零填充而不是真尾巴。
+        var left = from
+        while (left > 0) {
+            val want = minOf(left, scratch.size.toLong()).toInt()
+            val read = ch.read(ByteBuffer.wrap(scratch, 0, want))
+            if (read <= 0) return
+            left -= read.toLong()
+        }
     }
 
     /** 视频原样追加：定长缓冲一路读到 EOF，交给同一个 [writeAll] 排空，绝不整段进内存。 */

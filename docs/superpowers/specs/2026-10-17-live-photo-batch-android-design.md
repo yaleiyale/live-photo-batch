@@ -148,6 +148,8 @@ XML 文本，因此不进入模板。
 2. 段遍历能正常收敛到 EOI，否则 `MALFORMED_JPEG`。
 3. `imageEnd < fileSize(x.jpg)`（EOI 后有残留字节）**或**源 XMP 含 `GCamera:MicroVideoOffset` /
    `GCamera:MotionPhoto` → `ALREADY_MOTION_PHOTO`，跳过。
+   （本条已被文末「增补（2026-10-18，真机验收后）」§1 取代：只有**视频形状**的尾巴才算已合成过，
+   非视频尾巴原样保留；新增 `MALFORMED_XMP`。）
 4. `x.mp4` 起始 12 字节内必须出现 `ftyp`，否则 `NOT_MP4`。
 5. 输出名：`x.jpg` 去掉扩展名后加 `_live.jpg`。扩展名判定大小写不敏感（`.JPG`、`.Mp4` 都算），
    文件名主干（stem）严格区分大小写，与 Android 文件系统语义一致。

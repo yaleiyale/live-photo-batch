@@ -108,6 +108,77 @@ class JpegXmpPatcherTest {
         assertFalse(result.toString(Charsets.ISO_8859_1).contains("ftyp"))
     }
 
+    // ---------- spec「增补 §2」：尾巴由调用方点名才搬 ----------
+
+    @Test fun `trailer bytes are copied verbatim after the image when asked`() {
+        val trailer = Fixtures.gainMapImage(entropySize = 1024)
+        val bytes = Fixtures.jpeg(tail = trailer)
+        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+        val out = ByteArrayOutputStream()
+        val written = JpegXmpPatcher.patch(
+            structure, ByteArraySource(bytes), Channels.newChannel(out), app1, trailerEnd = bytes.size.toLong()
+        )
+        val result = out.toByteArray()
+        // 契约：返回值 = 写出的源图字节数，**含尾巴**，不含新 APP1。
+        assertEquals(structure.imageEnd + trailer.size, written)
+        assertEquals(written + app1.size, out.size().toLong())
+        assertArrayEquals(
+            byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + app1 +
+                bytes.copyOfRange(2, structure.imageEnd.toInt()) + trailer,
+            result,
+        )
+        // 尾巴在前、EOI 在后？不：EOI 属于图片段，尾巴紧跟其后——顺序写反了 HDR 查看器就找不到副图
+        val eoiEnd = 2 + app1.size + (structure.imageEnd - 2).toInt()   // 新 APP1 顶掉了 SOI 之后的位置
+        assertEquals(0xFF.toByte(), result[eoiEnd - 2])
+        assertEquals(0xD9.toByte(), result[eoiEnd - 1])
+        assertArrayEquals(trailer, result.copyOfRange(eoiEnd, result.size))
+    }
+
+    @Test fun `old xmp is dropped even when the trailer is copied`() {
+        val exif = Fixtures.segment(0xE1, "Exif".toByteArray() + byteArrayOf(0, 1, 2, 3))
+        val old = Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket)
+        val trailer = Fixtures.vendorTrailer()
+        val bytes = Fixtures.jpeg(headSegments = listOf(exif, old, Fixtures.sof0()), tail = trailer)
+        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+        val out = ByteArrayOutputStream()
+        val written = JpegXmpPatcher.patch(
+            structure, ByteArraySource(bytes), Channels.newChannel(out), app1, trailerEnd = bytes.size.toLong()
+        )
+        // 被丢弃的旧 XMP 既不在图片段里、也不在尾巴里：返回值只数"真的写出去的源图字节"
+        assertEquals(bytes.size.toLong() - old.size, written)
+        val result = out.toByteArray()
+        assertEquals(1, Regex(Regex.escape(Fixtures.XAP)).findAll(result.decodeToString()).count())
+        assertFalse(result.decodeToString().contains("OLD"))
+        assertArrayEquals(trailer, result.copyOfRange(result.size - trailer.size, result.size))
+    }
+
+    @Test fun `trailerEnd below imageEnd is refused`() {
+        val bytes = Fixtures.jpeg()
+        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+        val out = ByteArrayOutputStream()
+        // 只准"多搬"，不准"少搬"：少搬就等于悄悄产出一个缺尾巴的文件
+        assertThrows(IllegalArgumentException::class.java) {
+            JpegXmpPatcher.patch(structure, ByteArraySource(bytes), Channels.newChannel(out), app1,
+                trailerEnd = structure.imageEnd - 1)
+        }
+        assertEquals(0, out.size())
+    }
+
+    @Test fun `trailer longer than the source throws instead of emitting a short file`() {
+        val bytes = Fixtures.jpeg(tail = Fixtures.zeroFill(47))
+        val structure = (JpegScanner.scan(Channels.newChannel(java.io.ByteArrayInputStream(bytes)))
+            as JpegScanResult.Parsed).structure
+        val out = ByteArrayOutputStream()
+        val error = assertThrows(java.io.EOFException::class.java) {
+            JpegXmpPatcher.patch(structure, ByteArraySource(bytes), Channels.newChannel(out), app1,
+                trailerEnd = bytes.size + 8L)
+        }
+        assertInstanceOf(java.io.IOException::class.java, error)
+    }
+
     @Test fun `extension xmp is left untouched`() {
         val extended = Fixtures.app1(Fixtures.XMP_EXTENSION, ByteArray(40))
         val bytes = Fixtures.jpeg(headSegments = listOf(extended, Fixtures.sof0()))

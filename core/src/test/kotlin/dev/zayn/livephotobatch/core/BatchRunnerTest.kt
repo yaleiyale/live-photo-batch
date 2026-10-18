@@ -221,6 +221,42 @@ class BatchRunnerTest {
         assertFalse(storage.tmpFiles.isNotEmpty())
     }
 
+    @Test fun `malformed xmp is a failure not a skip and keeps the originals`() {
+        // Task 13 新增的失败原因：源 XMP 读不动。它绝不能进 SKIPPABLE——"跳过"在 UI 上是
+        // "这张已经是动态照片了"，而真实情况是用户的元数据我们没能保住，必须报失败。
+        val broken = Fixtures.app1(Fixtures.XAP, "<x:xmpmeta><unclosed>".toByteArray(Charsets.UTF_8))
+        val dirty = Fixtures.jpeg(headSegments = listOf(broken, Fixtures.sof0()))
+        val (runner, storage) = runnerWith("/s/a.jpg" to dirty, "/s/a.mp4" to video)
+        val report = runner.run(runner.plan(options(true)), options(true), CancelToken { false }) { }
+        val item = report.items.single()
+        assertEquals(ItemStatus.FAILED, item.status)
+        assertEquals(FailureReason.MALFORMED_XMP, item.reason)
+        assertEquals(0L, item.bytes)
+        assertEquals(0L, report.composedBytes)
+        assertFalse(storage.exists("/t/a_live.jpg"))
+        assertFalse(storage.tmpFiles.isNotEmpty())
+        // 失败项不删原文件：图还在，用户换个工具还能重来
+        assertTrue(storage.exists("/s/a.jpg"))
+        assertTrue(storage.exists("/s/a.mp4"))
+    }
+
+    @Test fun `a gain map jpeg composes through the batch and reports real byte counts`() {
+        // 端到端：真机最常见的那张输入（XMP 声明 GainMap + EOI 后躺着副图）必须报成功，
+        // 而 bytes 要等于**含尾巴**的产物长度——UI 的"已写出 N MB"读的就是它。
+        val dirty = Fixtures.gainMapJpeg()
+        val (runner, storage) = runnerWith("/s/a.jpg" to dirty, "/s/a.mp4" to video)
+        val report = runner.run(runner.plan(options()), options(), NoCancel) { }
+        val item = report.items.single()
+        assertEquals(ItemStatus.SUCCESS, item.status)
+        val out = storage.bytesOf("/t/a_live.jpg")
+        assertEquals(out.size.toLong(), item.bytes)
+        assertEquals(out.size.toLong(), report.composedBytes)
+        val text = out.toString(Charsets.ISO_8859_1)
+        assertTrue(text.contains("<Item:Semantic>GainMap</Item:Semantic>"), "批次产物把副图声明弄丢了")
+        assertTrue(text.contains("<Item:Semantic>MotionPhoto</Item:Semantic>"), "批次产物没写成动态照片")
+        assertTrue(text.contains("hdrgm:Version=\"1.0\""), "HDR 版本声明被丢了")
+    }
+
     @Test fun `move failure is reported as io error and keeps the originals`() {
         val storage = RecordingStorage(InMemoryStorage(mapOf("/s/a.jpg" to image, "/s/a.mp4" to video)))
         storage.moveResult = false

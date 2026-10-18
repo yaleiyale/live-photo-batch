@@ -6,23 +6,30 @@ import java.nio.channels.Channels
 import java.nio.channels.WritableByteChannel
 
 /**
- * 写出 `SOI + 新 APP1(XMP) + 源图 [2, imageEnd) 去掉旧 XMP`。
+ * 写出 `SOI + 新 APP1(XMP) + 源图 [2, imageEnd) 去掉旧 XMP (+ 尾巴 [imageEnd, trailerEnd))`。
  * 只做区间搬运，不解释 JPEG 语义——语义已经由 JpegScanner 固化成 JpegStructure。
  */
 object JpegXmpPatcher {
     private const val COPY_BUFFER = 64 * 1024
 
     /**
-     * @return 从源图**实际写入 [sink]** 的字节数（不含新 APP1），
-     * 即 `imageEnd` 扣掉被丢弃的旧 XMP 段长；没有旧 XMP 时就是 `imageEnd`。
-     * [imageEnd] 之后的字节（已合成文件里追加的视频）一律不搬。
+     * @param trailerEnd `imageEnd` 之后还要连带搬走的字节位置（含），默认就是 [JpegStructure.imageEnd]，
+     * 即"一个越过 EOI 的字节都不搬"。Task 13 的合成器传源文件大小，把 gain map 副图、厂商记录、
+     * 零填充这些**非视频**尾巴原样带到 XMP 之后、视频之前（spec 增补 §2）。
+     * @return 从源图**实际写入 [sink]** 的字节数（不含新 APP1，**含尾巴**）：
+     * `imageEnd` 扣掉被丢弃的旧 XMP 段长，再加上 `trailerEnd - imageEnd`。
      */
     fun patch(
         structure: JpegStructure,
         image: ChannelSource,
         sink: WritableByteChannel,
         app1: ByteArray,
+        trailerEnd: Long = structure.imageEnd,
     ): Long {
+        // 只准"多搬"，不准"少搬"：少搬产出一个悄悄缺尾巴的文件，没人能发现。
+        require(trailerEnd >= structure.imageEnd) {
+            "trailerEnd=$trailerEnd 落在 imageEnd=${structure.imageEnd} 之前"
+        }
         // 写出与丢弃走同一个搬运循环，唯一的区别是拿到分块之后做什么。
         val emit: (ByteBuffer) -> Unit = { sink.writeAll(it) }
         val discard: (ByteBuffer) -> Unit = { /* 读掉即等于丢弃：旧 XMP 在这一步消失 */ }
@@ -43,6 +50,8 @@ object JpegXmpPatcher {
                 // (旧 XMP, imageEnd)：旧段被新段取代，一个字节都不留。
                 copied += transfer(input, buf, structure.imageEnd - oldXmp.endExclusive, emit)
             }
+            // EOI 之后的尾巴：调用方点名要多少搬多少，字节原样、顺序不变。
+            copied += transfer(input, buf, trailerEnd - structure.imageEnd, emit)
         }
         return copied
     }
@@ -50,7 +59,8 @@ object JpegXmpPatcher {
     /**
      * 从 [input] 精确取 [n] 字节，逐块经共享缓冲区交给 [chunk]：写出去还是原地丢弃由调用方决定。
      * 不够就抛 [java.io.EOFException]（IOException 子类）——绝不静默写出半截 JPEG；
-     * 也绝不多读一个字节，所以 [n] 之和锁定在 imageEnd 之内，追加的视频尾部不会进 sink。
+     * 也绝不多读一个字节，所以所有 [n] 之和恰好等于 `trailerEnd - 被丢弃的旧 XMP`，
+     * 越过 [trailerEnd] 的字节（上一轮追加的视频）不会进 sink。
      * @return [n]，调用方直接拿它累加已搬运的源图字节数。
      */
     private fun transfer(

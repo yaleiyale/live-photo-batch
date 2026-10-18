@@ -297,6 +297,7 @@ private fun reasonText(reason: FailureReason?): String {
         FailureReason.MALFORMED_JPEG -> "JPEG 结构损坏"
         FailureReason.ALREADY_MOTION_PHOTO -> "已是动态照片"
         FailureReason.EXTENDED_XMP_UNSUPPORTED -> "扩展 XMP 不支持"
+        FailureReason.MALFORMED_XMP -> "源 XMP 无法解析"
         FailureReason.NOT_MP4 -> "不是 MP4"
         FailureReason.IO_ERROR -> "读写故障"
         FailureReason.NO_PAIR -> "没有配对的文件"
