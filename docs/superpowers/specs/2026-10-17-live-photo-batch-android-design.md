@@ -265,7 +265,11 @@ XML 文本，因此不进入模板。
 
 - 源无 XMP → 输出 §7.3 的模板（与现在一致）。
 - 源有 XMP → 以源包为基底合并：保留 `hdrgm:` 等无关命名空间与属性、保留既有 `Container:Directory`
-  的 Primary/GainMap 项、剔除任何旧的 `GCamera:*` 属性与 `Item:Semantic` 为 `MotionPhoto` 的项，
+  的 Primary/GainMap 项、**只**剔除动态照片专用的那批 `GCamera:*` 属性（`MicroVideo`、`MicroVideoVersion`、`MicroVideoOffset`、
+  `MicroVideoPresentationTimestampUs`、`MotionPhoto`、`MotionPhotoVersion`、
+  `MotionPhotoPresentationTimestampUs`）与 `Item:Semantic` 为 `MotionPhoto` 的项；其余 `GCamera:*`
+  （例如 vivo 包里的 `GCamera:BoostCorrection`，HDR 增益记录）必须原样保留 —— 删掉它会改变 HDR 渲染，
+  与本增补「保住 gain map」的目的相反，
   然后追加我们的 MotionPhoto 项并写入 §7.3 要求的全部 `GCamera:*` 属性。
 - 实现手段：JDK/Android 自带的 `javax.xml` DOM（不引新依赖，不手写正则改 XML）。
 - 源 XMP 无法解析（畸形）→ 该项 `FAILED`，原因 `MALFORMED_XMP`（新增枚举值），不静默丢用户元数据。
