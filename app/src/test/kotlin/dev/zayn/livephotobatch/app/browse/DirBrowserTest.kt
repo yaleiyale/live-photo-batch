@@ -2,6 +2,7 @@ package dev.zayn.livephotobatch.app.browse
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
@@ -19,9 +20,14 @@ class DirBrowserTest {
         val root = freshRoot()
         File(root, "b").mkdirs()
         File(root, "a").mkdirs()
-        File(root, "a/file.txt").apply { parentFile.mkdirs(); writeText("x") }
-        val names = DirBrowser(root.path).subdirs("").map { it.name }
-        assertEquals(listOf("a", "b"), names)
+        File(root, "a/file.txt").apply { parentFile?.mkdirs(); writeText("x") }
+        val items = DirBrowser(root.path).subdirs("")
+        assertEquals(listOf("a", "b"), items.map { it.name })
+        // Path assembly, asserted with the same java.io.File API the browser uses (never a
+        // hand-written "/" join), so it holds on any host and still catches a broken
+        // absolutePath/parent construction.
+        assertEquals(listOf(File(root, "a").absolutePath, File(root, "b").absolutePath), items.map { it.absolutePath })
+        assertEquals(listOf(root.absolutePath, root.absolutePath), items.map { it.parent })
         root.deleteRecursively()
     }
 
@@ -29,7 +35,7 @@ class DirBrowserTest {
         val root = freshRoot()
         File(root, "visible").mkdirs()
         File(root, ".hidden").mkdirs()
-        File(root, "loose.txt").apply { parentFile.mkdirs(); writeText("x") }
+        File(root, "loose.txt").apply { parentFile?.mkdirs(); writeText("x") }
         val names = DirBrowser(root.path).subdirs("").map { it.name }
         assertEquals(listOf("visible"), names)
         root.deleteRecursively()
@@ -55,16 +61,27 @@ class DirBrowserTest {
     // listFiles() on a plain file returns null (not a throw), so pointing at a file is safe.
     @Test fun `path that is not a directory yields empty list without throwing`() {
         val root = freshRoot()
-        val file = File(root, "notadir.txt").apply { parentFile.mkdirs(); writeText("x") }
+        val file = File(root, "notadir.txt").apply { parentFile?.mkdirs(); writeText("x") }
         assertTrue(DirBrowser(root.path).subdirs(file.absolutePath).isEmpty())
         root.deleteRecursively()
     }
 
+    /**
+     * The absolute-path branch is `relative.startsWith("/")` — a POSIX-only rule that
+     * deliberately differs from `FileStorage.resolve()` (see DirBrowser's KDoc). On a Windows
+     * host `java.io.File` hands back `C:\...`, that branch can never fire, and a hand-written
+     * `/...` expectation would be asserting a rule the class does not claim on that OS. So the
+     * host split is stated honestly with `assumeTrue`, and every expectation is built with the
+     * same `File` API under test instead of a literal `/` join.
+     */
     @Test fun `absolute path is used as-is and ignores the root`() {
+        assumeTrue("absolute-path browsing rule is POSIX-only (startsWith(\"/\"))", File.separator == "/")
         val elsewhere = freshRoot()
         File(elsewhere, "only").mkdirs()
-        val names = DirBrowser("/some/other/root").subdirs(elsewhere.absolutePath).map { it.name }
-        assertEquals(listOf("only"), names)
+        val items = DirBrowser(File("/some/other/root").absolutePath).subdirs(elsewhere.absolutePath)
+        assertEquals(listOf("only"), items.map { it.name })
+        assertEquals(listOf(elsewhere.absolutePath), items.map { it.parent })
+        assertEquals(listOf(File(elsewhere, "only").absolutePath), items.map { it.absolutePath })
         elsewhere.deleteRecursively()
     }
 
