@@ -12,4 +12,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "live-photo-batch"
-include(":core")
+include(":core", ":app")
