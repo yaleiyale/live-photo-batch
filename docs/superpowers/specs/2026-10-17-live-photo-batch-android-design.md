@@ -227,3 +227,51 @@ XML 文本，因此不进入模板。
   改为先通过 MediaStore 按 `_data` 删除行再扫描。
 - **R5 rename 语义**：SD 卡/特殊文件系统上跨目录 rename 或覆盖可能失败。目标固定为内部共享存储，
   且临时目录与产物同目录，实测确认。
+
+
+---
+
+## 增补（2026-10-18，真机验收后）：源 JPEG 的尾巴策略
+
+真机验收发现：vivo V2419A 的 `DCIM/Camera` 里每张 JPEG 在 EOI 之后都有字节，抽样 8 张的结果是
+6 张 HDR gain map（XMP 声明 `Item:Semantic="GainMap"` + `Item:Length`）、1 张 399 字节的
+`vivo{...}` + `cameralbum!<UUID>` 厂商记录、1 张 47 字节零填充。原 §7.4.3「EOI 后有任何残留即判为
+已是动态照片」会让用户的全部真实输入被跳过，功能等于不可用。用户裁定如下，取代 §7.4.3 的第 3 条。
+
+### 1. 尾巴分类（只有视频尾巴才算「已是动态照片」）
+
+- `VIDEO`（跳过，报 `ALREADY_MOTION_PHOTO`）满足任一：
+  - 位于 `imageEnd` 处的起始字节构成合法的 ISO-BMFF box：前 4 字节为大端长度 `N`，
+    `4 <= N <= 剩余字节数`，且第 5-8 字节 ∈ {`ftyp`,`moov`,`mdat`,`free`,`skip`,`wide`,`pnot`}；
+    或 `imageEnd` 起前 12 字节内出现 `ftyp`；
+  - 源 XMP 文本含命名空间限定的 `GCamera:MicroVideoOffset`、`GCamera:MotionPhoto`、
+    `Item:Semantic>MotionPhoto`，或 `Container` 里存在 `Item:Mime` 为 `video/*` 的项。
+- `OTHER`（放行，字节原样保留）：gain map（以 `FFD8` 开头）、厂商 JSON/文本尾巴、零填充等。
+- `NONE`：`imageEnd == 文件大小`。
+
+### 2. 保留 trailer 时的产物布局
+
+`SOI` + 新 XMP APP1 + `源图[2, imageEnd)` + **`源图[imageEnd, fileSize)`（trailer 原样）** + 视频字节。
+`MicroVideoOffset` 与视频项 `Item:Length` 仍等于**追加的视频字节数**：该值从文件末尾倒推，与中间是否
+夹着 gain map 无关，因此偏移语义不变。gain map 项的 `Item:Length` 保持源值不变（字节没动）。
+项顺序固定为 Primary → GainMap → MotionPhoto(视频在最后)，符合 Google container 规范。
+
+### 3. XMP 从「整体替换」改为「合并」
+
+旧实现丢掉源 XMP 再写我们的模板，这会让 gain map 失去声明（字节还在 → 解码器可能误读或渲染错）。
+新规则：
+
+- 源无 XMP → 输出 §7.3 的模板（与现在一致）。
+- 源有 XMP → 以源包为基底合并：保留 `hdrgm:` 等无关命名空间与属性、保留既有 `Container:Directory`
+  的 Primary/GainMap 项、剔除任何旧的 `GCamera:*` 属性与 `Item:Semantic` 为 `MotionPhoto` 的项，
+  然后追加我们的 MotionPhoto 项并写入 §7.3 要求的全部 `GCamera:*` 属性。
+- 实现手段：JDK/Android 自带的 `javax.xml` DOM（不引新依赖，不手写正则改 XML）。
+- 源 XMP 无法解析（畸形）→ 该项 `FAILED`，原因 `MALFORMED_XMP`（新增枚举值），不静默丢用户元数据。
+
+### 4. 验收补充
+
+- 真机：取 vivo 相机原片 + 同名 mp4 合成，产物必须（a）仍被系统相册当动态照片，
+  （b）保留 gain map（对比合成前后同一张图在支持 HDR 的查看器里亮度一致），
+  （c）XMP 同时声明 GainMap 与 MotionPhoto 两项。
+- 单测必须覆盖：VIDEO 尾巴被跳过、gain map 尾巴被保留且 XMP 合并正确、厂商 JSON 尾巴被保留、
+  零填充被保留、无 XMP 时模板不变、畸形 XMP 报 `MALFORMED_XMP`。

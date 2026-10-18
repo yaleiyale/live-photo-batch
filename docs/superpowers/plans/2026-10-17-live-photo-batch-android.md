@@ -2856,3 +2856,60 @@ git commit -m "docs: add acceptance checklist and measured numbers"
   `FailureReason` 七个值、`PairJob` 七个字段在各 Task 中保持同名同序。
 - **已知妥协**：`FileStorage.openWrite` 每次都新建 `RandomAccessFile`，没有句柄复用。若 Task 12
   Step 5 的实测超出 15 秒预算，这里是第一处要改的地方。
+
+
+---
+
+## Task 13: 尾巴分类与 XMP 合并（取代 spec §7.4.3 的旧规则）
+
+依据 spec「增补（2026-10-18）」一节。改 `:core`，不动 `:app` 的 UI 形状（只多一个失败原因文案）。
+
+**Files:**
+- Create: `core/src/main/kotlin/dev/zayn/livephotobatch/core/TrailerClassifier.kt`
+- Create: `core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpMerger.kt`
+- Modify: `core/src/main/kotlin/dev/zayn/livephotobatch/core/MotionPhotoComposer.kt`
+- Modify: `core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegXmpPatcher.kt`（新增把 trailer 字节也搬出去的选项）
+- Modify: `core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt`（暴露模板常量供合并复用）
+- Test: `core/src/test/kotlin/.../TrailerClassifierTest.kt`, `XmpMergerTest.kt`, 扩充
+  `MotionPhotoComposerTest.kt`、`Fixtures.kt`
+
+**Interfaces:**
+- Produces: `enum class TrailerKind { NONE, VIDEO, OTHER }`，
+  `object TrailerClassifier { fun classify(head: ByteArray, xmpText: String?): TrailerKind }`
+  （`head` = 从 `imageEnd` 起最多 16 字节，`xmpText` = `JpegStructure.oldXmpText`）
+- Produces: `object XmpMerger { fun merge(sourcePacket: String?, videoSize: Long): ByteArray }` ——
+  无源包时输出与 `XmpPacket.motionPhoto` 等价、字段集完全一致的包；有源包时按 spec §3 合并；
+  源包不可解析时抛 `MalformedXmpException`
+- Produces: `FailureReason` 新增值 `MALFORMED_XMP`（Task 8 的 `SKIPPABLE` 保持只有
+  `ALREADY_MOTION_PHOTO`，故 `MALFORMED_XMP` 归 FAILED）
+- Consumes: `JpegStructure.imageEnd`、`ChannelSource.size()`，不变的其他签名
+
+**Steps:**
+
+- [ ] 1. 先写失败的 `TrailerClassifierTest`：mp4 box 头（长度自洽 + `ftyp`/`moov`/`mdat`）→ VIDEO；
+  长度自洽但 `free`/`skip` 后紧跟 `ftyp` → VIDEO；`FFD8` 开头 → OTHER；`vivo{` ASCII 开头 → OTHER；
+  全零 → OTHER；空 head → NONE；只有 `GCamera:MicroVideoOffset="123"` 无尾巴 → VIDEO；
+  `Item:Mime` 含 `video/mp4` → VIDEO；`hdrgm:Version="1.0"` 且只有 GainMap 项 → OTHER。
+- [ ] 2. 跑 `./gradlew :core:test --tests '*TrailerClassifierTest'` 确认编译失败。
+- [ ] 3. 实现 `TrailerClassifier`，box 长度用大端解析并做 `4 <= N <= remaining` 自洽检查；
+  注意 `classify` 只看传入的 head，不得整文件读入。
+- [ ] 4. 写失败的 `XmpMergerTest`：无源包 → 与模板逐字段一致；有 gain map 源包 → 保留
+  `hdrgm:Version`、保留 Primary 与 GainMap 项、新增 MotionPhoto 项、`Item:Length` 与
+  `MicroVideoOffset` 等于传入 videoSize、输出里只有一个 `Container:Directory`；
+  源包已含 MotionPhoto 项与 `GCamera:*` → 合并后不重复（幂等：merge 的结果再 merge 一次字节相同）；
+  畸形源包 → 抛 `MalformedXmpException`。
+- [ ] 5. 用 `javax.xml.parsers.DocumentBuilderFactory` 实现合并（不引依赖；关闭外部实体解析：
+  `XMLConstants.FEATURE_SECURE_PROCESSING` + 禁 DTD/外部实体，这是处理不可信 XMP 的硬要求）。
+- [ ] 6. 改 composer：取 trailer head（从 `imageEnd` 读 ≤16 字节，用完关闭）→ `classify`；
+  `VIDEO` 才返回 `ALREADY_MOTION_PHOTO`；`OTHER`/`NONE` 继续，并把 `imageEnd` 到 `size()` 的字节
+  原样搬到 XMP 之后、视频之前；XMP 改走 `XmpMerger.merge(structure.oldXmpText, videoSize)`；
+  `MalformedXmpException` → `Failure(MALFORMED_XMP)`。
+- [ ] 7. 改 `JpegXmpPatcher.patch` 或在 composer 里补一段 trailer 拷贝 —— 选前者，避免两处各自
+  处理边界；`patch()` 的返回值语义改为「写入 sink 的源图字节数（含 trailer，不含新 APP1）」，
+  同步修正 `Success.totalBytes` 的算式与现有断言。
+- [ ] 8. 在 `Fixtures.kt` 加 `gainMapJpeg()`（主图 + 第二张 JPEG + 声明 GainMap 的 XMP）与
+  `vendorTrailerJpeg()` 夹具；补 composer 测试：这两种输入现在必须成功，且产物尾部顺序为
+  trailer 在前、mp4 在后，XMP 同时声明 GainMap 与 MotionPhoto。
+- [ ] 9. `./gradlew :core:test` 全绿；`git add core/src docs && git commit -m
+  "feat(core): keep non-video jpeg trailers and merge motion photo xmp"`。
+- [ ] 10. 真机复验（并入 Task 12 验收清单）：vivo 原片配对必须报成功且相册可播、gain map 未丢。
