@@ -113,8 +113,9 @@ class XmpMergerTest {
 
     @Test fun `blank source packet gives the same bytes as the template`() {
         for (size in listOf(0L, 1L, 987_654L)) {
-            // 模板与合并共用同一个构造器（§3 末段）：两条路径同形，字节也得一字不差。
-            assertArrayEquals(XmpPacket.motionPhoto(size), XmpMerger.merge(null, size))
+            // 模板入口本身就是合并构造器（XmpPacket.motionPhoto 就是 merge(null,·)）：与自己的实现比字节
+            // 恒真，比不了任何事。要钉的是形状——模板那条路必须交出与语料同形的包。
+            XmpShape.assertVivoShape(XmpPacket.motionPhoto(size).decodeToString(), size)
             // 空文本 = "这一段 APP1 里其实什么都没有"，同样走构造器，绝不当成畸形
             assertArrayEquals(XmpPacket.motionPhoto(size), XmpMerger.merge("", size))
             assertArrayEquals(XmpPacket.motionPhoto(size), XmpMerger.merge("   \n\t ", size))
@@ -164,6 +165,44 @@ class XmpMergerTest {
             XmpShape.allElements(root).none { it.getAttribute("Item:Length").isNotEmpty() },
             "第二个 Directory 里的副图长度声明留下了",
         )
+    }
+
+    @Test fun `directory sharing its host with other content is rebuilt last, items gone`() {
+        // §3.3 的"替换"是删除+追加，所以宿主上只剩一份空 Directory 且落在最后一个子节点；
+        // §3.4 同时要求同宿主上的用户内容一个不动。钉住这个位置行为，别让它悄悄变成"就地改写"。
+        val source = packet(
+            "<rdf:Description rdf:about=\"\" xmlns:dc=\"$dc\" xmlns:Container=\"$container\">" +
+                "<dc:description>夕阳，海边</dc:description>" +
+                "<Container:Directory><rdf:Seq>" + attrItem("GainMap", "image/jpeg", 441_963L) +
+                "</rdf:Seq></Container:Directory>" +
+                "<dc:rights><rdf:Alt><rdf:li xml:lang=\"x-default\">某某</rdf:li></rdf:Alt></dc:rights>" +
+                "</rdf:Description>",
+        )
+        val size = 1200L
+        val text = merge(source, size)
+        XmpShape.assertVivoShape(text, size)
+        // 节点的父子关系只能在**同一次解析**的树里比：assertVivoShape 自己又解析了一遍，
+        // 拿它返回的宿主和这里 root 里的 Directory 比身份，比的自然是两个不同文档的节点。
+        val root = parse(text)
+        val directory = XmpShape.directories(root).single()
+        val host = directory.parentNode as Element
+        val kids = XmpShape.childrenNamed(host, "description") + XmpShape.childrenNamed(host, "rights")
+        assertEquals(2, kids.size, "宿主上的用户内容被摘走了")
+        val elementKids = (0 until host.childNodes.length).mapNotNull { host.childNodes.item(it) as? Element }
+        assertEquals(directory, elementKids.last(), "重建的 Directory 不在宿主末尾")
+        assertEquals(0, XmpShape.childrenNamed(XmpShape.childrenNamed(directory, "Seq").single(), "li").size,
+            "副图项没跟着旧 Directory 一起消失")
+    }
+
+    @Test fun `source that binds the GCamera prefix to another namespace is refused`() {
+        // 别人的前缀绑定不能被我覆盖：那样 DOM 里会同时留下两个 nodeName 相同、命名空间不同的属性，
+        // 序列化出来是重复属性名的非法 XML。宁可报 MALFORMED_XMP，也不静默改用户的命名空间。
+        val source = packet(
+            "<rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://example.org/camera/\" GCamera:Odd=\"1\"/>",
+            directoryDescription(),
+        )
+        val e = assertThrows(MalformedXmpException::class.java) { XmpMerger.merge(source, 640L) }
+        assertTrue(e.message!!.contains("GCamera"), "报错原因没提冲突的前缀：${e.message}")
     }
 
     @Test fun `source without any directory still gets exactly one empty one`() {
@@ -311,7 +350,12 @@ class XmpMergerTest {
             // 换个视频长度再合一次：只有 MicroVideoOffset 跟着走，其余一个字节都不动
             val resized = XmpMerger.merge(String(once, Charsets.UTF_8), videoSize + 1)
             assertEquals((videoSize + 1).toString(), hostOffsetOf(parse(resized.decodeToString())))
-            assertFalse(resized.decodeToString().contains(" \"$videoSize\""), "上一轮的视频长度还留在产物里")
+            // 陈旧长度不许以任何**属性值**的身份留在任何一个元素上。字符串子串在这里咬不住：Writer
+            // 写出来是 `GCamera:MicroVideoOffset="123"`，值前面是引号不是空格。
+            val values = XmpShape.allElements(parse(resized.decodeToString())).flatMap { el ->
+                (0 until el.attributes.length).map { el.attributes.item(it)!!.nodeValue }
+            }
+            assertFalse(values.any { it == videoSize.toString() }, "上一轮的视频长度还留在产物里")
         }
     }
 

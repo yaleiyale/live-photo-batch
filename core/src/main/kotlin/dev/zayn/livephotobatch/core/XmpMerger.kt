@@ -88,6 +88,7 @@ object XmpMerger {
         if (local(root) != "xmpmeta") {
             throw MalformedXmpException("XMP 包的根元素不是 x:xmpmeta，而是 <${root.tagName}>")
         }
+        rejectForeignCameraPrefix(root)
         // §3.1 单根：有则用第一个，没有才新建并追加。绝不另起第二个 rdf:RDF 挂我们的声明。
         // 这一步成不成立全靠 [XmpPacket.RDF_NS] 与源包的 RDF 命名空间是同一个 URI：对不上号时
         // childElements 找不到宿主的 RDF，我们就在源 RDF 旁边又起了一个——真机的两个兄弟 RDF 就是这么来的。
@@ -186,6 +187,26 @@ object XmpMerger {
             val (el, depth) = stack.removeLast()
             if (depth > MAX_DEPTH) throw MalformedXmpException("XMP 嵌套超过 $MAX_DEPTH 层，已拒绝解析")
             childElementsOf(el).forEach { stack.addLast(it to depth + 1) }
+        }
+    }
+
+    /**
+     * 源包把 `GCamera` 这个前缀绑到了**别的**命名空间：那种包里的 `GCamera:Whatever` 属于别人的
+     * 命名空间，[stripCameraAttributes] 按 Google 命名空间剔不动它，而我们随后要在宿主上写
+     * `xmlns:GCamera=`[XmpPacket.CAMERA_NS]`。DOM 允许两个 `nodeName` 相同、命名空间不同的属性并存
+     * （`GCamera:MicroVideo` 就此出现两次），序列化出来是一棵谁都读不了的树——重复属性名的非法 XML。
+     * 与其静默改掉用户的命名空间绑定、或产出一个破包，不如按"读不懂就报失败"这条走
+     * [MalformedXmpException]，让调用方报 `MALFORMED_XMP`。
+     */
+    private fun rejectForeignCameraPrefix(root: Element) {
+        for (el in descendants(root)) {
+            for (a in attributesOf(el)) {
+                if (isNamespaceDeclaration(a) && localNameOf(a) == "GCamera" &&
+                    a.nodeValue != XmpPacket.CAMERA_NS
+                ) {
+                    throw MalformedXmpException("源包把 GCamera 前缀绑到 ${a.nodeValue}，与 Google 相机命名空间冲突")
+                }
+            }
         }
     }
 
