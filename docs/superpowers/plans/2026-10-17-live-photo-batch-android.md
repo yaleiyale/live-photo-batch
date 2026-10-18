@@ -2063,13 +2063,16 @@ include(":core", ":app")
 
 ```kotlin
 plugins {
+    // AGP 9.4.1 自带 Kotlin 支持，不再单独 apply kotlin.android（会与内建 Kotlin 冲突）
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "dev.zayn.livephotobatch"
-    compileSdk = 36
+    // compose-bom 2026.09.00 / lifecycle 2.11.0 的 AAR 元数据要求 compileSdk >= 37；
+    // targetSdk 保持 36，运行时行为不受这条依赖约束影响
+    compileSdk = 37
+    compileSdkMinor = 0
 
     defaultConfig {
         applicationId = "dev.zayn.livephotobatch"
@@ -2319,8 +2322,13 @@ class FileStorage(private val root: String) : dev.zayn.livephotobatch.core.Batch
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
-      - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      # 不用 android-actions/setup-android@v3：它默认要装 Google 已从 SDK 仓库删除的 `tools` 包，
+      # 直接用 runner 自带的 sdkmanager
+      - name: Install SDK packages
+        run: |
+          SDKM="$(command -v sdkmanager || echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          "$SDKM" "platforms;android-37.0" "build-tools;36.0.0"
       - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon
       - uses: actions/upload-artifact@v4
         with:
@@ -2496,6 +2504,13 @@ git commit -m "feat(app): all-files permission gate and directory browser"
 **Interfaces:**
 - Consumes: `BatchRunner`, `BatchOptions`, `BatchReport`, `FileStorage`, `DirBrowser`, `PermissionGate`
 - Produces: `class BatchViewModel(app: Application) : ViewModel()`，`data class UiState(...)`
+
+- [ ] **Step 0: 先补 Compose 接线（Task 9 之后 `:app` 不再单独 apply KGP，也没有 compose 开关）**
+
+`app/build.gradle.kts` 的 `android { }` 里加 `buildFeatures { compose = true }`，plugins 块加
+`alias(libs.plugins.kotlin.compose)`，并在 `gradle/libs.versions.toml` 里加
+`kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }`。
+以 CI 的 `:app:assembleDebug` 为准；若 compose 编译器版本与 Kotlin 2.4.21 不匹配，报 BLOCKED 而不是猜。
 
 - [ ] **Step 1: MediaStore 收敛**
 
