@@ -2822,7 +2822,7 @@ adb shell appops set dev.zayn.livephotobatch MANAGE_EXTERNAL_STORAGE allow
 
 ```bash
 # 记录 100 对素材的合成耗时
-adb shell "am start -n dev.zayn.livephotobatch/.MainActivity"
+adb shell "am start -n dev.zayn.livephotobatch/dev.zayn.livephotobatch.app.MainActivity"
 # UI 上跑完后读取"进度 ... 已写出 MB"，同时抓峰值内存
 adb shell "dumpsys meminfo dev.zayn.livephotobatch" | head -20
 ```
