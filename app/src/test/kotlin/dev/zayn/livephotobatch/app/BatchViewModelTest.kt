@@ -98,10 +98,10 @@ class BatchViewModelTest {
         // 拼接（与 BatchRunner.kt:109 同一约定），deletedSources 原样绝对路径转发。
         assertEquals(
             listOf(
-                "${t.outPath}/a_live.jpg",
+                "${t.outPath}/a_MP.jpg",
                 "${t.srcPath}/a.jpg",
                 "${t.srcPath}/a.mp4",
-                "${t.outPath}/b_live.jpg",
+                "${t.outPath}/b_MP.jpg",
                 "${t.srcPath}/b.jpg",
                 "${t.srcPath}/b.mp4",
             ),
@@ -117,8 +117,8 @@ class BatchViewModelTest {
         assertTrue(s.bytes > 0)
         assertNull(s.globalError)
         assertEquals(listOf(ItemStatus.SKIPPED, ItemStatus.SUCCESS, ItemStatus.SUCCESS), s.items.map { it.status })
-        assertTrue(File(t.outPath, "a_live.jpg").isFile)
-        assertTrue(File(t.outPath, "b_live.jpg").isFile)
+        assertTrue(File(t.outPath, "a_MP.jpg").isFile)
+        assertTrue(File(t.outPath, "b_MP.jpg").isFile)
         assertFalse(File(t.srcPath, "a.jpg").exists())
         assertFalse(File(t.srcPath, "a.mp4").exists())
         assertFalse(File(t.srcPath, "b.jpg").exists())
@@ -153,7 +153,7 @@ class BatchViewModelTest {
         release.complete(Unit)
         assertTrue("cleanup must survive the cancelled scope", vm.awaitIdle())
         assertEquals(
-            listOf("${t.outPath}/a_live.jpg", "${t.srcPath}/a.jpg", "${t.srcPath}/a.mp4"),
+            listOf("${t.outPath}/a_MP.jpg", "${t.srcPath}/a.jpg", "${t.srcPath}/a.mp4"),
             paths,
         )
         assertEquals(1, calls.get())

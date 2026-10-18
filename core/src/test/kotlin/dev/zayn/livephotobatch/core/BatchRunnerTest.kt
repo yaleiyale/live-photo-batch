@@ -43,11 +43,11 @@ class BatchRunnerTest {
         // "已写出 N MB" 累加的就是它，只算视频会少掉整张图片。断言不删，改成同一量的
         // 完整表达式：既等于算式，也等于落盘文件的实际长度。
         assertEquals(outputBytes.toLong(), item.bytes)
-        assertEquals(storage.bytesOf("/t/a_live.jpg").size.toLong(), item.bytes)
+        assertEquals(storage.bytesOf("/t/a_MP.jpg").size.toLong(), item.bytes)
         assertEquals(outputBytes.toLong(), report.composedBytes)
-        assertEquals("a_live.jpg", item.outputName)
+        assertEquals("a_MP.jpg", item.outputName)
         assertEquals("a", item.stem)
-        assertTrue(storage.exists("/t/a_live.jpg"))
+        assertTrue(storage.exists("/t/a_MP.jpg"))
         assertFalse(storage.tmpFiles.isNotEmpty())
     }
 
@@ -56,7 +56,7 @@ class BatchRunnerTest {
         runner.run(runner.plan(options(true)), options(true), CancelToken { false }) { }
         assertFalse(storage.exists("/s/a.jpg"))
         assertFalse(storage.exists("/s/a.mp4"))
-        assertTrue(storage.exists("/t/a_live.jpg"))
+        assertTrue(storage.exists("/t/a_MP.jpg"))
     }
 
     @Test fun `tmp write then move then delete is the exact operation order`() {
@@ -70,8 +70,8 @@ class BatchRunnerTest {
             listOf(
                 "ensureDir:/t",
                 "ensureDir:/t/.tmp",
-                "openWrite:/t/.tmp/a_live.jpg.part",
-                "move:/t/.tmp/a_live.jpg.part->/t/a_live.jpg=true",
+                "openWrite:/t/.tmp/a_MP.jpg.part",
+                "move:/t/.tmp/a_MP.jpg.part->/t/a_MP.jpg=true",
                 "delete:/s/a.jpg=true",
                 "delete:/s/a.mp4=true",
             ),
@@ -91,7 +91,7 @@ class BatchRunnerTest {
         assertEquals(0L, item.bytes)
         assertEquals(0L, report.composedBytes)
         assertTrue(storage.exists("/s/a.jpg"))
-        assertFalse(storage.exists("/t/a_live.jpg"))
+        assertFalse(storage.exists("/t/a_MP.jpg"))
         assertFalse(storage.tmpFiles.isNotEmpty())
     }
 
@@ -109,11 +109,11 @@ class BatchRunnerTest {
 
     @Test fun `overwrite replaces the existing output`() {
         val (runner, storage) = runnerWith(
-            "/s/a.jpg" to image, "/s/a.mp4" to video, "/t/a_live.jpg" to ByteArray(5)
+            "/s/a.jpg" to image, "/s/a.mp4" to video, "/t/a_MP.jpg" to ByteArray(5)
         )
         val report = runner.run(runner.plan(options()), options(), CancelToken { false }) { }
         assertEquals(ItemStatus.SUCCESS, report.items.single().status)
-        assertEquals(outputBytes, storage.bytesOf("/t/a_live.jpg").size)
+        assertEquals(outputBytes, storage.bytesOf("/t/a_MP.jpg").size)
         assertEquals(outputBytes.toLong(), report.composedBytes)
         assertFalse(storage.tmpFiles.isNotEmpty())
     }
@@ -127,8 +127,8 @@ class BatchRunnerTest {
         assertTrue(report.cancelled)
         assertEquals(1, report.items.size)
         assertEquals(1, seen)
-        assertTrue(storage.exists("/t/a_live.jpg"))
-        assertFalse(storage.exists("/t/b_live.jpg"))
+        assertTrue(storage.exists("/t/a_MP.jpg"))
+        assertFalse(storage.exists("/t/b_MP.jpg"))
         assertFalse(storage.tmpFiles.isNotEmpty())
     }
 
@@ -146,7 +146,7 @@ class BatchRunnerTest {
         val storage = RecordingStorage(InMemoryStorage(mapOf("/s/a.jpg" to image, "/s/a.mp4" to video)))
         val runner = BatchRunner(storage)
         runner.run(runner.plan(options()), options(), NoCancel) { }
-        assertTrue(storage.exists("/t/a_live.jpg"))
+        assertTrue(storage.exists("/t/a_MP.jpg"))
         val writeIndex = storage.calls.indexOfFirst { it.startsWith("openWrite") }
         // 两个目录都必须在这一次写入之前建好，且顺序是目标目录、再它的 .tmp。
         assertEquals(listOf("ensureDir:/t", "ensureDir:/t/.tmp"), storage.calls.subList(0, 2))
@@ -163,13 +163,13 @@ class BatchRunnerTest {
         assertEquals(ItemStatus.SUCCESS, report.items.single().status)
         assertEquals(outputBytes.toLong(), report.composedBytes)
         // 原地批次结束后源目录里只剩产物：原图与视频被删，`.part` 从不落在源目录根上。
-        assertEquals(listOf(DirEntry("a_live.jpg", outputBytes.toLong())), storage.list("/s"))
+        assertEquals(listOf(DirEntry("a_MP.jpg", outputBytes.toLong())), storage.list("/s"))
         assertEquals(
             listOf(
                 "ensureDir:/s",
                 "ensureDir:/s/.tmp",
-                "openWrite:/s/.tmp/a_live.jpg.part",
-                "move:/s/.tmp/a_live.jpg.part->/s/a_live.jpg=true",
+                "openWrite:/s/.tmp/a_MP.jpg.part",
+                "move:/s/.tmp/a_MP.jpg.part->/s/a_MP.jpg=true",
                 "delete:/s/a.jpg=true",
                 "delete:/s/a.mp4=true",
             ),
@@ -236,7 +236,7 @@ class BatchRunnerTest {
         val item = report.items.single()
         assertEquals(ItemStatus.SUCCESS, item.status)
         assertNull(item.reason, "成功项不该带失败原因")
-        val out = storage.bytesOf("/t/a_live.jpg")
+        val out = storage.bytesOf("/t/a_MP.jpg")
         assertEquals(out.size.toLong(), item.bytes)
         // 字节账本：源文件整份（旧 XMP 换成新段）+ 视频。
         assertEquals(
@@ -247,7 +247,7 @@ class BatchRunnerTest {
         val text = out.toString(Charsets.ISO_8859_1)
         assertFalse(text.contains("<unclosed"), "旧 XMP 的字节还留在产物里")
         assertTrue(text.contains("GCamera:MotionPhoto=\"1\""), "产物没写成动态照片")
-        assertTrue(storage.exists("/t/a_live.jpg"))
+        assertTrue(storage.exists("/t/a_MP.jpg"))
         assertFalse(storage.tmpFiles.isNotEmpty())
         // 成功项才删原文件：这里删得掉，正因为合成成功了。
         assertFalse(storage.exists("/s/a.jpg"))
@@ -261,7 +261,7 @@ class BatchRunnerTest {
         val report = runner.run(runner.plan(options()), options(), NoCancel) { }
         val item = report.items.single()
         assertEquals(ItemStatus.SUCCESS, item.status)
-        val out = storage.bytesOf("/t/a_live.jpg")
+        val out = storage.bytesOf("/t/a_MP.jpg")
         assertEquals(out.size.toLong(), item.bytes)
         assertEquals(out.size.toLong(), report.composedBytes)
         val source = scan(dirty)
@@ -302,7 +302,7 @@ class BatchRunnerTest {
         // rename 没成功就等于什么都没发生：原文件留着，最终名上没有产物，.part 被清掉。
         assertTrue(storage.exists("/s/a.jpg"))
         assertTrue(storage.exists("/s/a.mp4"))
-        assertFalse(storage.exists("/t/a_live.jpg"))
+        assertFalse(storage.exists("/t/a_MP.jpg"))
         assertFalse(storage.calls.any { it.startsWith("delete:/s/") }, "改名失败却删了原文件")
         assertFalse(storage.memory.tmpFiles.isNotEmpty())
     }
@@ -348,8 +348,8 @@ class BatchRunnerTest {
         assertEquals(listOf("a", "b"), seen.map { it.stem })
         assertEquals(2, report.items.size)
         assertEquals(outputBytes.toLong(), report.composedBytes)
-        assertTrue(storage.exists("/t/b_live.jpg"))
-        assertFalse(storage.exists("/t/a_live.jpg"))
+        assertTrue(storage.exists("/t/b_MP.jpg"))
+        assertFalse(storage.exists("/t/a_MP.jpg"))
         // 没提交的项不许删原文件：视频还躺在源目录（图是被"别的进程"删的，不算我们删的）。
         assertTrue(storage.exists("/s/a.mp4"))
         // open 抛之前 openWrite 已经把 0 字节的 .part 落进了目录（内存实现的 close 语义），
@@ -368,14 +368,14 @@ class BatchRunnerTest {
         // 夹具前提：删图之前 a 确实是个作业（删完之后它才会变成 NO_PAIR，那就不是本测试要跑的路径了）。
         assertEquals(listOf("a", "b"), plan.jobs.map { it.stem })
         assertTrue(storage.memory.delete("/s/a.jpg"), "夹具没能把源图删掉")
-        storage.deleteThrows = setOf("/t/.tmp/a_live.jpg.part")
+        storage.deleteThrows = setOf("/t/.tmp/a_MP.jpg.part")
         val report = runner.run(plan, options(), NoCancel) { }
         val a = report.items.first { it.stem == "a" }
         assertEquals(ItemStatus.FAILED, a.status)
         assertEquals(FailureReason.IO_ERROR, a.reason)
         assertEquals(0L, a.bytes)
         assertEquals(
-            listOf("delete:/t/.tmp/a_live.jpg.part=throw"),
+            listOf("delete:/t/.tmp/a_MP.jpg.part=throw"),
             storage.calls.filter { it.startsWith("delete:/t/.tmp/") },
         )
         // 后面的项照跑，报告照发。
@@ -383,7 +383,7 @@ class BatchRunnerTest {
         assertEquals(outputBytes.toLong(), report.composedBytes)
         // 清不掉的半截文件留在 .tmp 里——这是"批次继续"的代价（下次批次会覆盖它），
         // 不是新故障，也不许反过来把整批掀翻。
-        assertEquals(listOf("/t/.tmp/a_live.jpg.part"), storage.memory.tmpFiles)
+        assertEquals(listOf("/t/.tmp/a_MP.jpg.part"), storage.memory.tmpFiles)
     }
 
     @Test fun `a throwing tmp cleanup does not rewrite a skipped item into a failure`() {
@@ -395,7 +395,7 @@ class BatchRunnerTest {
         val storage = RecordingStorage(InMemoryStorage(mapOf(
             "/s/a.jpg" to dirty, "/s/a.mp4" to video, "/s/b.jpg" to image, "/s/b.mp4" to video,
         )))
-        storage.deleteThrows = setOf("/t/.tmp/a_live.jpg.part")
+        storage.deleteThrows = setOf("/t/.tmp/a_MP.jpg.part")
         val runner = BatchRunner(storage)
         val report = runner.run(runner.plan(options(true)), options(true), NoCancel) { }
         val a = report.items.first { it.stem == "a" }
@@ -411,7 +411,7 @@ class BatchRunnerTest {
         assertEquals(ItemStatus.SUCCESS, b.status)
         assertEquals(listOf("/s/b.jpg", "/s/b.mp4"), b.deletedSources)
         assertEquals(outputBytes.toLong(), report.composedBytes)
-        assertEquals(listOf("/t/.tmp/a_live.jpg.part"), storage.memory.tmpFiles)
+        assertEquals(listOf("/t/.tmp/a_MP.jpg.part"), storage.memory.tmpFiles)
     }
 
     @Test fun `a throwing source delete keeps the committed success and only adds a warning`() {
@@ -432,7 +432,7 @@ class BatchRunnerTest {
         assertEquals(listOf("/s/a.jpg"), a.deletedSources)
         assertTrue(storage.exists("/s/a.mp4"))
         assertFalse(storage.exists("/s/a.jpg"))
-        assertTrue(storage.exists("/t/a_live.jpg"))
+        assertTrue(storage.exists("/t/a_MP.jpg"))
         // 抛出故障同样不截断批次：b 照常提交、照常删干净。
         val b = report.items.first { it.stem == "b" }
         assertEquals(ItemStatus.SUCCESS, b.status)

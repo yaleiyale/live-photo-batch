@@ -8,12 +8,12 @@ class PairPlannerTest {
     private fun plan(vararg names: String) =
         PairPlanner.plan(names.map { DirEntry(it, 1L) }, emptyList())
 
-    @Test fun `same stem pairs and gets the live suffix`() {
+    @Test fun `same stem pairs and gets the MP suffix`() {
         val result = plan("IMG_001.jpg", "IMG_001.mp4")
         assertEquals(1, result.jobs.size)
         val job = result.jobs[0]
         assertEquals("IMG_001", job.stem)
-        assertEquals("IMG_001_live.jpg", job.outputName)
+        assertEquals("IMG_001_MP.jpg", job.outputName)
         assertEquals("IMG_001.mp4", job.videoName)
         assertEquals(false, job.outputExists)
     }
@@ -32,15 +32,23 @@ class PairPlannerTest {
     }
 
     @Test fun `previous outputs are not treated as inputs`() {
-        val result = plan("a.jpg", "a.mp4", "a_live.jpg", "a_live.mp4")
+        val result = plan("a.jpg", "a.mp4", "a_MP.jpg", "a_MP.mp4")
         assertEquals(listOf("a"), result.jobs.map { it.stem })
-        assertEquals(listOf("a_live.mp4"), result.unpaired.map { it.name })
+        assertEquals(listOf("a_MP.mp4"), result.unpaired.map { it.name })
+    }
+
+    @Test fun `the output guard ignores case`() {
+        // 产物叫 a_MP.jpg，被谁改成 a_mp.jpeg 也还是上一轮的东西，两个都不许当新输入。
+        val result = plan("a.jpg", "a.mp4", "a_MP.jpg", "a_mp.jpeg", "b.jpg")
+        assertEquals(listOf("a"), result.jobs.map { it.stem })
+        // 少了大小写无关这一步，a_MP.jpg 与 a_mp.jpeg 会带着"缺视频"混进 unpaired。
+        assertEquals(listOf("b.jpg"), result.unpaired.map { it.name })
     }
 
     @Test fun `output existing in target is flagged for overwrite`() {
         val result = PairPlanner.plan(
             listOf(DirEntry("a.jpg", 1L), DirEntry("a.mp4", 1L)),
-            listOf(DirEntry("a_live.jpg", 9L)),
+            listOf(DirEntry("a_MP.jpg", 9L)),
         )
         assertTrue(result.jobs[0].outputExists)
     }
@@ -88,10 +96,10 @@ class PairPlannerTest {
         val upper = result.jobs[0]
         assertEquals("IMG_001.JPG", upper.imageName)
         assertEquals("IMG_001.Mp4", upper.videoName)
-        assertEquals("IMG_001_live.jpg", upper.outputName)
+        assertEquals("IMG_001_MP.jpg", upper.outputName)
         val lower = result.jobs[1]
         assertEquals("holiday.jpeg", lower.imageName)
         assertEquals("holiday.mp4", lower.videoName)
-        assertEquals("holiday_live.jpg", lower.outputName)
+        assertEquals("holiday_MP.jpg", lower.outputName)
     }
 }

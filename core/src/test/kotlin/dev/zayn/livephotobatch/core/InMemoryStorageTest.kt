@@ -108,8 +108,8 @@ class InMemoryStorageTest {
     @Test fun `move and delete report false for missing sources`() {
         val storage = InMemoryStorage()
         storage.ensureDir("/t")
-        assertFalse(storage.move("/t/nope", "/t/a_live.jpg"))
-        assertFalse(storage.exists("/t/a_live.jpg"))
+        assertFalse(storage.move("/t/nope", "/t/a_MP.jpg"))
+        assertFalse(storage.exists("/t/a_MP.jpg"))
         assertFalse(storage.delete("/t/nope"))
         assertFalse(storage.exists("/t/nope"))
     }

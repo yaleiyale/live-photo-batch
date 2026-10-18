@@ -19,9 +19,9 @@ Android app，去掉分离、抽帧和厂商私有格式支持。
 ## 2. 目标
 
 - G1 批量：选择源目录，把其中**文件名完全相同、仅扩展名不同**的 `x.jpg` 与 `x.mp4` 合成
-  `x_live.jpg` 写入目标目录。
+  `x_MP.jpg` 写入目标目录。
 - G2 可选删除原文件：勾选后，在产物成功落盘的前提下删除这一对的 `x.jpg` 与 `x.mp4`。
-- G3 冲突处理：目标目录已存在 `x_live.jpg` 时**覆盖**。
+- G3 冲突处理：目标目录已存在 `x_MP.jpg` 时**覆盖**。
 - G4 产物被 vivo V2419A 系统相册识别为动态照片，并且写完即可在相册里看到。
 - G5 性能预算：100 对典型素材（JPEG 约 4 MB + MP4 约 8 MB，合计约 1.2 GB）在 V2419A 上
   15 秒内完成，进程内存峰值不超过 32 MB。该预算在验收任务里用真机实测数字确认。
@@ -60,7 +60,7 @@ Android app，去掉分离、抽帧和厂商私有格式支持。
   JpegXmpPatcher     删除旧 XMP APP1、在 SOI 后插入新 APP1，其余段原样保留
   MotionPhotoComposer  compose(image, video, sink): ComposeResult
   NestedMotionPhotoDetector  判断输入是否已是动态照片
-  PairPlanner        一层目录条目列表 -> List<PairJob>（同名配对、_live 命名、覆盖）
+  PairPlanner        一层目录条目列表 -> List<PairJob>（同名配对、_MP 命名、覆盖）
   BatchRunner        顺序推进 + 进度流 + 取消 + 逐项报告
   model DirEntry     (name: String, size: Long) —— 目录枚举由 :app 提供，:core 不碰文件系统
 :app   (Android)
@@ -78,7 +78,7 @@ Android app，去掉分离、抽帧和厂商私有格式支持。
 
 ### 7.1 输出布局
 
-`x_live.jpg` 的字节 = `patchedImageBytes ++ videoBytes`，其中：
+`x_MP.jpg` 的字节 = `patchedImageBytes ++ videoBytes`，其中：
 
 - `patchedImageBytes`：源 JPEG 的 SOI、紧随其后的新 XMP APP1、源文件其余全部段（EXIF/ICC/
   量化表/帧数据等原样复制，不重编码）、直到源 JPEG 真正的 EOI。
@@ -151,9 +151,9 @@ XML 文本，因此不进入模板。
    （本条已被文末「增补（2026-10-18，真机验收后）」§1 取代：只有**视频形状**的尾巴才算已合成过，
    非视频尾巴原样保留；新增 `MALFORMED_XMP`。）
 4. `x.mp4` 起始 12 字节内必须出现 `ftyp`，否则 `NOT_MP4`。
-5. 输出名：`x.jpg` 去掉扩展名后加 `_live.jpg`。扩展名判定大小写不敏感（`.JPG`、`.Mp4` 都算），
+5. 输出名：`x.jpg` 去掉扩展名后加 `_MP.jpg`。扩展名判定大小写不敏感（`.JPG`、`.Mp4` 都算），
    文件名主干（stem）严格区分大小写，与 Android 文件系统语义一致。
-6. 自产物流水保护：stem 以 `_live` 结尾（大小写不敏感）的 JPEG 不作为本轮输入候选，避免把上一轮的
+6. 自产物流水保护：stem 以 `_MP` 结尾（大小写不敏感）的 JPEG 不作为本轮输入候选，避免把上一轮的
    产物当成本轮的源。
 
 ### 7.5 原子落盘与删除
@@ -184,7 +184,7 @@ XML 文本，因此不进入模板。
 
 - 单项失败不中断批次，逐项报告并继续。
 - 全局前置失败直接拒绝开始：未授予所有文件访问、源目录不存在或不可读、目标目录无法创建。
-- 源目录与目标目录**可以是同一个**：产物名带 `_live` 后缀且不会作为输入候选，同目录原地生成安全。
+- 源目录与目标目录**可以是同一个**：产物名带 `_MP` 后缀且不会作为输入候选，同目录原地生成安全。
 - 磁盘写满（`IOException` 且非取消）记为 `IO_ERROR`，批次继续，UI 在末尾汇总失败计数。
 - 所有面向用户的失败原因用中文短语呈现，同时保留机器可读枚举名。
 
@@ -200,7 +200,7 @@ XML 文本，因此不进入模板。
 4. `MotionPhotoComposer`：round-trip——合成后用 `fileSize - MicroVideoOffset` 反解视频起点，断言
    该处起 `ftyp` 且尾部字节与源 MP4 逐字节相等。
 5. 嵌套防护：输入已是 motion photo 时返回 `ALREADY_MOTION_PHOTO` 且不写任何字节。
-6. `PairPlanner`：同名配对、缺对、大小写、`_live` 产物被剔除、非一层目录不被递归。
+6. `PairPlanner`：同名配对、缺对、大小写、`_MP` 产物被剔除、非一层目录不被递归。
 7. `BatchRunner`：取消时机（rename 之后停）、逐项报告分类计数、删除仅在 rename 成功后发生。
 
 `:app` 仪器化冒烟测试：`PermissionGate` 状态判断；`FileSystemGateway` 在真临时目录写读一致。
@@ -380,7 +380,7 @@ SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, imageEnd) + 
   EOI 与视频起点之间零字节；EXIF `APP1` 仍在 XMP `APP1` 之前（源里有的话）。
 - 幂等：本 app 的产物再合成一次必须报 `ALREADY_MOTION_PHOTO`（尾巴是视频形状）；把合并产物再喂给
   合并器，字节必须相同。
-- **真机判据（本轮唯一成功标准）**：vivo 相册把 `<stem>_live.jpg` 当动态照片。
+- **真机判据（本轮唯一成功标准）**：vivo 相册把 `<stem>_MP.jpg` 当动态照片。
 - 明确放弃：产物保留 gain map；`Container` 里声明 MotionPhoto 视频项。
 
 
@@ -480,7 +480,7 @@ Exif APP1 与其余段仍按源字节原样保留（A 就是这么做的，42 KB
   新 XMP 落在旧 XMP 原来的位置、EXIF 仍在它之前；产物大小 - `MicroVideoOffset` == 视频起点，
   且该处 12 字节内出现 `ftyp`；包与 §2 那份**逐字节相同**（只有两处 `<VIDEO_SIZE>` 随长度变）；
   源包里有 `hdrgm:`/`dc:`/厂商属性时，产物包里**一个都不出现**。
-- 真机判据（决定性，唯一成功标准）：vivo 相册把 `<stem>_live.jpg` 当动态照片。
+- 真机判据（决定性，唯一成功标准）：vivo 相册把 `<stem>_MP.jpg` 当动态照片。
 - 上一节"产物必须丢掉 gain map"的要求作废。
 
 ---
@@ -550,3 +550,16 @@ URI 才是语义，且 Pixel 自己的文件写的就是 `GCamera`。四个 `Mic
 - `Item:Length` 只出现在 `GainMap` 与 `MotionPhoto` 两项上，`Padding` 只出现在 `Primary` 上。
 - 畸形副图（`FFD8` 起头但遍历不收敛）→ 降级成 `Padding`，不抛异常。
 - 真机判据不变：vivo 相册认作动态照片。这条**每次改包都要重跑**，因为上一轮的判定就是包决定的。
+
+### 5. 文件名：`_live` 改 `_MP`（用户裁定）
+
+规范 §"File name pattern" 建议（SHOULD）作者的文件名匹配
+`^([^\s\/\][^\/\]*MP)\.(JPG|jpg|JPEG|jpeg|HEIC|heic|AVIF|avif)` —— 扩展名前以 `MP` 收尾，
+Pixel 自己的产物就是 `IMG_xxxxMP.jpg`。原裁定用的 `_live` 不匹配这条，用户改判为 `_MP`。
+
+- `PairPlanner.OUTPUT_SUFFIX = "_MP"`，产物名 `<stem>_MP.jpg`。
+- **自产物流水保护必须跟着大小写无关**：`stem.lowercase().endsWith(OUTPUT_SUFFIX.lowercase())`。
+  常量本身从 `_live` 变成带大写的 `_MP`，再拿小写化后的 stem 去 `endsWith` 一个含大写的后缀，
+  永远返回 false —— 那条保护会**静默失效**，上一轮产物会被当成本轮的新输入再合成一遍。
+  单测 `the output guard ignores case` 钉这个：`a_MP.jpg` 与 `a_mp.jpeg` 都不许进候选，
+  同时留一个 `b.jpg`（真缺视频）作反证，防断言空转。
