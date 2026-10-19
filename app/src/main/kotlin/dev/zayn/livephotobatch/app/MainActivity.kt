@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.zayn.livephotobatch.app.perm.PermissionGate
+import dev.zayn.livephotobatch.app.ui.IosColorScheme
 
 /**
  * 唯一的 Activity。清单里声明的是 `.app.MainActivity`，而 `android:name` 的点号前缀展开的是
@@ -24,13 +25,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 屏幕里全是 M3 控件（Button/Checkbox/AlertDialog/LinearProgressIndicator…），
-        // 必须活在 MaterialTheme 下，否则取的是空主题的兜底配色。
+        // 控件层是自己画的，但 MaterialTheme 还得留着：Text 的兜底色、Dialog 的表面色都从它取，
+        // 给它 iOS 色板才不会被 M3 默认配色漏出来。
         // enableEdgeToEdge() 刻意**不**开：计划没要求，而 BatchScreen 已经在窗口层用
         // WindowInsets.safeDrawing 手动避让；真机（targetSdk 36 + API 37）本来就强制 edge-to-edge，
         // 在这里再叠一层只会把已审过的 insets 行为改掉。
         setContent {
-            MaterialTheme {
+            MaterialTheme(colorScheme = IosColorScheme) {
                 BatchScreen(vm, request = {
                     // vivo 上 ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION 不一定落得到系统页（spec R2）：
                     // 跳不动就退化成手动指引的 Toast，回到前台时 onResume 会再回查一次真实状态。

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 只为对齐页面底色与系统栏：Compose 层自己画所有控件，这里不参与配色。
+         windowBackground 是冷启动那一帧的颜色，跟 iOS 分组背景同一个串，避免闪白/闪黑。 -->
+    <color name="grouped_background">#F2F2F7</color>
+
+    <style name="Theme.LivePhotoBatch" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/grouped_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>
