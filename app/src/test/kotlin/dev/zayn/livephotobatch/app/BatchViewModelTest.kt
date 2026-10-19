@@ -47,7 +47,7 @@ class BatchViewModelTest {
             File(src, "$stem.jpg").writeBytes(jpegBytes)
             File(src, "$stem.mp4").writeBytes(mp4Bytes)
         }
-        unpaired.forEach { stem -> File(src, "$stem.jpg").writeBytes(jpegBytes) }
+        unpaired.forEach { stem -> File(src, "$stem.mp4").writeBytes(mp4Bytes) }
         return Tree(root, rootPath, "$rootPath/src", "$rootPath/out")
     }
 
@@ -78,7 +78,7 @@ class BatchViewModelTest {
 
     @Test
     fun `start scans every output and every deleted original`() {
-        val t = tree(pairs = listOf("a", "b"), unpaired = listOf("c"))
+        val t = tree(pairs = listOf("IMG_a", "IMG_b"), unpaired = listOf("IMG_c"))
         val scanned = CompletableDeferred<List<String>>()
         val release = CompletableDeferred<Unit>()
         val calls = AtomicInteger()
@@ -98,12 +98,12 @@ class BatchViewModelTest {
         // 拼接（与 BatchRunner.kt:109 同一约定），deletedSources 原样绝对路径转发。
         assertEquals(
             listOf(
-                "${t.outPath}/a_MP.jpg",
-                "${t.srcPath}/a.jpg",
-                "${t.srcPath}/a.mp4",
-                "${t.outPath}/b_MP.jpg",
-                "${t.srcPath}/b.jpg",
-                "${t.srcPath}/b.mp4",
+                "${t.outPath}/IMG_a_MP.jpg",
+                "${t.srcPath}/IMG_a.jpg",
+                "${t.srcPath}/IMG_a.mp4",
+                "${t.outPath}/IMG_b_MP.jpg",
+                "${t.srcPath}/IMG_b.jpg",
+                "${t.srcPath}/IMG_b.mp4",
             ),
             paths,
         )
@@ -117,13 +117,13 @@ class BatchViewModelTest {
         assertTrue(s.bytes > 0)
         assertNull(s.globalError)
         assertEquals(listOf(ItemStatus.SKIPPED, ItemStatus.SUCCESS, ItemStatus.SUCCESS), s.items.map { it.status })
-        assertTrue(File(t.outPath, "a_MP.jpg").isFile)
-        assertTrue(File(t.outPath, "b_MP.jpg").isFile)
-        assertFalse(File(t.srcPath, "a.jpg").exists())
-        assertFalse(File(t.srcPath, "a.mp4").exists())
-        assertFalse(File(t.srcPath, "b.jpg").exists())
-        assertFalse(File(t.srcPath, "b.mp4").exists())
-        assertTrue("原文件还在的项不许进扫描——它也没进", File(t.srcPath, "c.jpg").isFile)
+        assertTrue(File(t.outPath, "IMG_a_MP.jpg").isFile)
+        assertTrue(File(t.outPath, "IMG_b_MP.jpg").isFile)
+        assertFalse(File(t.srcPath, "IMG_a.jpg").exists())
+        assertFalse(File(t.srcPath, "IMG_a.mp4").exists())
+        assertFalse(File(t.srcPath, "IMG_b.jpg").exists())
+        assertFalse(File(t.srcPath, "IMG_b.mp4").exists())
+        assertTrue("原文件还在的项不许进扫描——它也没进", File(t.srcPath, "IMG_c.mp4").isFile)
         t.root.deleteRecursively()
     }
 
@@ -133,7 +133,7 @@ class BatchViewModelTest {
         // finally 里的 withContext(NonCancellable + IO) 必须让扫描提交完整列表、running 落回
         // false。把 NonCancellable 摘掉（withContext(Dispatchers.IO)），release.await() 会带着
         // CancellationException 掀掉收尾，running 永远停住，本测试立刻翻红。
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         val scanned = CompletableDeferred<List<String>>()
         val release = CompletableDeferred<Unit>()
         val calls = AtomicInteger()
@@ -153,7 +153,7 @@ class BatchViewModelTest {
         release.complete(Unit)
         assertTrue("cleanup must survive the cancelled scope", vm.awaitIdle())
         assertEquals(
-            listOf("${t.outPath}/a_MP.jpg", "${t.srcPath}/a.jpg", "${t.srcPath}/a.mp4"),
+            listOf("${t.outPath}/IMG_a_MP.jpg", "${t.srcPath}/IMG_a.jpg", "${t.srcPath}/IMG_a.mp4"),
             paths,
         )
         assertEquals(1, calls.get())
@@ -167,7 +167,7 @@ class BatchViewModelTest {
         // touchedPathsFor(目标目录, 回报过的全部 items)，含取消之后才回报的那条尾巴；
         // 且磁盘事实与之一致：SUCCESS 的产物在、已删的原文件没了、没轮到的项一根毛没动。
         // 先等 done 过 20 再 cancel()，保证批次一定"跑起来了才被叫停"（不是开局即空转）。
-        val names = (0 until 60).map { "p%03d".format(it) }
+        val names = (0 until 60).map { "IMG_p%03d".format(it) }
         val t = tree(pairs = names)
         val recorded = AtomicReference<List<String>>()
         val calls = AtomicInteger()
@@ -209,7 +209,7 @@ class BatchViewModelTest {
         // （连 finally 都不算）被 kotlinx 直接丢弃——可接受的原因恰恰是"此刻什么都没动"：
         // 没有产物、没有删除、没有 ensureDir 之外的文件效果，相册自然不会有幽灵条目。
         // 这里钉的就是"零文件效果 + 零扫描"；测不掉的只剩 running 卡 true（VM 已死，无人读）。
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         val calls = AtomicInteger()
         val vm = viewModel(t.rootPath) { calls.incrementAndGet(); true }
         vm.setSource(t.srcPath)
@@ -220,15 +220,15 @@ class BatchViewModelTest {
         Thread.sleep(150) // 给任何"不该发生的调度"足够时间暴露
         assertEquals(0, calls.get())
         assertFalse("out 目录都不该被创建", File(t.outPath).exists())
-        assertTrue(File(t.srcPath + "/a.jpg").isFile)
-        assertTrue(File(t.srcPath + "/a.mp4").isFile)
+        assertTrue(File(t.srcPath + "/IMG_a.jpg").isFile)
+        assertTrue(File(t.srcPath + "/IMG_a.mp4").isFile)
         assertNull(vm.state.value.globalError)
         t.root.deleteRecursively()
     }
 
     @Test
     fun `start without permission is a silent refusal`() {
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         val calls = AtomicInteger()
         val vm = viewModel(t.rootPath, granted = { false }) { calls.incrementAndGet(); true }
         vm.setSource(t.srcPath)
@@ -243,7 +243,7 @@ class BatchViewModelTest {
 
     @Test
     fun `missing source dir maps to a global error and never reaches the scanner`() {
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         val calls = AtomicInteger()
         val vm = viewModel(t.rootPath) { calls.incrementAndGet(); true }
         val snapshot = UiState(sourceDir = "${t.rootPath}/nope", targetDir = t.outPath, running = true)
@@ -258,7 +258,7 @@ class BatchViewModelTest {
 
     @Test
     fun `un-creatable target dir maps to a global error and never reaches the scanner`() {
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         File(t.outPath).writeText("占位的普通文件：ensureDir 必然失败")
         val calls = AtomicInteger()
         val vm = viewModel(t.rootPath) { calls.incrementAndGet(); true }
@@ -274,7 +274,7 @@ class BatchViewModelTest {
     fun `outside-root snapshot paths are refused with the same predicate the UI used`() {
         // finding 4：被检查的路径与被读写的路径用同一个 isSelectable——root 之外的开工快照
         // 静默返回（selectPath 保证 UiState 里不会出现这种串，这条是防漂移的兜底）。
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         val calls = AtomicInteger()
         val vm = viewModel(t.rootPath) { calls.incrementAndGet(); true }
         runBlocking {
@@ -284,7 +284,7 @@ class BatchViewModelTest {
         assertEquals(0, calls.get())
         assertNull(vm.state.value.globalError)
         assertFalse(vm.state.value.running)
-        assertTrue(File(t.srcPath, "a.jpg").isFile)
+        assertTrue(File(t.srcPath, "IMG_a.jpg").isFile)
         t.root.deleteRecursively()
     }
 
@@ -292,7 +292,7 @@ class BatchViewModelTest {
     fun `unconfirmed scan becomes a visible one-line hint instead of silence`() {
         // §7.6 的可观测性：MediaStoreSync 返回 false 时 globalError 必须给出提示（不崩、
         // 不改写 items、running 照常落回 false）。
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         val vm = viewModel(t.rootPath) { false }
         vm.setSource(t.srcPath)
         vm.setTarget(t.outPath)
@@ -306,7 +306,7 @@ class BatchViewModelTest {
 
     @Test
     fun `a throwing scanner is logged into globalError and never strands the batch`() {
-        val t = tree(pairs = listOf("a"))
+        val t = tree(pairs = listOf("IMG_a"))
         val vm = viewModel(t.rootPath) { throw IllegalStateException("boom") }
         vm.setSource(t.srcPath)
         vm.setTarget(t.outPath)
