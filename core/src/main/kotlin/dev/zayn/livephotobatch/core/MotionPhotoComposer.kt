@@ -33,6 +33,8 @@ sealed interface ComposeResult {
  * 所以源片里排在 XMP 之前的 EXIF 仍然在它之前。
  * `GCamera:MicroVideoOffset` 与容器项的 `Item:Length` 都等于**追加的视频字节数**（从文件末尾倒推，
  * 与中间夹多少尾巴无关）：`文件大小 - MicroVideoOffset == 视频起点`，而 `imageEnd` 在更前面。
+ * 唯一的例外是 vivo 相机的末盒：[VivoLivePhotoTail] 会把 `livephoto` 值加上 `motionphoto` 前缀
+ * （不加这台机器就不认），那两处长度填的是**改写后实际写出的字节数**，不是 `video.size()`。
  *
  * 校验顺序按 spec §7.4（增补 §1 取代其中第 3 条），且是**可观测的**：先把最便宜的视频头探测放最前
  * （坏视频绝不让后面白扫一遍 JPEG），再判 SOI、段遍历、扩展 XMP、尾巴分类，
@@ -105,10 +107,16 @@ object MotionPhotoComposer {
         // 增补 §3：给尾巴定性——副图整条声明成 GainMap，其余整条声明成主图 Padding，
         // EOI 与视频之间不留一个没人声明的字节。畸形尾巴在这里降级成 Padding 而不是抛。
         val trailerDescription = TrailerModel.describe(image, structure.imageEnd, fileSize)
+        // 末盒规整（真机二分 2026-10-20）：vivo 相册只认 `livephoto` 值以 motionphoto 开头的视频，
+        // 而相机自己写的是数字开头的 id，原样追加必然不认。看不懂的视频返回 null，那时
+        // videoBytes == videoSize，产物与"原样追加"逐字节相同——不伪造、不强改。
+        val tail = VivoLivePhotoTail.plan(video)
+        val videoBytes = tail?.totalBytes ?: videoSize
         val app1 = try {
             // 增补 §2：清空重写，源 XMP 一个属性都不带进产物；包由 XmpPacket 一处生成。
+            // 两处长度填的是**实际写出的视频字节数**（末盒变长了就跟着变），不是 video.size()。
             XmpPacket.app1Segment(
-                videoSize,
+                videoBytes,
                 gainMapBytes = trailerDescription.gainMapBytes,
                 paddingBytes = trailerDescription.paddingBytes,
             )
@@ -120,8 +128,8 @@ object MotionPhotoComposer {
             // patch 的返回值是"从源图写出的字节数"：不含新 APP1，含被丢弃旧 XMP 之外的一切源字节，
             // 也含 imageEnd 之后那条尾巴（trailerEnd 传到文件末尾，整文件都要）。
             val patched = JpegXmpPatcher.patch(structure, image, sink, app1, trailerEnd = fileSize)
-            copyToEnd(video, sink)
-            ComposeResult.Success(videoSize, patched + app1.size + videoSize)
+            copyVideo(video, sink, tail)
+            ComposeResult.Success(videoBytes, patched + app1.size + videoBytes)
         } catch (e: IOException) {
             // 全部校验都已通过，到这里只剩 I/O 故障：sink 里可能已经留下一半内容，
             // 调用方按 §7.5 无条件丢弃半成品，所以这里只报原因，不报"写了几个字节"。
@@ -164,17 +172,27 @@ object MotionPhotoComposer {
         }
     }
 
-    /** 视频原样追加：定长缓冲一路读到 EOF，交给同一个 [writeAll] 排空，绝不整段进内存。 */
-    private fun copyToEnd(video: ChannelSource, sink: WritableByteChannel) {
+    /**
+     * 视频按字节追加：定长缓冲一路读到 [VivoLivePhotoTail.Rewrite.verbatimBytes]（没有末盒要改
+     * 就是整个文件），交给同一个 [writeAll] 排空，绝不整段进内存；需要改写时再补上重写后的末盒。
+     * 前半一字不动，所以视频里所有 `stco`/`co64` 的 chunk 偏移仍然有效。
+     */
+    private fun copyVideo(video: ChannelSource, sink: WritableByteChannel, tail: VivoLivePhotoTail.Rewrite?) {
+        val verbatim = tail?.verbatimBytes ?: video.size()
         video.open().use { ch ->
             val buf = ByteBuffer.allocate(COPY_BUFFER)
-            while (true) {
+            var left = verbatim
+            while (left > 0) {
                 buf.clear()
+                buf.limit(minOf(left, buf.capacity().toLong()).toInt())
                 if (ch.read(buf) <= 0) break
+                val n = buf.position().toLong()
                 buf.flip()
                 sink.writeAll(buf)
+                left -= n
             }
         }
+        if (tail != null) sink.writeAll(ByteBuffer.wrap(tail.replacement))
     }
 
     /** spec §7.4 第 4 条：起始 12 字节内出现 ftyp。 */

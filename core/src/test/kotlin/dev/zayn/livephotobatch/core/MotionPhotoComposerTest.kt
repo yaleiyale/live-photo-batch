@@ -62,6 +62,14 @@ class MotionPhotoComposerTest {
         assertArrayEquals(expected, out.copyOfRange(at, at + expected.size))
     }
 
+    /** [VivoLivePhotoTail] 给 livephoto 值加的字面量前缀的字节数。 */
+    private val PREFIX_LEN = "motionphoto".length
+
+    /** ISO-BMFF 盒头那个 32 位大端总长。 */
+    private fun be32(b: ByteArray, at: Int): Int =
+        ((b[at].toInt() and 0xFF) shl 24) or ((b[at + 1].toInt() and 0xFF) shl 16) or
+            ((b[at + 2].toInt() and 0xFF) shl 8) or (b[at + 3].toInt() and 0xFF)
+
     @Test fun `happy path writes image then video and records video size`() {
         val video = Fixtures.mp4(900)
         val image = Fixtures.jpeg()
@@ -396,6 +404,44 @@ class MotionPhotoComposerTest {
         )
         // 写入阶段失败同样不许替调用方关 sink。
         assertTrue(sink.isOpen, "compose 关掉了调用方的 sink")
+    }
+
+    // ---------- 真机二分（2026-10-20）：vivo 末盒的 livephoto 值必须带 motionphoto 前缀 ----------
+
+    @Test fun `vivo tail box gets the prefix and both declared sizes follow the rewrite`() {
+        val image = Fixtures.jpeg()
+        val video = Fixtures.vivoMp4()
+        val oldBox = Fixtures.vivoTailBox()
+        val head = video.size - oldBox.size
+        val (result, out) = compose(image, video)
+        val success = assertInstanceOf(ComposeResult.Success::class.java, result)
+
+        // 前缀那 11 字节全落在末盒里：视频前半一字不动，产物只比"原样追加"多这 11 字节。
+        assertEquals((video.size + PREFIX_LEN).toLong(), success.videoSize, "videoSize 不是实际写出的视频字节数")
+        assertEquals(
+            (image.size + XmpPacket.app1Segment(success.videoSize).size + video.size + PREFIX_LEN).toLong(),
+            out.size.toLong(), "产物长度账本没跟着末盒改写",
+        )
+        val offset = assertVideoAtFileSizeMinusOffset(out)
+        assertEquals(success.videoSize, offset, "MicroVideoOffset 填的不是写出去的字节数")
+        val text = out.toString(Charsets.ISO_8859_1)
+        assertEquals(1, Regex(Regex.escape("Item:Length=\"${success.videoSize}\"")).findAll(text).count(),
+            "容器项的 Length 没跟着末盒改写（两处长度必须是同一个数）")
+        assertTrue("motionphoto${Fixtures.REAL_LIVEPHOTO}" in text, "末盒的 livephoto 值没被加前缀")
+        // 视频前半（ftyp 盒）逐字节不动：chunk 偏移的基准没被挪过。
+        assertArrayEquals(video.copyOfRange(0, head), out.copyOfRange(out.size - success.videoSize.toInt(), out.size - success.videoSize.toInt() + head))
+        val newBox = out.copyOfRange(out.size - success.videoSize.toInt() + head, out.size)
+        // 盒子的前 4 字节**就是** size 字段，加前缀必然动它（下面一条专门盯新长度）；
+        // 不许动的是从 tag 起的 24 字节：'uuid' + 16 字节伪 UUID + 'vivo' 魔数。
+        assertArrayEquals(oldBox.copyOfRange(4, 28), newBox.copyOfRange(4, 28), "tag/伪 UUID/魔数被动过")
+        assertEquals(newBox.size, be32(newBox, 0), "末盒 size 字段没同步成新长度")
+    }
+
+    @Test fun `video without the vivo tail box is appended byte for byte`() {
+        // 回归钉桩：非 vivo 的视频（没有那个盒）产物必须与"原样追加"逐字节相同——不伪造厂商结构。
+        val video = Fixtures.mp4(300)
+        val (_, out) = compose(Fixtures.jpeg(), video)
+        assertArrayEquals(video, out.copyOfRange(out.size - video.size, out.size), "没有末盒时视频必须原样追加")
     }
 
     /** 记录"有没有被写过 / 有没有被关掉 / 一共收到多少字节"的 sink。 */

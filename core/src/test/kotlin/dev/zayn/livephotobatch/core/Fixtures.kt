@@ -117,10 +117,18 @@ object Fixtures {
 
     /**
      * spec「增补（2026-10-18c）」§2 那份包，逐字节照抄：真机候选 A 写的就是它，vivo 相册认、能播。
-     * 行首缩进、属性顺序、`rdf:li` 的单行写法都不许动；两处 `<VIDEO_SIZE>` 填**同一个**视频长度。
+     * 行首缩进、属性顺序、两处 `<VIDEO_SIZE>` 填**同一个**视频长度，都不许动。
      *
-     * 长度账：文档代码块里那份是 1,035 字节，占位符 `<VIDEO_SIZE>`（12 字符）两处比 7 位数字多 10
-     * 字节，块末那个换行又不属于包 —— 填好后正好 1,024 字节。
+     * 长度账：占位符 `<VIDEO_SIZE>`（12 字符）两处比 7 位数字多 10 字节，块末那个换行不属于包
+     * —— 填好后正好 **1,057** 字节。
+     *
+     * **2026-10-19e 把这份钉桩从 1,024 挪到了 1,057**，唯一原因是规范正文那句"主媒体内容的长度
+     * 应为 0"：`Primary` 新增 `Item:Length="0" Item:Padding="0"`。`rdf:li` 的序列化形状与属性顺序
+     * **不动**——规范整页没有示例包，那两处没有规范性差异，不该为了对齐厂商样本去改。
+     *
+     * 因此"手机认过这份字节"这句只对改动前的 1,024 成立，这 33 字节必须重新装机验收。
+     * 而按同一批真机记录，18d 加的 `GainMap` 声明正是 vivo 相册由认转不认的那个变量——
+     * 规范 MUST 与该机型不能两全，用户裁定取规范（见 spec 增补 2026-10-19e §4）。
      *
      * BOM 只能待在普通字符串里：Kotlin 原始字符串不解释 `\uFEFF`，而裸写的 U+FEFF 会被编辑器吞掉。
      * 这份常量是**判据**而不是实现的副本：实现吐出的字节一变，这里就得红。
@@ -143,7 +151,7 @@ object Fixtures {
             |    GCamera:MotionPhotoPresentationTimestampUs="-1">
             |   <Container:Directory>
             |    <rdf:Seq>
-            |     <rdf:li><Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/></rdf:li>
+            |     <rdf:li><Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg" Item:Length="0" Item:Padding="0"/></rdf:li>
             |     <rdf:li><Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="<VIDEO_SIZE>"/></rdf:li>
             |    </rdf:Seq>
             |   </Container:Directory>
@@ -237,6 +245,38 @@ object Fixtures {
             tail = video,
         )
     }
+
+    /**
+     * vivo 相机 mp4 末尾那个 `uuid` + 伪 UUID `vivoMediaExtInfo` 盒，逐字段照抄真机字节布局：
+     * `[u32 总长]['uuid'][16 B 伪 UUID]['vivo'][JSON][u32BE=JSON 字节数][58 B 尾记录]`，
+     * 尾记录 = `cameralbum!` + `00 00 00` + `/<编号>` + `FF FF FF FF` + 11 B 固定填充。
+     * 真机二分（2026-10-20）证明：**JSON 里 `com.android.camera.livephoto` 的值必须以字面量
+     * `motionphoto` 开头，vivo 相册才认这条 live photo**；相机自己写的是数字开头的 id，
+     * 原样追加就不认。盒尺寸、JSON 里其余的键、`version` 数字、尾记录内容都无关。
+     */
+    fun vivoTailBox(livephoto: String = REAL_LIVEPHOTO, version: Int = 2104): ByteArray {
+        val json = ascii(
+            "{\"com.android.camera.takenmodel\":\"vivo X200 Pro mini\"," +
+                "\"com.android.camera.camerafacing\":\"0\",\"com.android.camera.imageTime\":51," +
+                "\"com.android.camera.moduleid\":\"photo\",\"com.android.camera.livephoto\":\"$livephoto\"," +
+                "\"version\":$version,\"com.android.camera.faceInfo\":{}}"
+        )
+        val record = ascii("cameralbum!") + byteArrayOf(0, 0, 0) + ascii("/$livephoto") +
+            byteArrayOf(-1, -1, -1, -1) +
+            byteArrayOf(
+                0x1B.toByte(), 0x2A.toByte(), 0x39.toByte(), 0x48.toByte(), 0x57.toByte(),
+                0x66.toByte(), 0x75.toByte(), 0x84.toByte(), 0x93.toByte(), 0xA2.toByte(), 0xB3.toByte(),
+            )
+        val body = ascii("vivoMediaExtInfo") + ascii("vivo") + json + uint32(json.size.toLong()) + record
+        return uint32((8 + body.size).toLong()) + ascii("uuid") + body
+    }
+
+    /** `ftyp` 盒 + 末尾的 vivoMediaExtInfo 盒——真机 vivo 相机 mp4 的最小可辨形状。 */
+    fun vivoMp4(livephoto: String = REAL_LIVEPHOTO, headSize: Int = 512): ByteArray =
+        mp4(headSize.toLong()) + vivoTailBox(livephoto)
+
+    /** 真机 X200 Pro mini 那条视频里的实际编号（数字开头，所以原样追加必然不被认）。 */
+    const val REAL_LIVEPHOTO = "17924055463797e14dd500000000"
 
     private const val TARGET = 399
     private const val STREAMDATA_TAG = "streamdataDEGS"
