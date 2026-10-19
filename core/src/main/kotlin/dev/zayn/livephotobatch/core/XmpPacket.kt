@@ -30,22 +30,43 @@ object XmpPacket {
      * 和源片自己的 `Container:Directory` 项一个都不掺进来。真机单变量对照就是这么判的：
      * 同一个包、同一个视频，包从清空白写的那份被 vivo 相册认下来，从源包合并出来的那份不认。
      *
+     * **容器项的字段集合按规范正文写**（spec 增补 2026-10-19e，判据是规范原文，不是任何厂商样本）：
+     * 1. `Primary` 带 `Item:Length="0"`——规范原话是"主媒体内容的长度应为 0"，且主图长度"可通过解析
+     *    主图片确定"，所以这个 `0` 是规范要求的写法，不是可选装饰。
+     * 2. `Item:Padding` **只**写在 `Primary` 上——规范："只有第一项媒体内容可以包含 Padding 属性"；
+     *    对 JPEG 主图它是可选的，我们恒写（无空隙时写 `0`）。
+     * 3. `MotionPhoto` 项的 `Length` 必须让视频正好落在文件末尾——规范："此媒体项的位置必须位于文件
+     *    末尾，此媒体项的字节终止后不得放置其他字节"。
+     *
+     * **序列化形式规范没有规定**：那一页只有属性表与散文，**没有任何示例 XMP 包**。因此
+     * `<rdf:li>` 与 `<rdf:li rdf:parseType="Resource">`、属性的先后顺序，都不产生规范性差异。
+     * 本文件按自己的历史形状写（语义与 MIME 挂在 `Container:Item` 的属性上、`Semantic` 在 `Mime`
+     * 之前），**不为了"对齐某厂商样本"去动它**——2026-10-19e 第一次改错了方向，已回退。
+     *
+     * 厂商样本在这里只留作**反例**，说明"规范允许"与"厂商做了"是两件事（下面每个数字都取自该文件
+     * 本身，9,609,672 B、imageEnd 3,546,201）：OPPO 的 `GainMap.Length`=585,268 声明了一份这份文件里
+     * 根本不存在的副图，目录按项累加因此正好溢出文件末尾 585,268 字节——**溢出量的来源是这一项，
+     * 不是 MotionPhoto**；它的 `MotionPhoto.Length`=6,063,471 数的是整条尾巴（mp4 5,468,971 +
+     * `jxrs` 594,332 + 末盒 168），数字诚实，却让视频项没有结束在 EOF（规范 MUST）；三项还都写了
+     * `Padding`，其中两项正是规范明令禁止的非首项。我们的数字一律如实：
+     * `GainMap.Length` = 整条尾巴（增补 18d §2 的裁定），`MotionPhoto.Length` = `MicroVideoOffset`
+     * = 追加的视频字节数。
+     *
      * 三个形状要点照 spec §2 逐字节抄（`XmpPacketTest` 拿 fixture 字面量钉死）：
      * 1. **一个** `rdf:RDF`、**一个** `rdf:Description`，七个动照片属性与 `Container:Directory` 同居其上；
-     * 2. 容器项写成 `<Container:Item Item:Semantic="…" Item:Mime="…" Item:Length="…"/>`：语义与 MIME 是
-     *    这个**子元素上的属性**（与 vivo 源包同形），不是 `Item:Semantic` 子元素的文本；
+     * 2. 容器项写成 `Container:Item` 上的**属性**（与 vivo 源包同形），不是 `<Item:Semantic>` 子元素文本；
      * 3. 项顺序 Primary →（GainMap）→ MotionPhoto，视频项在最后。
      *
      * 目录必须声明 EOI 与视频之间的**每一段字节**（增补 2026-10-18d §2，"紧密封装"MUST）：
      * [gainMapBytes] 把整条尾巴声明成排在视频前的 `GainMap` 项，并给宿主 Description 带回
      * `xmlns:hdrgm` + `hdrgm:Version="1.0"`（只在有副图时写）；[paddingBytes] 把整条尾巴声明成
-     * 主图的 `Item:Padding`（规范只允许第一项有）。两者**互斥**且至多其一非 null；都不给时产出的
-     * 包与 2026-10-18c 那份**逐字节相同**（回归钉桩：无副图无填充时形状不许漂移）。
+     * 主图的 `Item:Padding`（规范只允许第一项有）。两者**互斥**且至多其一非 null。
      * 定性由 [TrailerModel.describe] 做出，调用方不得自己猜。
      *
      * 两个时间戳固定 `-1`：桌面端会先读源包里已有的 `*PresentationTimestampUs`，能解析成整数就沿用，
      * 否则 `-1`。输入是 vivo 原片，源包里没有这两个标签，读与不读都是 `-1`；这里不做那次读取——
-     * 读源包正是上一版掺脏东西的入口。
+     * 读源包正是上一版掺脏东西的入口。被认的第三方样本写的是 `0`，但 `0` 的语义是"从第 0 微秒播"，
+     * 与"未提供"不是一回事，没有真机依据前不改。
      *
      * 逐行 `joinToString("\n")` 而不是整块原始字符串：见 [PACKET_BEGIN] 的 BOM 理由。
      */
@@ -83,14 +104,16 @@ object XmpPacket {
             add("    GCamera:MotionPhotoPresentationTimestampUs=\"-1\">")
             add("   <Container:Directory>")
             add("    <rdf:Seq>")
-            val padding = if (paddingBytes != null) " Item:Padding=\"$paddingBytes\"" else ""
-            add("     <rdf:li><Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"$padding/></rdf:li>")
+            add("     <rdf:li><Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\" " +
+                "Item:Length=\"0\" Item:Padding=\"${paddingBytes ?: 0L}\"/></rdf:li>")
             if (gainMapBytes != null) {
-                // Length 是**整条尾巴**（含副图 JPEG 之后的厂商记录），不是副图诚实内长：
-                // 规范只给第一项 Padding，内长会在副图与视频之间留下没人声明的字节（spec §2 末段）。
-                add("     <rdf:li><Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"$gainMapBytes\"/></rdf:li>")
+                // Length 是**整条尾巴**（含副图 JPEG 之后的厂商记录），不是副图的诚实内长：
+                // 规范只给第一项 Padding，副图与视频之间没有别的合法字段（spec §2 末段）。
+                add("     <rdf:li><Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" " +
+                    "Item:Length=\"$gainMapBytes\"/></rdf:li>")
             }
-            add("     <rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" Item:Mime=\"video/mp4\" Item:Length=\"$size\"/></rdf:li>")
+            add("     <rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" Item:Mime=\"video/mp4\" " +
+                "Item:Length=\"$size\"/></rdf:li>")
             add("    </rdf:Seq>")
             add("   </Container:Directory>")
             add("  </rdf:Description>")

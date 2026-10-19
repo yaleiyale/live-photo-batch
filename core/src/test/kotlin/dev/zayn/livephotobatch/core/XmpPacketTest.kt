@@ -15,12 +15,14 @@ class XmpPacketTest {
     /**
      * spec 增补（2026-10-18c）§2 那份包：真机候选 A 写的就是它，vivo 相册认、能播。
      * 判据是**字节**，不是"实现现在吐了什么"——A 与 Task 13 产物只差这份包，合并形状已经被真机否掉。
-     * 增补 2026-10-18d 的回归钉桩：尾巴既非副图也无需 Padding 时（两个参数都不给），
-     * 这份包**一个字节都不许多**——无副图无填充时形状不许漂移。
+     * 增补 2026-10-19e：按规范正文给 `Primary` 补上 `Item:Length="0" Item:Padding="0"`，
+     * 这份夹具跟着从 1,024 挪到 1,057 字节；`rdf:li` 的形状与属性顺序不动。
+     * "手机认过"那句只对改动前的字节成立，新形状要重新装机验收。
+     * 尾巴既非副图也无需 Padding 时（两个参数都不给），这份包**一个字节都不许多**——形状不许漂移。
      */
     @Test fun `the packet is byte for byte the one the phone accepted`() {
         val accepted = Fixtures.specPacket(3_863_927L)
-        assertEquals(1_024, accepted.size, "夹具自己就不是那份 1,024 字节的包：抄漏了字符")
+        assertEquals(1_057, accepted.size, "夹具自己就不是那份 1,057 字节的包：抄漏了字符")
         assertArrayEquals(accepted, XmpPacket.motionPhoto(3_863_927L))
     }
 
@@ -71,7 +73,9 @@ class XmpPacketTest {
     @Test fun `a gain map trailer gets a GainMap item ordered before the video`() {
         val text = XmpPacket.motionPhoto(5_032_601L, gainMapBytes = 371_928L).decodeToString()
         assertTrue(
-            text.contains("<Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"371928\"/>"),
+            text.contains(
+                """<Container:Item Item:Semantic="GainMap" Item:Mime="image/jpeg" Item:Length="371928"/>"""
+            ),
             "GainMap 项缺失或属性拼写/顺序变了（Length 必须是**整条尾巴**，含副图之后的厂商记录）",
         )
         assertEquals(
@@ -98,7 +102,12 @@ class XmpPacketTest {
         assertTrue(!text.contains("hdrgm"), "没有副图就没有 hdrgm，Version 也不许出现")
     }
 
-    @Test fun `Item Length appears only on GainMap and MotionPhoto items, never on Primary`() {
+    /**
+     * 增补 2026-10-19e 之后主图项**带** `Length`，但只能是 `0`（规范：主图项的 Length 若写就应为 0）。
+     * `Padding` 仍然只许出现在第一项——OPPO 在每一项上都写 `Padding="0"`，那是它自己违反
+     * "Padding 只允许第一项"，不抄。
+     */
+    @Test fun `Primary carries Length 0 and is the only item allowed to carry Padding`() {
         for (bytes in listOf(
             XmpPacket.motionPhoto(9_999L, gainMapBytes = 371_928L),
             XmpPacket.motionPhoto(9_999L, paddingBytes = 387L),
@@ -107,12 +116,34 @@ class XmpPacketTest {
             val text = bytes.decodeToString()
             val items = Regex("<Container:Item[^>]*>").findAll(text).map { it.value }.toList()
             val primary = items.single { it.contains("Item:Semantic=\"Primary\"") }
-            assertTrue(!primary.contains("Item:Length"), "主图项写出了 Length：$primary")
-            for (item in items.filter { "Item:Length" in it }) {
+            assertTrue("Item:Length=\"0\"" in primary, "主图项的 Length 必须恰好写成 0：$primary")
+            for (item in items.filter { "Item:Semantic=\"Primary\"" !in it }) {
+                assertTrue("Item:Padding" !in item, "Padding 漏到了非首项上（规范只允许第一项有）：$item")
+            }
+            for (item in items.filter { "Item:Length" in it && "Item:Length=\"0\"" !in it }) {
                 assertTrue(
                     item.contains("Item:Semantic=\"GainMap\"") || item.contains("Item:Semantic=\"MotionPhoto\""),
-                    "Length 落在了 GainMap/MotionPhoto 之外的项上：$item",
+                    "非零 Length 落在了 GainMap/MotionPhoto 之外的项上：$item",
                 )
+            }
+        }
+    }
+
+    /**
+     * 序列化形状**不是规范性变量**（Motion Photo 1.0 整页只有属性表与散文，没有示例 XMP 包），
+     * 所以这里钉的是"我们自己不许漂"，不是"规范如此"：`<rdf:li>` 不带 `parseType`、
+     * `Semantic` 排在 `Mime` 前。改它没有任何合规收益，只会让字节钉桩重走一遍装机验收——
+     * 2026-10-19e 第一次就这么改错过，那条理由已经写进 [XmpPacket] 的 KDoc。
+     */
+    @Test fun `serialization shape stays ours, not borrowed from a vendor sample`() {
+        val text = XmpPacket.motionPhoto(5_032_601L, gainMapBytes = 371_928L).decodeToString()
+        val items = Regex("<Container:Item[^>]*>").findAll(text).map { it.value }.toList()
+        assertEquals(3, items.size)
+        assertTrue(!text.contains("rdf:parseType"), "带上了 parseType：规范没要求，别从厂商样本抄形状")
+        for (body in items) {
+            assertTrue(body.indexOf("Item:Semantic") < body.indexOf("Item:Mime"), "Semantic 不再排在 Mime 前：$body")
+            if ("Item:Length" in body) {
+                assertTrue(body.indexOf("Item:Semantic") < body.indexOf("Item:Length"), "Length 排到了 Semantic 前：$body")
             }
         }
     }
