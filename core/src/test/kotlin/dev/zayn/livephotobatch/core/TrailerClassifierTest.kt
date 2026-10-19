@@ -47,6 +47,33 @@ class TrailerClassifierTest {
         assertEquals(TrailerKind.VIDEO, kind(head))
     }
 
+    // ---------- 64 位扩展长度（ISO-BMFF：size 字段写 1，真实长度是 tag 之后的 8 字节） ----------
+
+    /** 只给 16 字节盒头：size=1 + tag + 8 字节 largesize。分类器本来也只看得到这么多。 */
+    private fun header64(tag: String, size: Long): ByteArray =
+        byteArrayOf(0, 0, 0, 1) + Fixtures.ascii(tag) + ub64(size)
+
+    private fun ub64(value: Long): ByteArray = ByteArray(8) { i -> (value ushr (56 - 8 * i)).toByte() }
+
+    @Test fun `mdat with a 64 bit extended size is video`() {
+        // 真机语料里 mdat 就是这个形态：vivo 那条 5,976,771 字节的 mdat 前 4 字节读出来是 1。
+        // 按 32 位长度走盒子的实现会把它判成"不是盒子"，于是往一段真视频后面再拼一段视频。
+        assertEquals(TrailerKind.VIDEO, kind(header64("mdat", 5_976_771L)))
+        // 超过 32 位无符号上界的长度也必须读全：截成 int 会让 4 GB 的 mdat 变成负数。
+        assertEquals(TrailerKind.VIDEO, kind(header64("moov", 4_000_000_000L)))
+    }
+
+    @Test fun `a 64 bit padding box that covers the window is other`() {
+        // free 用扩展长度盖住了整个窗口：后面的盒子看不见，只能按"不是视频"处理——
+        // 与 32 位长度那条同样的诚实下界，不猜。
+        assertEquals(TrailerKind.OTHER, kind(header64("free", 4_000_000L)))
+    }
+
+    @Test fun `a truncated largesize is other`() {
+        // 12 字节的尾巴连 16 字节的扩展盒头都装不下：这个盒子自己就不成立。
+        assertEquals(TrailerKind.OTHER, kind(header64("mdat", 5_976_771L).copyOf(12)))
+    }
+
     // ---------- OTHER：尾巴不是视频，原样保留 ----------
 
     @Test fun `gain map second jpeg is other`() {

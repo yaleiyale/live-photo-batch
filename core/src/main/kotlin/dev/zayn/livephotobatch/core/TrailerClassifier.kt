@@ -53,18 +53,28 @@ object TrailerClassifier {
 
     /**
      * 按 ISO-BMFF 一路走盒子：前 4 字节是大端总长度 `N`，第 5-8 字节是 tag。
-     * `N` 的下界按 spec 取 4（盒子头自身 8 字节，但 `N==4` 表示后面跟 64 位扩展长度，
-     * 那种尾巴不可能是我们要认的形态，交给 tag 检查把它挡掉）。
+     * `N == 1` **不是长度**，而是"真实总长度在 tag 之后那 8 字节"（64 位扩展长度，盒头共 16 字节）；
+     * vivo 与 OPPO 语料的 `mdat` 就是这个形态，按 32 位读它会得到 `N=1`，于是把一段真视频判成
+     * "不是盒子"，下一轮就往它后面再拼一段视频。
+     *
+     * 其余 `N` 的下界按 spec 取 4（`N==4` 表示后面跟 64 位扩展长度，那种尾巴不可能是我们要认的
+     * 形态，交给 tag 检查把它挡掉）。
      */
     private fun isIsoBmff(head: ByteArray): Boolean {
         if (hasFtypNearHead(head)) return true
         val wholeTrailerInView = head.size < PROBE_BYTES
         var off = 0
         while (off + 8 <= head.size) {
-            val n = bigEndian32(head, off)
+            val field = bigEndian32(head, off)
+            val tag = tag(head, off)
+            var n = field
+            if (field == 1L) {
+                // 连 largesize 都没看完：这条尾巴装不下一个扩展盒头，它自己就不成立。
+                if (off + 16 > head.size) return false
+                n = bigEndian64(head, off + 8)
+            }
             if (n < 4L) return false
             val visible = (head.size - off).toLong()
-            val tag = tag(head, off)
             if (tag in VIDEO_TAGS) {
                 // 窗口没装满时 N 超过可见长度就是不自洽：那只是个恰好长得像盒子的厂商数据。
                 return !wholeTrailerInView || n <= visible
@@ -94,6 +104,10 @@ object TrailerClassifier {
             ((head[off + 1].toLong() and 0xFF) shl 16) or
             ((head[off + 2].toLong() and 0xFF) shl 8) or
             (head[off + 3].toLong() and 0xFF)
+
+    /** 64 位扩展长度：两次无符号 32 位读取拼起来，`N=1` 的盒子里它占 tag 之后那 8 字节。 */
+    private fun bigEndian64(head: ByteArray, off: Int): Long =
+        (bigEndian32(head, off) shl 32) or bigEndian32(head, off + 4)
 
     /** box tag 是 4 字节 ASCII；用 ISO-8859-1 解码，任何字节都映射成一个字符，绝不抛。 */
     private fun tag(head: ByteArray, off: Int): String =
