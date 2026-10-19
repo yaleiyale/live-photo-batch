@@ -98,7 +98,7 @@
 
 ## 与规格文档的分叉（spec §6 已过期）
 
-`docs/superpowers/specs/2026-10-17-live-photo-batch-android-design.md` §6「架构与模块边界」描述的是计划形态，与代码现状有 5 处不一致。本模型按**代码**建模：
+`docs/superpowers/specs/2026-10-17-live-photo-batch-android-design.md`（已随本次提交从工作树删除，整份原文见 `git show c2890c9:docs/superpowers/specs/2026-10-17-live-photo-batch-android-design.md`）§6「架构与模块边界」描述的是计划形态，与代码现状有 5 处不一致。本模型按**代码**建模：
 
 | spec §6 写的 | 代码现状 | 证据 |
 | --- | --- | --- |
