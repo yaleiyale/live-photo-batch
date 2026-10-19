@@ -32,7 +32,10 @@ fun fileChannelSource(f: File): ChannelSource = object : ChannelSource {
 
 /**
  * 路径一律是绝对路径；root 参数只用于测试时改写到应用私有目录。
- * 传进来的绝对路径若不在 root 下，按原样使用——生产环境就是 "/"。
+ * **不在 root 下的绝对路径会被拼到 root 之后**（这正是测试沙箱能用的原因），不是"按原样使用"；
+ * 生产环境传 root = "/"，于是每条绝对路径都命中 `path == root || path.startsWith("$root/")`
+ * 那一支，原样生效。注意 root 必须是存储根或测试沙箱根：给一个半截前缀（如
+ * `/storage/emulated/0` 对上兄弟目录 `/storage/emulated/00/x`）会被误拼成 root 之下的路径。
  *
  * ## `openWrite` 做不到「关闭才对读者可见」，这个不对称是契约写明的，不要去"修"它
  * [BatchStorage.openWrite] 只承诺 **`close()` 成功返回后**全部字节在路径上完整可见，
