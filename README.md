@@ -36,6 +36,126 @@ SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, 文件大小
 | 真 gain map（含 `urn:iso:std:iso:ts:21496-1` 或 `hdr-gain-map` 声明） | `Primary` → `GainMap(Length=整条尾巴)` → `MotionPhoto` |
 | 其他字节（MPF 副图、厂商记录、零填充） | `Primary(Padding=尾巴长度)` → `MotionPhoto` |
 
+## 核心逻辑
+
+一个批次只有两级编排：`PairPlanner` 决定"有哪些活"，`BatchRunner` 决定"每项怎么落地"，
+字节的判断全部集中在 `MotionPhotoComposer` 一条线上。整条链路都在 `:core`（纯 JVM、无
+`android.*`）里，`:app` 只提供文件、权限、目录浏览和媒体扫描四件适配器 —— 两者编译进同一个
+APK、同一个进程，边界是**构建隔离**而不是进程边界。
+
+```mermaid
+flowchart LR
+  subgraph CORE[":core · 纯 JVM，无 android.*"]
+    PLAN["PairPlanner<br/>以 IMG_*.mp4 为驱动集配对"]
+    RUN["BatchRunner<br/>逐项状态机 · 取消 · 报告"]
+    COMP["MotionPhotoComposer<br/>校验顺序与字节拼接"]
+    SCAN["JpegScanner<br/>按 marker 走段，不搜 FFD9"]
+    TC["TrailerClassifier<br/>尾巴是不是上一轮的视频"]
+    TM["TrailerModel<br/>尾巴该声明成 GainMap 还是 Padding"]
+    XMP["XmpPacket<br/>清空白写的唯一元数据入口"]
+    PATCH["JpegXmpPatcher<br/>只做区间搬运"]
+    PORT(["BatchStorage + ChannelSource<br/>core 定义的文件端口"])
+  end
+
+  subgraph APP[":app · Android"]
+    SCREEN["BatchScreen<br/>单屏 UI 与目录浏览"]
+    VM["BatchViewModel<br/>开工快照 · 收尾扫描"]
+    PG["PermissionGate"]
+    BRW["DirBrowser"]
+    FS(["FileStorage<br/>RandomAccessFile 实现"])
+    MSS["MediaStoreSync"]
+  end
+
+  STORE[("共享存储<br/>IMG_*.jpg + IMG_*.mp4")]
+  ALBUM["MediaStore / 相册"]
+
+  SCREEN --> VM
+  VM --> PG
+  VM --> BRW
+  VM --> RUN
+  VM --> FS
+  VM --> MSS
+  RUN --> PLAN
+  RUN --> COMP
+  RUN --> PORT
+  FS -. implements .-> PORT
+  COMP --> SCAN
+  COMP --> TC
+  COMP --> TM
+  COMP --> XMP
+  COMP --> PATCH
+  BRW --> STORE
+  FS --> STORE
+  MSS --> ALBUM
+```
+
+### 写第一个字节之前要过的关口
+
+`MotionPhotoComposer.compose(image, video, sink)` 把判据按**便宜的放前面**排成一条线，任何一道
+被拒就对 `sink` 一个字节都不写 —— 所以坏视频绝不会让你先白扫一遍 JPEG：
+
+1. **视频头**：读开头 16 字节，前 12 字节内出现 `ftyp`？否 → `NOT_MP4`。
+2. **JPEG 段遍历**：`JpegScanner` 按 marker 走，得出 `imageEnd`、旧 XMP 的**字节区间**和它的文本。
+   绝不搜 `FFD9` 字节序列 —— 追加的视频里合法地会出现它。
+3. **分块扩展 XMP**：有 → `EXTENDED_XMP_UNSUPPORTED`，不做处理。
+4. **尾巴探针**：从 `imageEnd` 读 `min(16, 尾巴长)` 字节交给 `TrailerClassifier`。只有源 XMP 已声明过
+   `video/`，或这段字节本身是 ISO-BMFF 盒子形状，才算"上一轮已经合成过" → `ALREADY_MOTION_PHOTO`。
+   gain map 副图、厂商 JSON、零填充一律**放行**并原样搬进产物。
+5. **尾巴定性**：`TrailerModel` 沿尾巴自己的 marker 走完一遍，副图 → `gainMapBytes`，其余一切形状
+   （包括遍历不收敛的畸形副图）→ `paddingBytes`。这一步**永不抛**：声明成 Padding 永远合法，
+   把坏图谎称 GainMap 才是骗目录。
+6. **生成 XMP 包**：`XmpPacket` 清空白写，源包属性一个不掺。包体大到一个 APP1 的 16 位长度字段
+   装不下，同样折成 `EXTENDED_XMP_UNSUPPORTED`。
+
+全过之后才轮到写入：`JpegXmpPatcher.patch(...)` 按 `源图[0, 旧XMP起点) + 新 APP1 +
+源图[旧XMP终点, 文件大小)` 搬运（旧段靠"读掉不写"丢弃），`copyToEnd` 再把 MP4 原始字节
+64 KiB 一块流式追加。全程定长缓冲、常数内存，没有一处 `readBytes()`。
+
+### 一项只有三条出路
+
+`BatchRunner` 给每一项的生命周期定死了三条出路，三条都执行 `.part` 清理：
+
+| 出路 | 结果 | 原文件 |
+|---|---|---|
+| 校验/合成被拒 | 无条件删 `.part` → `SKIPPED`（只有 `ALREADY_MOTION_PHOTO`）或 `FAILED(reason)` | 不动 |
+| 合成成功但 rename 失败 | 删 `.part` → `FAILED(IO_ERROR)`，最终名上什么都没有 | 不动 |
+| rename 成功 | **本项当场提交**：先建出 `SUCCESS`，之后才按勾选删图、删视频 | 删；删不掉的只进 `deleteFailures` 警告，**没有任何路径能回头把 SUCCESS 改成 FAILED** |
+
+取消不是协程取消：`cancel()` 只翻一个 `@Volatile` 标志，由 `BatchRunner` 在**每一项之前**读
+（`unpaired` 行也算一项）。正在写的那一项一定走完 rename 或 `.part` 清理，绝不留半截文件。
+
+### 谁保证发布，谁保证可见
+
+`BatchStorage.openWrite` 的契约只承诺"`close()` 成功返回后全部字节可见"，而真实的
+`RandomAccessFile(file, "rw")` 一打开就创建并 truncate 到 0 —— 半途可见是文件系统事实，
+改不了。所以发布是分工的：先写 `目标目录/.tmp/输出名.part`、`close()` 时 `force(true)`、
+再用 `rename(2)` 换成正式名。`move` 的实现**绝不在改名前先删目标**，那会开出一个
+"旧产物已经没了、新产物还没就位"的窗口。
+
+失败分三层，别混：权限没给、源目录不可读、目标目录建不起来是**全局前置**，整批不开工，
+只给一行提示；坏文件与磁盘故障是**单项失败**，进报告、批次继续；原文件没删掉是**警告**，
+跟着 SUCCESS 一起显示。
+
+### 配对为什么以视频驱动
+
+驱动集是 `IMG_*.mp4` 而不是 JPEG：相机目录里绝大多数 JPEG 是普通照片，根本没有配对视频，
+以它们驱动时每个都要产一条"缺视频"的跳过记录（真机第一批 54 项里 28 项是这种噪声）。
+没视频就不是动态照片，这是常识不是异常。`IMG_` 前缀这一刀顺带把录屏、下载的短视频和聊天工具
+存下来的 mp4 挡在门外。剩下的配对异常只有一种：有 `IMG_*.mp4` 却找不到同名图像。
+
+## 架构图文档
+
+- [docs/architecture/live-photo-batch.structurizr.dsl](docs/architecture/live-photo-batch.structurizr.dsl)
+  —— C4 的 Context / Container / 两个 Component 视图（Qoder 的 Structurizr DSL 视图可预览）。
+- [docs/architecture/compose-pipeline.dot](docs/architecture/compose-pipeline.dot)
+  —— 上面那条"一项从 PairJob 到 ItemResult"的流水线源文件，另有已渲染的
+  [compose-pipeline.svg](docs/architecture/compose-pipeline.svg)（派生产物，别手改）。
+- [docs/architecture/system-model.evidence.md](docs/architecture/system-model.evidence.md)
+  —— 每个节点、每条边的 `file:line` 证据、置信度、未决项，以及**与 spec §6 那节过期模块表的 5 处分叉**。
+  那份文件开头还记了三张图各自的**渲染验证状态**：DOT 与 mermaid 是拿真 Graphviz 16.1.0 / 真 mermaid
+  在浏览器里跑过并量过边界的；Structurizr DSL **没有**机器验证（本机无 Java，npm 上那个解析器发布包里
+  连 `dist/` 都没有），所以它按官方文法手写，请在应用内视图里确认。
+
 ## 实测（vivo V2419A，Android 16）
 
 - 26 对 vivo 原片 / 222 MB 一批跑完约 **3 秒**（产物 rename 时间戳集中在同一 3 秒窗口内），
@@ -77,5 +197,12 @@ export JAVA_HOME="<你的 JDK>"        # Windows 上 Android Studio 自带的 jb
 ```
 
 `core` 不依赖 Android：JPEG 段遍历、XMP 包生成、容器目录、配对与批次全在那里，可以脱离设备跑测试。
-`app` 只做权限、目录浏览、进度 UI 与 MediaStore 收敛。设计依据见
-`docs/superpowers/specs/`，实现步骤见 `docs/superpowers/plans/`。
+它认识的**全部**文件动作就是 `BatchStorage` + `ChannelSource` 这一个端口（字符串路径、`/` 分隔符），
+`:app` 的 `FileStorage` 和测试里的 `InMemoryStorage` 各自实现它 —— 这就是 127 条 `:core` 测试
+不需要设备的原因。`app` 只做权限、目录浏览、进度 UI 与 MediaStore 收敛。
+
+模块与字节布局的设计依据见 `docs/superpowers/specs/`，实现步骤见 `docs/superpowers/plans/`；
+其中 spec §6「架构与模块边界」那张表已经过期（`NestedMotionPhotoDetector`、`FileSystemGateway`、
+`MediaStoreGateway` 都不存在，也漏了 `TrailerClassifier` 与 `TrailerModel`），现状以
+[docs/architecture/system-model.evidence.md](docs/architecture/system-model.evidence.md)
+末尾那处分叉清单为准。

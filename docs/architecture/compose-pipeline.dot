@@ -1,0 +1,94 @@
+// 一项的生命周期：BatchRunner.composeOne + MotionPhotoComposer.compose
+// skill: system-modeler + graphviz   evidence: docs/architecture/system-model.evidence.md
+// 渲染：dot -Tsvg compose-pipeline.dot -o compose-pipeline.svg
+// （本机未安装 graphviz，此源文件未做视觉验证；语法按 DOT 规则手写，节点先声明后连边）
+digraph compose_one_item {
+    graph [
+        rankdir=TB,
+        fontname="Segoe UI",
+        label="一项从 PairJob 到 ItemResult：七道校验（一字节不写）→ 搬运 → rename 提交点 → 删原文件\n蓝=进出数据  黄=提交后的警告  红=失败出路  绿=提交点",
+        labelloc=t,
+        fontsize=13,
+        nodesep=0.35,
+        ranksep=0.5
+    ];
+    node [fontname="Segoe UI", shape=box, style="rounded,filled", fontsize=11, fillcolor="#f2f2f2", margin="0.16,0.10"];
+    edge [fontname="Segoe UI", fontsize=10];
+
+    job [label="PairPlanner 产出的一个 PairJob\nstem / x.jpg / IMG_x.mp4 / 输出 x_MP.jpg / outputExists", shape=ellipse, fillcolor="#dce9f7"];
+    cancelGate [label="每一项之前查一次 CancelToken\nunpaired 行与 job 行都算一项\n取消只在项与项之间生效 → 绝不留半截 .part", shape=note, fillcolor="#eaeaea"];
+    nopair [label="plan.unpaired：有 IMG_x.mp4 却无同名图像\nNO_PAIR + SKIPPED，不碰任何文件\n因此也不为它 ensureDir", shape=note, fillcolor="#eaeaea"];
+
+    io [label="FAILED(IO_ERROR)\n读失败、搬运/写入故障等任何 Exception\n都折成这一条；deleteQuietly(.part)，批次继续", fillcolor="#ffd9d9"];
+    fail [label="SKIPPED 或 FAILED(reason)\n先无条件 deleteQuietly(.part)\nbytes = 0，不进 composedBytes", fillcolor="#ffd9d9"];
+    moved [label="FAILED(IO_ERROR) + deleteQuietly(.part)\n最终名上什么都没有，原文件一律不动", fillcolor="#ffd9d9"];
+
+    commit [label="★ 提交点：rename 成功的一刻本项当场提交\nItemResult(SUCCESS, totalBytes = 源图搬运 + 新APP1 + 视频)", fillcolor="#cfe9cf"];
+    del [label="deleteOriginals 勾选时：依次删 x.jpg、删 IMG_x.mp4\n各自带守卫，返回 false 与抛出是同一种结果"];
+    warn [label="删除失败只补记录：\ndeleteFailures（文件名 → UI 警告）\ndeletedSources（绝对路径 → 收尾扫描）\n没有任何路径能回改写 SUCCESS", shape=note, fillcolor="#fff2c2"];
+
+    report [label="onItem(item) → BatchRunner 累积 BatchReport\n(items, composedBytes 只累加 SUCCESS, cancelled)", shape=ellipse, fillcolor="#dce9f7"];
+    sync [label="批次收尾（:app）\ntouchedPathsFor = 每个 SUCCESS 产物 + 每个 deletedSources\n→ MediaStoreSync.scan，NonCancellable + Dispatchers.IO，最多等 2 秒", fillcolor="#dce9f7"];
+
+    subgraph cluster_gates {
+        label="校验阶段 —— 被拒的项对 sink 一个字节都不写";
+        style=dashed;
+        color="#7a7a7a";
+        fontname="Segoe UI";
+        g1 [label="① 视频：读文件开头 16 字节\n前 12 字节内出现 ftyp？否 → NOT_MP4"];
+        g2 [label="② 图像：JpegScanner 按 marker 走段\nSOI 不对 → NOT_JPEG；段长或熵数据不收敛 → MALFORMED_JPEG"];
+        g3 [label="③ 分块扩展 XMP（xmp/extension/）\n→ EXTENDED_XMP_UNSUPPORTED"];
+        g4 [label="④ 探针：imageEnd 起 min(16, 尾巴长) 字节"];
+        g5 [label="⑤ TrailerClassifier.classify\n源 XMP 声明过 video/  或  尾巴是 ISO-BMFF\n→ ALREADY_MOTION_PHOTO（唯一 SKIPPABLE）"];
+        g6 [label="⑥ TrailerModel.describe：沿尾巴自己的 marker 走完\n副图且声明过 gain map → gainMapBytes = 整条尾巴\n其余形状或畸形 → paddingBytes = 整条尾巴（降级，不抛）"];
+        g7 [label="⑦ XmpPacket.app1Segment 清空白写\n包体大于 65533 字节 → EXTENDED_XMP_UNSUPPORTED"];
+        g1 -> g2 -> g3 -> g4 -> g5 -> g6 -> g7;
+    }
+
+    subgraph cluster_write {
+        label="写入阶段 —— 目标目录/.tmp 下的 .part（打开即 truncate，半途可见是文件系统事实）";
+        style=dashed;
+        color="#7a7a7a";
+        fontname="Segoe UI";
+        openw [label="storage.openWrite(target/.tmp/x_MP.jpg.part)"];
+        patch [label="⑧ JpegXmpPatcher.patch(trailerEnd = 文件大小)\n源图[0,旧XMP起点) + 新 APP1 + 源图[旧XMP终点, 文件大小)\n旧 XMP 靠「读掉不写」丢弃；EOI 之后的尾巴原样搬"];
+        append [label="⑨ copyToEnd：MP4 原始字节 64 KiB 一块流式追加\nMicroVideoOffset = 追加的视频字节数，文件大小减它即视频起点"];
+        close [label="close() → FileChannel.force(true)\n契约：close 成功返回后全部字节才可见"];
+        openw -> patch -> append -> close;
+    }
+
+    subgraph cluster_move {
+        label="发布 —— 可见性由这一步保证，不是由 openWrite 保证";
+        style=dashed;
+        color="#7a7a7a";
+        fontname="Segoe UI";
+        move [label="storage.move(.part → target/x_MP.jpg)\nrename(2) 同卷原子替换；绝不先删目标\n失败才退化 copy+delete（非原子）"];
+    }
+
+    cancelGate -> job [label="开工", style=dashed];
+    job -> g1;
+    g1 -> fail [label="否", color="#c0392b", fontcolor="#c0392b"];
+    g2 -> fail [label="否", color="#c0392b", fontcolor="#c0392b"];
+    g3 -> fail [label="是", color="#c0392b", fontcolor="#c0392b"];
+    g5 -> fail [label="是", color="#c0392b", fontcolor="#c0392b"];
+    g7 -> fail [label="超长", color="#c0392b", fontcolor="#c0392b"];
+    g1 -> io [label="读失败", style=dashed, color="#c0392b"];
+    g2 -> io [label="读失败", style=dashed, color="#c0392b"];
+    g4 -> io [label="读失败", style=dashed, color="#c0392b"];
+    g6 -> openw [label="尾巴定性完成", color="#1e8449", fontcolor="#1e8449"];
+    patch -> io [label="IOException", color="#c0392b", fontcolor="#c0392b"];
+    append -> io [label="IOException", color="#c0392b", fontcolor="#c0392b"];
+    close -> move;
+    move -> moved [label="false", color="#c0392b", fontcolor="#c0392b"];
+    move -> commit [label="true", color="#1e8449", fontcolor="#1e8449"];
+    commit -> del [label="勾选删除", style=dashed];
+    del -> warn [label="删不掉", color="#b7950b", fontcolor="#b7950b"];
+    del -> report [label="删掉了", color="#1e8449", fontcolor="#1e8449"];
+    warn -> report [style=dashed];
+    commit -> report [label="未勾选", color="#1e8449", fontcolor="#1e8449"];
+    fail -> report [style=dashed];
+    moved -> report [style=dashed];
+    io -> report [style=dashed];
+    nopair -> report [label="直接回报", style=dashed];
+    report -> sync [label="批次结束（含取消）", style=dashed];
+}
