@@ -53,6 +53,11 @@ object TrailerModel {
      * 从 [imageEnd] 起**流式**遍历尾巴：定长缓冲、物理读取总量以 [fileSize] 为上限，常数内存——
      * 既不会把整图也不会把整条尾巴 `readBytes()` 进内存。来源可定位就一次 seek，
      * 不可定位才退化定长缓冲跳过。
+     *
+     * 代价要写明：判定要走完副图自己的 marker 才能确认它收敛（半路停下就没法区分"是副图"与
+     * "坏图"，spec 18d §3 要求坏图降级成 Padding），所以**同一条尾巴会被读两遍**——这里一遍，
+     * [JpegXmpPatcher.patch] 搬它时一遍。每项多读的是尾巴大小（vivo 实测 37 万~106 万字），
+     * 相对主图几 MB 的搬运是小头，但别以为只读了一次。
      */
     fun describe(image: ChannelSource, imageEnd: Long, fileSize: Long): Description {
         val trailerBytes = fileSize - imageEnd

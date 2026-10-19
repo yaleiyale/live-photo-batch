@@ -54,7 +54,10 @@ object XmpPacket {
         gainMapBytes: Long? = null,
         paddingBytes: Long? = null,
     ): ByteArray {
-        require(gainMapBytes == null || paddingBytes == null) {
+        // `check` 而不是 `require`：这是**上游不变量**被违反，不是输入形状。合成器只把
+        // IllegalArgumentException 折成 EXTENDED_XMP_UNSUPPORTED（包超 64 KiB 那条真·输入上限），
+        // 两个类型分开才不会被那个 catch 吞成一条指向错误方向的报告。
+        check(gainMapBytes == null || paddingBytes == null) {
             "gainMapBytes 与 paddingBytes 互斥：一条尾巴只有一个身份，两个都给说明上游定性出错，" +
                 "静默挑一个会产出一个骗人的目录"
         }

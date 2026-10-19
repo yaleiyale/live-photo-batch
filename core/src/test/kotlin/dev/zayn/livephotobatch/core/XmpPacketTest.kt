@@ -2,6 +2,7 @@ package dev.zayn.livephotobatch.core
 
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -118,9 +119,15 @@ class XmpPacketTest {
 
     @Test fun `a trailer cannot be GainMap and Padding at the same time`() {
         // 上游定性出错才会两个都给；静默挑一个会产出一个骗人的目录。
-        assertThrows(IllegalArgumentException::class.java) {
+        // 类型必须是 IllegalStateException 而不是 IllegalArgumentException：合成器把后者折成
+        // EXTENDED_XMP_UNSUPPORTED（真·输入上限），不变量被违反若也走那条，报告就指向错误的方向。
+        val thrown: Throwable = assertThrows(IllegalStateException::class.java) {
             XmpPacket.motionPhoto(1L, gainMapBytes = 2L, paddingBytes = 3L)
         }
+        assertFalse(
+            thrown is IllegalArgumentException,
+            "两种失败必须分属两种类型：合成器只折 IllegalArgumentException，混在一起会把上游 bug 报成输入不支持",
+        )
     }
 
     @Test fun `the app1 segment carries the trailer declaration too`() {
