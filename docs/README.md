@@ -1,6 +1,6 @@
 # 文档索引
 
-- **基准**：`ff9ad98`（分支 `feat/live-photo-batch`）+ 其后的工作区增量，采集 **2026-10-20**、刷新 **2026-10-21**（图标 / SplashScreen / 入场动画 / 单列目录浏览 / 存储根别名）。所有文档描述的是 **as-built（代码现状）**。
+- **基准**：`ff9ad98`（分支 `feat/live-photo-batch`）+ 其后的工作区增量，采集 **2026-10-20**、刷新 **2026-10-21**（品牌与包名改到 `vlive`；图标与开屏过渡、入场动画、单列目录浏览、存储根别名）。所有文档描述的是 **as-built（代码现状）**。
 - **建模方式**：`architecture-visualization` 插件下的 `system-modeler` + `c4model`（结构）、`flow-visualizer` + `graphviz`（流动）。
 - **一句话规则**：文本结论在 `.md`，图源在 `.dsl` / `.dot`，`.svg` 是**派生产物**（别手改），逐条断言的文件与行号只在 [architecture/system-model.evidence.md](architecture/system-model.evidence.md) 里维护一份。
 
@@ -11,7 +11,7 @@
 | [/README.md](../README.md) | 这是什么、怎么用、怎么装 | 第一次接触 |
 | [architecture/system-model.md](architecture/system-model.md) | 边界、模块、端口契约、数据与状态、并发模型、未知区 | 要动结构 / 要理解分工 |
 | [architecture/system-model.evidence.md](architecture/system-model.evidence.md) | 每条架构断言的证据与置信度 | 不信某条结论时；改完代码对齐行号时 |
-| [architecture/live-photo-batch.structurizr.dsl](architecture/live-photo-batch.structurizr.dsl) | C4 四视图（Context / Containers / Core 组件 / App 组件） | 需要一张可导航的结构图 |
+| [architecture/vlive.structurizr.dsl](architecture/vlive.structurizr.dsl) | C4 四视图（Context / Containers / Core 组件 / App 组件） | 需要一张可导航的结构图 |
 | [architecture/batch-flow.md](architecture/batch-flow.md) + `.dot`/`.svg` | 一批从侧载到相册能播的端到端流动；谁拥有什么 | 排查"整批没反应 / 相册没更新" |
 | [architecture/compose-pipeline.md](architecture/compose-pipeline.md) + `.dot`/`.svg` | 一项要过哪八道关口、失败与取消时磁盘留什么 | 改 `MotionPhotoComposer` 之前必读 |
 | [motion-photo-container.md](motion-photo-container.md) | 产物字节布局、XMP 目录规则、尾巴声明矩阵、vivo 末盒、厂商反例 | 排查"相册不认" |
@@ -32,7 +32,7 @@
 | --- | --- | --- |
 | `compose-pipeline.dot` → `.svg` | ✅ **已真渲染验证** | Graphviz 16.1.0（`@viz-js/viz` WASM）parse + layout 通过；22 节点、31 边全部布局；在浏览器里按 `viewBox` 逐元素量过 `text`/`path`/`polygon`，**无内容被裁** |
 | `batch-flow.dot` → `.svg` | ✅ **已真渲染验证** | 同上；17 节点、19 边、2 个边界 cluster；无裁切 |
-| `live-photo-batch.structurizr.dsl` | ⚠️ **未过官方解析器**（本机无 Java，Structurizr 解析器是 Java 的） | 已过**结构自检** [`dsl-check.mjs`](architecture/dsl-check.mjs)（零依赖）：花括号平衡、29 个声明元素、64 处关系/视图端点全部指向已声明标识符、4 个视图目标存在、位置参数无超限。**这只挡手误，不证明语义** —— 请在 Qoder 的 Structurizr DSL 视图里打开四个视图确认；某视图打不开时以两张 DOT 为准 |
+| `vlive.structurizr.dsl` | ⚠️ **未过官方解析器**（本机无 Java，Structurizr 解析器是 Java 的） | 已过**结构自检** [`dsl-check.mjs`](architecture/dsl-check.mjs)（零依赖）：花括号平衡、29 个声明元素、64 处关系/视图端点全部指向已声明标识符、4 个视图目标存在、位置参数无超限。**这只挡手误，不证明语义** —— 请在 Qoder 的 Structurizr DSL 视图里打开四个视图确认；某视图打不开时以两张 DOT 为准 |
 | `.svg` 里的中文 | ⚠️ 已知瑕疵 | WASM 构建没有 CJK 字体度量，按估算字宽画框，中文标签可能略微越过自己的圆角边框（不影响可读性）。出终稿用带 CJK 字体的本机 graphviz 重渲染 |
 
 重渲染：

@@ -11,5 +11,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "live-photo-batch"
+rootProject.name = "vlive"
 include(":core", ":app")

@@ -1,12 +1,12 @@
 // Structurizr DSL 的结构自检（无依赖，纯 Node）。本机没有 Java 就跑不了官方解析器，
 // 这个脚本退而求其次检查四类最容易写错的东西：花括号平衡、标识符是否已声明、
 // 视图目标是否存在、各关键字的位置参数是否超限。它**不能**证明语义正确，只能挡住手误。
-//   node dsl-check.mjs                                    # 检查同目录的 live-photo-batch.structurizr.dsl
+//   node dsl-check.mjs                                    # 检查同目录的 vlive.structurizr.dsl
 //   node dsl-check.mjs other.dsl
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const file = join(import.meta.dirname, process.argv[2] ?? "live-photo-batch.structurizr.dsl");
+const file = join(import.meta.dirname, process.argv[2] ?? "vlive.structurizr.dsl");
 const text = readFileSync(file, "utf8");
 const lines = text.split(/\r?\n/);
 

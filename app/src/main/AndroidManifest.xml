@@ -10,16 +10,16 @@
         tools:ignore="ScopedStorage" />
 
     <application
-        android:label="Live Photo Batch"
+        android:label="vlive"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:theme="@style/Theme.LivePhotoBatch.Starting">
-        <!-- Task 11 的类在 dev.zayn.livephotobatch.app 包下，而 android:name 的点号前缀
-             展开的是 namespace（dev.zayn.livephotobatch），不是包名，所以这里必须写 .app.
-             完整组件名：dev.zayn.livephotobatch/dev.zayn.livephotobatch.app.MainActivity
+        android:theme="@style/Theme.Vlive.Starting">
+        <!-- Task 11 的类在 dev.zayn.vlive 包下，而 android:name 的点号前缀
+             展开的是 namespace（dev.zayn.vlive），不是包名，所以这里必须写 .app.
+             完整组件名：dev.zayn.vlive/dev.zayn.vlive.MainActivity
              （Task 12 的 am start 用这一串）。 -->
         <activity
-            android:name=".app.MainActivity"
+            android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

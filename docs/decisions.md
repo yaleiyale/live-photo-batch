@@ -15,7 +15,7 @@
 
 **代价**：端口契约成了**双语义风险面**——`exists`、`delete`、`openWrite` 的可见性、`list` 的排序在内存实现与 `FileStorage` 上各有一套天然行为，必须靠契约文字对齐（见 [system-model.md 的端口契约表](architecture/system-model.md#端口契约batchstorage-的-7-条方法级约定)）。任何一侧自行放宽都会让批次静默产出半截文件而**没有任何测试变红**。
 
-证据：[BatchStorage.kt:5-12](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L5)、[Sources.kt:14-18](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/Sources.kt#L14)、[core/build.gradle.kts:1-9](file:///D:/projects/piece/live-photo-batch/core/build.gradle.kts#L1)。
+证据：[BatchStorage.kt:5-12](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchStorage.kt#L5)、[Sources.kt:14-18](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L14)、[core/build.gradle.kts:1-9](file:///D:/projects/piece/live-photo-batch/core/build.gradle.kts#L1)。
 
 ### 1.2 纯字节搬运，不解码不转码
 
@@ -25,7 +25,7 @@
 
 **代价**：产物里带着厂商副图与记录，格式判断（尾巴定性）变复杂；我们放弃了"清理一遍元数据"的机会。
 
-证据：[MotionPhotoComposer.kt:24-34](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/MotionPhotoComposer.kt#L24)、[JpegXmpPatcher.kt:20-24](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegXmpPatcher.kt#L20)。
+证据：[MotionPhotoComposer.kt:24-34](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/MotionPhotoComposer.kt#L24)、[JpegXmpPatcher.kt:20-24](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegXmpPatcher.kt#L20)。
 
 ## 2. 配对与命名
 
@@ -37,7 +37,7 @@
 
 **代价**：`x.jpg` + `y.mp4`（名字不同）这种输入永远静默无输出，用户看不出来。目前接受，因为相机产物的命名本就是同名。
 
-证据：[PairPlanner.kt:22-29](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L22)、[:15-18](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L15)。
+证据：[PairPlanner.kt:22-29](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/PairPlanner.kt#L22)、[:15-18](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/PairPlanner.kt#L15)。
 
 ### 2.2 `IMG_` 前缀硬编码
 
@@ -45,7 +45,7 @@
 
 **为什么**：相册目录里还躺着录屏、下载的短视频、微信保存的 mp4；vivo/Google/小米相机动态照片一律 `IMG_<时间戳>.mp4`。
 
-**代价**：非相机来源（改名过的、第三方 App 存的）不会被处理。`VIDEO_PREFIX` 是常量而不是参数 —— 想放宽就改 [PairPlanner.kt:69](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L69)。
+**代价**：非相机来源（改名过的、第三方 App 存的）不会被处理。`VIDEO_PREFIX` 是常量而不是参数 —— 想放宽就改 [PairPlanner.kt:69](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/PairPlanner.kt#L69)。
 
 ### 2.3 排序用码元自然序，且**不许改成大小写无关**
 
@@ -55,7 +55,7 @@
 
 **代价**：相册顺序不等同于拍摄顺序，数字编号看起来"乱"。这是刻意的。
 
-证据：[PairPlanner.kt:51-56](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L51)、[BatchStorage.kt:17-22](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L17)。
+证据：[PairPlanner.kt:51-56](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/PairPlanner.kt#L51)、[BatchStorage.kt:17-22](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchStorage.kt#L17)。
 
 ## 3. 字节与元数据
 
@@ -67,7 +67,7 @@
 
 **代价**：不做时间戳沿用（两个 `*PresentationTimestampUs` 固定 `-1`）；第三方样本写 `0`，但 `0` 的语义是"从第 0 微秒播"，与"未提供"不是一回事，没有真机依据前不改。
 
-证据：[XmpPacket.kt:27-32](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L27)、[:65-69](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L65)。
+证据：[XmpPacket.kt:27-32](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/XmpPacket.kt#L27)、[:65-69](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/XmpPacket.kt#L65)。
 
 ### 3.2 字段集合按规范正文写，厂商样本只当反例
 
@@ -77,7 +77,7 @@
 
 **代价**：我们的形状和任何一家的都不完全一样；如果将来某个相册按字符串匹配读，这条裁定要重新检验。
 
-证据：[XmpPacket.kt:33-53](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L33)。
+证据：[XmpPacket.kt:33-53](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/XmpPacket.kt#L33)。
 
 ### 3.3 `GainMap.Length` 用整条尾巴，不用副图诚实内长
 
@@ -87,7 +87,7 @@
 
 **代价**：`Length` 数值不等于"那张副图 JPEG 的大小"，读代码的人会觉得奇怪；`Description.innerJpegBytes` 保留诚实内长只供诊断与测试留档，目录里的 `Length` **不用它**。
 
-证据：[TrailerModel.kt:12-15](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/TrailerModel.kt#L12)、[XmpPacket.kt:110-113](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L110)。
+证据：[TrailerModel.kt:12-15](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/TrailerModel.kt#L12)、[XmpPacket.kt:110-113](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/XmpPacket.kt#L110)。
 
 ### 3.4 畸形尾巴降级成 Padding，而不是报错
 
@@ -105,7 +105,7 @@
 
 **代价**：其他厂商机型可能整批不被认，且不会报错、不会有任何提示。这是刻意的保守。
 
-证据：[VivoLivePhotoTail.kt:8-24](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/VivoLivePhotoTail.kt#L8)。
+证据：[VivoLivePhotoTail.kt:8-24](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/VivoLivePhotoTail.kt#L8)。
 
 ### 3.6 `check` 还是 `require`：不变量与输入形状必须分开
 
@@ -121,7 +121,7 @@
 
 **为什么**：产物已经在最终名上了 —— 一个源文件没删掉是警告，不是失败。把它算失败会让用户重跑整批，而重跑又会撞上 `ALREADY_MOTION_PHOTO`。
 
-**代价**：报告里"成功但带警告"需要 UI 单独显示（橙色状态点 + 括号里的文件名列表，[BatchScreen.kt:428-446](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L428)）。
+**代价**：报告里"成功但带警告"需要 UI 单独显示（橙色状态点 + 括号里的文件名列表，[BatchScreen.kt:428-446](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L428)）。
 
 ### 4.2 `MALFORMED_JPEG` 刻意不算跳过
 
@@ -129,7 +129,7 @@
 
 **为什么**：`JpegScanner` 会把 `IOException` 折叠成 Malformed。若把 Malformed 算跳过，**真实磁盘故障会被埋进"坏文件"里**。
 
-证据：[BatchRunner.kt:184-187](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchRunner.kt#L184)。
+证据：[BatchRunner.kt:184-187](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchRunner.kt#L184)。
 
 ### 4.3 取消只查在项与项之间
 
@@ -147,7 +147,7 @@
 
 **代价**：收尾扫描的提示也必须借 `globalError` 这个通道（`UiState` 形状被计划钉死，没有新字段可去）—— 这是一个如实记录的妥协，不是设计。
 
-证据：[FileStorage.kt:54-58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L54)、[BatchViewModel.kt:33-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L33)。
+证据：[FileStorage.kt:54-58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L54)、[BatchViewModel.kt:33-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L33)。
 
 ### 4.5 `openWrite` 的可见性不对称：写进契约，不去"修"它
 
@@ -157,7 +157,7 @@
 
 **代价**：内存实现与真实实现行为不同（内存 close 才发布），测试无法暴露"半途可见"这类问题。
 
-证据：[BatchStorage.kt:54-61](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L54)、[FileStorage.kt:40-52](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L40)。
+证据：[BatchStorage.kt:54-61](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchStorage.kt#L54)、[FileStorage.kt:40-52](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L40)。
 
 ### 4.6 `move` 绝不先删目标
 
@@ -165,7 +165,7 @@
 
 **为什么**：先删会开出"旧产物已经没了、新产物还没就位"的窗口，中途崩溃或被媒体扫描撞上就永久丢掉上一版产物。退化路径里 `copyTo` 成功而 `src.delete()` 失败若返回 false，`BatchRunner` 会报 FAILED 并再删一次 `.part` —— 于是"失败但产物存在"，比留一个没人认领的 `.part` 糟糕得多。
 
-证据：[BatchStorage.kt:68-75](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L68)、[FileStorage.kt:120-142](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L120)。
+证据：[BatchStorage.kt:68-75](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchStorage.kt#L68)、[FileStorage.kt:120-142](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L120)。
 
 ### 4.7 顺序单线程，不并行合成
 
@@ -185,7 +185,7 @@
 
 **代价**：一个跨三个类的隐式约定，只能靠注释与测试守。
 
-证据：[FileStorage.kt:60-66](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L60)、[BatchViewModel.kt:74-82](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L74)、[FileStorageTest.kt:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt#L162)。
+证据：[FileStorage.kt:60-66](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L60)、[BatchViewModel.kt:74-82](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L74)、[FileStorageTest.kt:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L162)。
 
 ### 5.2 "能浏览"比"能选"宽，且批次用同一个谓词再守一遍
 
@@ -225,7 +225,7 @@
 
 **为什么**：只要"别留幽灵条目"这个最终效果，不关心逐条确认；`await` 阻塞的是**调用线程**，而 `onScanCompleted` 回调投递到主线程 —— 在主线程等必然等满 2 秒并顺手 ANR。"绝不抛"是因为扫描是尽力而为的收尾；"绝不静默"是因为这条不变量一旦被藏起来就没人知道相册为什么没更新。
 
-证据：[MediaStoreSync.kt:11-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MediaStoreSync.kt#L11)。
+证据：[MediaStoreSync.kt:11-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MediaStoreSync.kt#L11)。
 
 ### 5.8 收尾扫描放在 `NonCancellable` 里
 
@@ -235,7 +235,7 @@
 
 **代价（如实记录的两个残余）**：① 批次协程**还没被线程启动**就碰上 scope 已取消 → 整个协程体连 finally 都不执行（此刻零文件效果，代价只是 `running` 卡在 true，而 ViewModel 已销毁）；② **进程被杀** → 协程、NonCancellable、扫描一起死，索引只能等 MediaStore 自己例行收敛。两者都"JVM 测不到/修不了"。
 
-证据：[BatchViewModel.kt:99-106](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L99)、[:223-249](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L223)。
+证据：[BatchViewModel.kt:99-106](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L99)、[:223-249](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L223)。
 
 ### 5.9 状态写入一律 `update { }`（CAS）
 
@@ -245,7 +245,7 @@
 
 ### 5.10 目录浏览只出一列，根上只给别名、不给快捷方式
 
-**决定**：`DirectoryPicker` 只渲染**一个** `SectionCard`、**一条**列表：`上一级`（父级还在 root 之内时才有）排在最前，后面就是这一层要显示的目录。在存储根那一级，[`mergedRootEntries`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L123) 只做一件事 —— 把预设里的中文**别名**盖到真实子目录上（`Pictures → 图片`）；列表内容始终**只有 `subdirs(root)` 的真实子目录**，不补任何快捷方式。顺序一律按显示名 `lowercase()` 码元自然序，**不给常用项开小灶**。
+**决定**：`DirectoryPicker` 只渲染**一个** `SectionCard`、**一条**列表：`上一级`（父级还在 root 之内时才有）排在最前，后面就是这一层要显示的目录。在存储根那一级，[`mergedRootEntries`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L123) 只做一件事 —— 把预设里的中文**别名**盖到真实子目录上（`Pictures → 图片`）；列表内容始终**只有 `subdirs(root)` 的真实子目录**，不补任何快捷方式。顺序一律按显示名 `lowercase()` 码元自然序，**不给常用项开小灶**。
 
 **为什么不两段并列**：旧结构是"上面一坨预设入口、下面一坨当前层子目录"，同一件事（"这个目录下能进哪儿"）被画成两个来源，用户要先判断哪一段才是当前层。
 
@@ -259,27 +259,29 @@
 
 **同一条决定的另一半 —— 返回手势先当"上一级"，换层用整层滑动**
 
-**决定**：目录弹窗里系统返回键**先当"上一级"用**，只有在 root（没有可去的父级）才关闭弹窗；换层用 `AnimatedContent` 做整层推入/弹出 + 淡入淡出，进子目录向左推、返回向右弹，与标题改动同一时刻发生（[BatchScreen.kt:372-398](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L372)）。时长与缓动复用 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L71) 那一套令牌，和冷启动入场是同一种手感。
+**决定**：目录弹窗里系统返回键**先当"上一级"用**，只有在 root（没有可去的父级）才关闭弹窗；换层用 `AnimatedContent` 做整层推入/弹出 + 淡入淡出，进子目录向左推、返回向右弹，与标题改动同一时刻发生（[BatchScreen.kt:372-398](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L372)）。时长与缓动复用 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L71) 那一套令牌，和冷启动入场是同一种手感。
 
 **为什么**：这是一台设备上的文件浏览器，"返回键直接把整个弹窗关掉"会让人反复重选层级；而方向感（向左=进深、向右=回退）是让列表可读的关键，尤其在只剩一列之后。`BackHandler` 必须放在 `IosSheet` 的 content 里 —— 那是 Dialog 自己的组合，返回键先落到它的 `OnBackPressedDispatcher`，放在 Activity 那层拦不到。
 
-**为什么 `上一级` 只在父级可选时出现**：root 之上（`/storage/emulated`）是实测定出来的死角 —— 那里读不出子目录，root 只剩一个"0"条目，是一条回不来的路。所以 root 这一级就是最顶层，既不给"再往上一级"的入口，返回键到这一层就直接关窗（[BatchScreen.kt:280-292](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L280)）。
+**为什么 `上一级` 只在父级可选时出现**：root 之上（`/storage/emulated`）是实测定出来的死角 —— 那里读不出子目录，root 只剩一个"0"条目，是一条回不来的路。所以 root 这一级就是最顶层，既不给"再往上一级"的入口，返回键到这一层就直接关窗（[BatchScreen.kt:280-292](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L280)）。
 
 ### 5.11 图标与启动过渡（2026-10-21 增量）
 
 **决定**：桌面图标是**纯 XML 的 adaptive icon**（`drawable/ic_launcher_foreground.xml` + `ic_launcher_background.xml`，`mipmap-anydpi-v26/ic_launcher.xml` 与 `_round.xml`），零 PNG；`<monochrome>` 层**直接复用前景层**；冷启动走 `androidx.core:core-splashscreen`（1.2.0，`:app` 唯一新增的 androidx 依赖），退出动画再由 `BatchScreen` 的交错入场接住。
 
-**为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:297](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L297)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
+**为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:297](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L297)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
 
-**为什么 monochrome 复用前景层**：前景层本来就是纯白单色 + 透明孔（齿孔用 `fillType="evenOdd"` 挖成真透明，而不是涂成背景蓝）。涂成背景色的孔在 Android 13+ 主题图标里会被重染成实心块，孔就没了；而透明孔让**同一份文件**既能当 foreground 又能当 monochrome，少一份会各自漂移的副本。
+**为什么现在没有 monochrome 层**：起初 `<monochrome>` 直接复用纯白前景层（省一份会各自漂移的副本），代价是任何走「主题图标」的渲染会把那一层重染成主题色 —— 深色下白变黑，相框与齿孔直接没了（装机反馈的正是这个）。
+
+现在两层结构只留 `background` + `foreground`：**不给任何渲染路径留下可染色的白色形状**，launcher 想要单色版就退回普通图标。齿孔仍然用 `fillType="evenOdd"` 挖成透明而不是涂背景蓝 —— 涂成背景色的孔在任何压平渲染下都会消失，这一点不变。
 
 **尺寸边界不是审美**：adaptive 前景的安全区是居中 66×66，圆形遮罩内切半径 33。所有描边外缘到画布中心 `(54,54)` 的距离都控制在 33 以内（最远是相框左上角 ≈29.1、齿孔条右下角 ≈28.8），所以圆形 launcher 不会啃掉图形。
 
-**为什么 splash 与入场要分成两段**：系统 splash 管进程启动→首帧那段真空（这段 Compose 还没起来，做不了任何事），Compose 入场管首帧之后的衔接。`IosEntrance` 是它们之间的闸门：内容在 splash 退出动画放完之前停在 `alpha = 0`（[IosEntrance.kt:24](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosEntrance.kt#L24)），否则卡片在 logo 背后就演完了。
+**为什么 splash 与入场要分成两段**：系统 splash 管进程启动→首帧那段真空（这段 Compose 还没起来，做不了任何事），Compose 入场管首帧之后的衔接。`IosEntrance` 是它们之间的闸门：内容在 splash 退出动画放完之前停在 `alpha = 0`（[IosEntrance.kt:24](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosEntrance.kt#L24)），否则卡片在 logo 背后就演完了。
 
 **代价与两处刻意**：
-- `installSplashScreen()` 必须在 `super.onCreate()` **之前**（window 级的，晚一步拦不到首帧），并且随后**显式** `setTheme(Theme.LivePhotoBatch)`（[MainActivity.kt:36-40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L36)）。库自己会照 `postSplashScreenTheme` 恢复，但 API 30 走 compat、31+ 走系统两条分支，界面配色不该压在"这次落在哪条分支"上。
-- 入场有一条 **600ms 超时兜底**（[IosStyle.kt:86](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L86)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
+- `installSplashScreen()` 必须在 `super.onCreate()` **之前**（window 级的，晚一步拦不到首帧），并且随后**显式** `setTheme(Theme.Vlive)`（[MainActivity.kt:36-40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MainActivity.kt#L36)）。库自己会照 `postSplashScreenTheme` 恢复，但 API 30 走 compat、31+ 走系统两条分支，界面配色不该压在"这次落在哪条分支"上。
+- 入场有一条 **600ms 超时兜底**（[IosStyle.kt:86](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L86)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
 - 入场**不读** `Settings.Global.ANIMATOR_DURATION_SCALE`：那是一次跨进程查询，与 §5.3「组合期不碰 binder」冲突。用户在系统里关掉动画时这段会不会归零，**尚未装机确认**。
 
 ### 5.12 `-v26` 这个"多余"的目录限定符不能删
@@ -290,6 +292,17 @@
 `AAPT: error: resource mipmap/ic_launcher not found`（`ic_launcher_round` 同），`:app:clean` 之后仍然如此，所以不是增量合并的缓存残留。改回 `-v26` 即通过，`aapt2 dump badging` 能解析出 `application: icon='res/mipmap-anydpi-v26/ic_launcher.xml'`。
 
 **结论**：这条 lint 建议在当前 AGP 9.4.1 / AAPT2 组合下会把构建搞坏，因此**不要照它改**。lint 里这一项是 information 级、不参与构建门槛（CI 不跑 lint），留着比全局 `disable += "ObsoleteSdkInt"` 好——后者会连带把 `PermissionGate.kt:46/51` 那两条"低于 API 30 的短路分支"也一起静音，而那是有意保留的双保险。
+
+### 5.13 品牌名 vlive，包名一路改到 `dev.zayn.vlive`
+
+**决定**：应用名、`applicationId`、`namespace`、Kotlin 包（含 `:core` 的 `dev.zayn.vlive.core`）、主题样式名（`Theme.Vlive`）、CI 产物名（`vlive-debug` / `vlive-release`）、C4 图源文件名（`vlive.structurizr.dsl`）全部改到 `vlive`。主界面大标题 `vlive`，功能说明退到副标题 `live photo 批量合成`。GitHub 仓库名仍是 `live-photo-batch`，文档里出现它时指的是**仓库**，不是产品。
+
+**为什么连包名一起改**：只改 label + applicationId 也能交付品牌，但会永久留下"桌面上的 vlive，装在一个叫 livephotobatch 的包里"这种第二套名字。这次替换是纯机械的（54 个文件、零逻辑改动、测试与构建同轮验证），越晚做越贵。
+
+**代价（实测）**：
+- `applicationId` 变了 = 设备上这是**另一个 app**：旧包名那份不会自动升级，也不共享它的私有目录（第 4 片的持久化与日志因此天然按新包名重来）。装机前先卸旧包。
+- 清单组件名从 `dev.zayn.livephotobatch/dev.zayn.livephotobatch.app.MainActivity` 变成 `dev.zayn.vlive/dev.zayn.vlive.MainActivity`，`am start` 那行要跟着换（testing.md 已改）。
+- 文档里 380+ 条 `file:行` 引用的**路径**全部要重算（行号本身没动 —— 包声明与 import 都是等行替换，这一点是这次敢整片改的依据）。
 
 ## 6. 构建与 CI
 
@@ -325,7 +338,7 @@
 
 ### 6.5 release 包由 CI 直接产出，签名沿用 debug key
 
-**决定**：`apk` job 在 `assembleDebug` 之后追加 `:app:assembleRelease`，并上传 `live-photo-batch-release` 产物；不引入 keystore secret，release 仍走 `signingConfigs.getByName("debug")`。
+**决定**：`apk` job 在 `assembleDebug` 之后追加 `:app:assembleRelease`，并上传 `vlive-release` 产物；不引入 keystore secret，release 仍走 `signingConfigs.getByName("debug")`。
 
 **为什么**：这是一台设备上用的侧载工具，"能装、能覆盖 debug 包"就是需求；把密钥材料塞进仓库或 CI 变量换不来任何收益，反而多一处会泄漏的东西。要出正式签名版时再建 secret，工作流里只引用名字。
 
@@ -338,16 +351,16 @@
 | 项 | 现状 | 建议 |
 | --- | --- | --- |
 | 代码里 **49 处 `spec §…` / `增补 …` 引用**指向已删除的设计稿 | 悬空引用（见下面的索引） | 要么把设计稿作为历史归档恢复并标"已废弃"，要么把 KDoc 引用改指本文档 |
-| `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
+| `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
 | `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
-| `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
-| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L58) | 收拢间距或删令牌 |
-| 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L186) | 进 `IosMetrics` |
+| `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
+| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L58) | 收拢间距或删令牌 |
+| 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L186) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
-| 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegStructure.kt#L100) | 要提速先测 |
+| 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
 | 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 178 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
 | lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删) | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
-| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:187](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L187)、[:212](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L212) | 令牌 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L71) 已就位，改这两处即可对齐 |
+| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:187](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L187)、[:212](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L212) | 令牌 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L71) 已就位，改这两处即可对齐 |
 
 ## spec 引用索引
 

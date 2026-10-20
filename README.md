@@ -1,4 +1,4 @@
-# live-photo-batch
+# vlive
 
 Android 上的批量动态照片合成工具：选一个目录，把**同名**的 `IMG_x.jpg` 与 `IMG_x.mp4` 合成一张符合
 Google **Motion Photo 1.0** 的单文件动态照片 `x_MP.jpg`，写到另一个目录，并让相册立刻认得它。
@@ -14,7 +14,7 @@ Google **Motion Photo 1.0** 的单文件动态照片 `x_MP.jpg`，写到另一�
 ```bash
 ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n dev.zayn.livephotobatch/dev.zayn.livephotobatch.app.MainActivity
+adb shell am start -n dev.zayn.vlive/dev.zayn.vlive.MainActivity
 ```
 
 1. 首次打开授予「所有文件访问」权限（`MANAGE_EXTERNAL_STORAGE`）。没有它读写公共目录会被系统拒绝，
@@ -67,7 +67,7 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 | 字节布局、XMP 目录规则、尾巴声明、vivo 末盒、厂商差异 | [docs/motion-photo-container.md](docs/motion-photo-container.md) |
 | 为什么这样设计、哪些地方刻意不寻常、已知技术债 | [docs/decisions.md](docs/decisions.md) |
 | 测试怎么分的、钉住了什么、真机该验什么 | [docs/testing.md](docs/testing.md) |
-| C4 四视图（Context / Container / 两个 Component） | [docs/architecture/live-photo-batch.structurizr.dsl](docs/architecture/live-photo-batch.structurizr.dsl) |
+| C4 四视图（Context / Container / 两个 Component） | [docs/architecture/vlive.structurizr.dsl](docs/architecture/vlive.structurizr.dsl) |
 
 ## 开发
 
@@ -85,8 +85,8 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 
 要求：JDK 17、Android SDK（`compileSdk 37.0`、`platforms;android-37.0`）。`local.properties` 里写 `sdk.dir`。
 
-云端出包：push 到 `main` 或 `feat/*` 会触发 GitHub Actions，`apk` job 上传 `live-photo-batch-debug` 与
-`live-photo-batch-release` 两个产物。release 沿用 debug 签名 —— 能侧载，不能上商店（见
+云端出包：push 到 `main` 或 `feat/*` 会触发 GitHub Actions，`apk` job 上传 `vlive-debug` 与
+`vlive-release` 两个产物。release 沿用 debug 签名 —— 能侧载，不能上商店（见
 [docs/decisions.md §6.5](docs/decisions.md)）。本地等价命令：`./gradlew :app:assembleRelease`，产物在
 `app/build/outputs/apk/release/app-release.apk`。
 

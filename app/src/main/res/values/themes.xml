@@ -7,7 +7,7 @@
          桌面图标、启动 logo 和界面控件讲的是同一套颜色，各改各的就会看出两个 app。 -->
     <color name="icon_background">#FF007AFF</color>
 
-    <style name="Theme.LivePhotoBatch" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+    <style name="Theme.Vlive" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:windowBackground">@color/grouped_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -23,9 +23,12 @@
       postSplashScreenTheme 指回运行时主题；MainActivity 仍在 onCreate 里再显式 setTheme 一次，
       不把这件事交给库在 API 30/31 两条分支里的恢复逻辑。
     -->
-    <style name="Theme.LivePhotoBatch.Starting" parent="Theme.SplashScreen">
+    <style name="Theme.Vlive.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/grouped_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
-        <item name="postSplashScreenTheme">@style/Theme.LivePhotoBatch</item>
+        <!-- 图标的方形底由系统画，颜色与 splash_logo 里那块蓝一致：万一某条渲染路径丢掉 drawable
+             自带的圆角方块，白色图形也仍然坐在蓝色底上，不会露成深色背景上的白块。 -->
+        <item name="windowSplashScreenIconBackgroundColor">@color/icon_background</item>
+        <item name="postSplashScreenTheme">@style/Theme.Vlive</item>
     </style>
 </resources>

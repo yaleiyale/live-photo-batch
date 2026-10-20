@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.zayn.livephotobatch"
+    namespace = "dev.zayn.vlive"
     // 计划写的是 36，但 CI（run 39084353266）在 :app:checkDebugAarMetadata 上失败：
     // compose-bom 2026.09.00（→ compose 1.12.1）与 lifecycle 2.11.0 的 AAR 元数据要求
     // "compile against version 37 or later"，AGP 的建议动作就是升到 37。
@@ -19,7 +19,7 @@ android {
     compileSdkMinor = 0
 
     defaultConfig {
-        applicationId = "dev.zayn.livephotobatch"
+        applicationId = "dev.zayn.vlive"
         minSdk = 30
         targetSdk = 36
         versionCode = 1

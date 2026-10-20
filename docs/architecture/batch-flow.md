@@ -10,15 +10,15 @@
 
 | 步 | 发生什么 | 归属 | 代码 |
 | --- | --- | --- | --- |
-| 1 | 首次打开：跳系统授权页要 `MANAGE_EXTERNAL_STORAGE`；vivo 上可能落不到系统页 → 退化成 Toast 手动指引 | `:app` → 系统 | [MainActivity.kt:66-75](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L66) |
-| 2 | 回前台 `onResume` 重读授权 —— 授权状态只能在运行时问，缓存会一直说谎 | `:app` | [MainActivity.kt:82-85](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L82) |
-| 3 | 选源/目标目录：全屏 `DirectoryPicker`，**只有一条列表**（`上一级` + 当前层条目，根上由 `mergedRootEntries` 并入预设别名）；`presets()`/`subdirs()` 在 `Dispatchers.IO` 上读，组合期只消费"已载入"的结果 | `:app` → 共享存储 | [BatchScreen.kt:300-425](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L300)、[DirBrowser.kt:121](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L121) |
-| 4 | 开工快照：`running \|\| !isGranted()` 直接静默忽略；快照一旦取定，运行中禁改目录与删除开关 | `:app` | [BatchViewModel.kt:152-175](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L152) |
-| 5 | 全局前置校验：快照路径在 root 内 → 源目录可读 → 目标目录建得起来（`ensureDir` 抛出的 `IOException` 由这里兜住） | `:app` | [BatchViewModel.kt:189-207](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L189) |
-| 6 | `plan()`：`list(source)` + `list(target)` → `jobs` + `unpaired`，先让用户看到 `total` | `:core` | [BatchRunner.kt:59-60](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchRunner.kt#L59) |
-| 7 | `run()`：**同一份 PlanResult 原样交给 run，不重新推导**；逐项 `composeOne` → `onItem` | `:core` | [BatchRunner.kt:62-104](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchRunner.kt#L62) |
-| 8 | 每项的字节动作只经 `BatchStorage` 端口：`openWrite(.part)` → `close()` → `move(→ 最终名)` → 可选 `delete(原文件)` | `:core` 端口 / `:app` 实现 | [BatchStorage.kt:13-84](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L13)、[FileStorage.kt:78-147](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L78) |
-| 9 | 收尾：`touchedPathsFor(targetDir, items)` → 一次性提交全部路径给 `scanFile`，最多等 2 秒，跑在 `NonCancellable` 里 | `:app` → MediaStore | [BatchViewModel.kt:63-68](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L63)、[:223-249](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L223)、[MediaStoreSync.kt:44-63](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MediaStoreSync.kt#L44) |
+| 1 | 首次打开：跳系统授权页要 `MANAGE_EXTERNAL_STORAGE`；vivo 上可能落不到系统页 → 退化成 Toast 手动指引 | `:app` → 系统 | [MainActivity.kt:66-75](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MainActivity.kt#L66) |
+| 2 | 回前台 `onResume` 重读授权 —— 授权状态只能在运行时问，缓存会一直说谎 | `:app` | [MainActivity.kt:82-85](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MainActivity.kt#L82) |
+| 3 | 选源/目标目录：全屏 `DirectoryPicker`，**只有一条列表**（`上一级` + 当前层条目，根上由 `mergedRootEntries` 并入预设别名）；`presets()`/`subdirs()` 在 `Dispatchers.IO` 上读，组合期只消费"已载入"的结果 | `:app` → 共享存储 | [BatchScreen.kt:300-425](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L300)、[DirBrowser.kt:121](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L121) |
+| 4 | 开工快照：`running \|\| !isGranted()` 直接静默忽略；快照一旦取定，运行中禁改目录与删除开关 | `:app` | [BatchViewModel.kt:152-175](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L152) |
+| 5 | 全局前置校验：快照路径在 root 内 → 源目录可读 → 目标目录建得起来（`ensureDir` 抛出的 `IOException` 由这里兜住） | `:app` | [BatchViewModel.kt:189-207](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L189) |
+| 6 | `plan()`：`list(source)` + `list(target)` → `jobs` + `unpaired`，先让用户看到 `total` | `:core` | [BatchRunner.kt:59-60](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchRunner.kt#L59) |
+| 7 | `run()`：**同一份 PlanResult 原样交给 run，不重新推导**；逐项 `composeOne` → `onItem` | `:core` | [BatchRunner.kt:62-104](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchRunner.kt#L62) |
+| 8 | 每项的字节动作只经 `BatchStorage` 端口：`openWrite(.part)` → `close()` → `move(→ 最终名)` → 可选 `delete(原文件)` | `:core` 端口 / `:app` 实现 | [BatchStorage.kt:13-84](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchStorage.kt#L13)、[FileStorage.kt:78-147](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L78) |
+| 9 | 收尾：`touchedPathsFor(targetDir, items)` → 一次性提交全部路径给 `scanFile`，最多等 2 秒，跑在 `NonCancellable` 里 | `:app` → MediaStore | [BatchViewModel.kt:63-68](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L63)、[:223-249](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L223)、[MediaStoreSync.kt:44-63](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MediaStoreSync.kt#L44) |
 
 主路径**没有任何异步交接、没有队列、没有并行**：一个协程、一条顺序 `for`。这是刻意的取舍 —— 见 [decisions.md](../decisions.md)。
 
@@ -42,7 +42,7 @@
 | **取消** | `BatchReport.cancelled = true`，已提交项照常留在报告里 | 正在写的项走完 rename 或清理，**不留半截 `.part`** |
 | **收尾扫描未确认** | 同样借 `globalError` 提示一行"媒体索引未确认刷新" | **磁盘事实已定**，只是相册可能暂时看不到新产物 / 仍留着指向已删文件的条目 |
 
-第四条是最容易被误读的一条：扫描失败不是合成失败。代码把话说死在这里 —— 借用 `globalError` 通道是因为 `UiState` 形状被钉死、没有新字段可去（[BatchViewModel.kt:33-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L33)）。
+第四条是最容易被误读的一条：扫描失败不是合成失败。代码把话说死在这里 —— 借用 `globalError` 通道是因为 `UiState` 形状被钉死、没有新字段可去（[BatchViewModel.kt:33-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L33)）。
 
 ## 图上刻意不画的
 
@@ -56,7 +56,7 @@
 产物字节正确  ──?──>  相册把 x_MP.jpg 当动态照片播放
 ```
 
-这一步**没有 API 可问**。代码对 MediaStore 的唯一调用只提交路径去扫描（[MediaStoreSync.kt:48](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MediaStoreSync.kt#L48)），"认不认"完全由字节布局 + XMP 目录决定，判据来自 vivo V2419A 上的真机单变量对照与二分实验（2026-10-18 ~ 2026-10-20，记录在 [motion-photo-container.md](../motion-photo-container.md)）。
+这一步**没有 API 可问**。代码对 MediaStore 的唯一调用只提交路径去扫描（[MediaStoreSync.kt:48](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MediaStoreSync.kt#L48)），"认不认"完全由字节布局 + XMP 目录决定，判据来自 vivo V2419A 上的真机单变量对照与二分实验（2026-10-18 ~ 2026-10-20，记录在 [motion-photo-container.md](../motion-photo-container.md)）。
 
 因此这张端到端图的最后一条边是**低置信**的，而且是系统的全部 186 条自动化测试覆盖不到的唯一实质风险面：
 
