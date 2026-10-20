@@ -1,5 +1,6 @@
 package dev.zayn.livephotobatch.app.ui
 
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -32,12 +33,17 @@ object IosColor {
     val noticeBackground = Color(0xFFFFF1F0)
 }
 
-/** 字号对齐 iOS 文本样式（pt≈sp）：大标题 32 / 行标题 17 / 值与脚注 13–14。 */
+/** 字号对齐 iOS 文本样式（pt≈sp）：大标题 26 / 行标题 17 / 值与脚注 13–14。 */
 object IosType {
+    /**
+     * iOS 的 large title 是 34pt，但那是英文 + 系统字重的尺寸；中文 32pt 粗体在 6.7 吋屏上
+     * 一行「Live Photo 批量合成」就吃掉近 1/8 屏高，真机看着明显过大。降到 26sp：仍是全页
+     * 最大的字，行标题 17sp 与它的层级差还在。
+     */
     val largeTitle = TextStyle(
-        fontSize = 32.sp,
+        fontSize = 26.sp,
         fontWeight = FontWeight.Bold,
-        letterSpacing = (-0.4).sp,
+        letterSpacing = (-0.3).sp,
         color = IosColor.label,
     )
     val body = TextStyle(fontSize = 17.sp, color = IosColor.label)
@@ -59,6 +65,33 @@ object IosMetrics {
     /** 小于 1dp：分隔线靠抗锯齿画成若隐若现的细线，比整数 1dp 更接近 iOS 的 0.5pt hairline。 */
     val hairline: Dp = 0.6.dp
     val buttonHeight: Dp = 50.dp
+}
+
+/**
+ * 动效令牌。时长与缓动集中一处，调用点不许再写散装毫秒数。
+ *
+ * `ENTER_MS` 故意等于 `IosSwitch` 里那个 220ms：启动入场、开关拨动、进度条推进应该是同一种
+ * 手感，而不是各调各的曲线。（那两处字面量还散在控件层里，见 decisions.md 的技术债一节。）
+ */
+object IosMotion {
+    /** splash logo 淡出与卡片入场用同一个时长，两段动画才接得上。 */
+    const val ENTER_MS = 220
+    const val EXIT_MS = 220
+
+    /** 相邻两段内容的起跑差。 */
+    const val STAGGER_MS = 40
+
+    /** 入场位移：12dp 上浮，够看见但不拖沓。 */
+    const val RISE_DP = 12f
+
+    /**
+     * 兜底放行时长：splash 退出回调万一不回叫（OEM 分支不少），超过这个时间也必须把内容放出来。
+     * 看不见动画可以接受，看不见界面不行。
+     */
+    const val RELEASE_TIMEOUT_MS = 600L
+
+    /** iOS 观感对应的减速曲线（不是 Material 的 emphasized，是标准 ease-out）。 */
+    val EaseOut = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
 }
 
 /** 兜住仍走 MaterialTheme 默认色的东西（Text 的兜底 color、Dialog 表面色等）。 */

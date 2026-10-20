@@ -11,7 +11,9 @@
 
     <application
         android:label="Live Photo Batch"
-        android:theme="@style/Theme.LivePhotoBatch">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.LivePhotoBatch.Starting">
         <!-- Task 11 的类在 dev.zayn.livephotobatch.app 包下，而 android:name 的点号前缀
              展开的是 namespace（dev.zayn.livephotobatch），不是包名，所以这里必须写 .app.
              完整组件名：dev.zayn.livephotobatch/dev.zayn.livephotobatch.app.MainActivity

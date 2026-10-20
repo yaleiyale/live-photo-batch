@@ -3,6 +3,9 @@
     <!-- 只为对齐页面底色与系统栏：Compose 层自己画所有控件，这里不参与配色。
          windowBackground 是冷启动那一帧的颜色，跟 iOS 分组背景同一个串，避免闪白/闪黑。 -->
     <color name="grouped_background">#F2F2F7</color>
+    <!-- 图标底色 = Compose 侧的 IosColor.blue（0xFF007AFF）。两处必须一起改：
+         桌面图标、启动 logo 和界面控件讲的是同一套颜色，各改各的就会看出两个 app。 -->
+    <color name="icon_background">#FF007AFF</color>
 
     <style name="Theme.LivePhotoBatch" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:windowBackground">@color/grouped_background</item>
@@ -10,5 +13,19 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <!--
+      冷启动那一帧的主题（manifest 的 android:theme 指它）。父类 Theme.SplashScreen 来自
+      androidx.core:core-splashscreen，所以它不是 Android 12+ 专属，API 30 也走同一套。
+      windowSplashScreenBackground 沿用 grouped_background：这条是为了不闪白，和下面
+      android:windowBackground 同一个串。
+      postSplashScreenTheme 指回运行时主题；MainActivity 仍在 onCreate 里再显式 setTheme 一次，
+      不把这件事交给库在 API 30/31 两条分支里的恢复逻辑。
+    -->
+    <style name="Theme.LivePhotoBatch.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/grouped_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.LivePhotoBatch</item>
     </style>
 </resources>

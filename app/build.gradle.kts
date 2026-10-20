@@ -49,6 +49,10 @@ dependencies {
     implementation(project(":core"))
     implementation(platform(libs.compose.bom))
     implementation(libs.androidx.activity.compose)
+    // 冷启动那一帧的 SplashScreen（Theme.SplashScreen + installSplashScreen）。
+    // 这是 :app 唯一的"多一个依赖"决定，换来的是 API 30 上也能覆盖进程启动到首帧那段真空；
+    // 版本走 libs.versions.toml 的 splashScreen。
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)

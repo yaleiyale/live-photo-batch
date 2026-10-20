@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  minSdk 30 ≥ 26，所以 anydpi-v26 一份就够，不需要为 pre-26 铺六档 PNG。
+  <monochrome> 直接复用前景层：它本来就是纯白单色，孔靠透明而不是背景色挖出来。
+  API 26–32 的解析器会忽略不认识的 <monochrome> 子节点，不影响方形/圆形遮罩下的前景背景。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

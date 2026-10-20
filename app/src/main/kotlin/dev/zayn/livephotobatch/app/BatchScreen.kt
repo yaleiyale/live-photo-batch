@@ -1,5 +1,13 @@
 package dev.zayn.livephotobatch.app
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +33,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.zayn.livephotobatch.app.browse.DirBrowser
 import dev.zayn.livephotobatch.app.browse.DirItem
+import dev.zayn.livephotobatch.app.browse.STORAGE_ROOT_LABEL
+import dev.zayn.livephotobatch.app.browse.displayPath
 import dev.zayn.livephotobatch.app.browse.mergedRootEntries
 import dev.zayn.livephotobatch.app.ui.BackRow
 import dev.zayn.livephotobatch.app.ui.DetailRow
@@ -35,13 +46,17 @@ import dev.zayn.livephotobatch.app.ui.FolderRow
 import dev.zayn.livephotobatch.app.ui.IosButton
 import dev.zayn.livephotobatch.app.ui.IosButtonStyle
 import dev.zayn.livephotobatch.app.ui.IosColor
+import dev.zayn.livephotobatch.app.ui.IosEntrance
+import dev.zayn.livephotobatch.app.ui.IosEntranceFallback
 import dev.zayn.livephotobatch.app.ui.IosMetrics
+import dev.zayn.livephotobatch.app.ui.IosMotion
 import dev.zayn.livephotobatch.app.ui.IosSheet
 import dev.zayn.livephotobatch.app.ui.IosType
 import dev.zayn.livephotobatch.app.ui.SectionCard
 import dev.zayn.livephotobatch.app.ui.StatusRow
 import dev.zayn.livephotobatch.app.ui.SwitchRow
 import dev.zayn.livephotobatch.app.ui.ThinProgressBar
+import dev.zayn.livephotobatch.app.ui.iosEnter
 import dev.zayn.livephotobatch.core.FailureReason
 import dev.zayn.livephotobatch.core.ItemResult
 import dev.zayn.livephotobatch.core.ItemStatus
@@ -64,16 +79,22 @@ private enum class Picking { Source, Target }
  * 2. **权限不在组合过程里读。** 授权状态由 [BatchViewModel] 构造时、`MainActivity.onResume`
  *    和这里的 `LaunchedEffect` 推进；组合期每次重组都调一次
  *    `Environment.isExternalStorageManager()`（一次 binder 调用）会在批次逐项回报时拖慢主线程。
- * 3. **路径只能来自 [DirectoryPicker]，且显示的串不许被截断。** 界面上显示的绝对路径就是批次
- *    真正会用的串（`DirBrowser` 给的都是真实路径，见 [BatchViewModel.isSelectable] 那条 root 之外的分叉），
- *    所以 [DetailRow] 的值一栏不设 `maxLines`，宁可换行也要把整条路径画全。
+ * 3. **路径只能来自 [DirectoryPicker]，画出来的是它的显示形式，且不许被截断。** 值一栏走
+ *    [displayPath]：存储根那一段换成「内部存储」，与弹窗副标题同一个形式（`/storage/emulated/0/DCIM/Camera`
+ *    读作 `内部存储/DCIM/Camera`）。**批次真正用的仍是 `state.sourceDir` 那条绝对路径**，这里只是显示层，
+ *    所以 [DetailRow] 的值一栏不设 `maxLines`，宁可换行也要把整条路径画全 —— 别名可以省前缀，截断不行。
  */
 @Composable
-fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
+fun BatchScreen(
+    vm: BatchViewModel,
+    entrance: IosEntrance = remember { IosEntrance() },
+    request: () -> Unit,
+) {
     val state by vm.state.collectAsState()
     var picking by remember { mutableStateOf<Picking?>(null) }
 
     LaunchedEffect(Unit) { vm.refreshPermission() }
+    IosEntranceFallback(entrance)
 
     Box(
         // targetSdk 35+ 起窗口强制 edge-to-edge，底色必须铺到状态栏底下，否则顶部是一条系统给的接缝。
@@ -94,16 +115,18 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
             Text(
                 "Live Photo 批量合成",
                 style = IosType.largeTitle,
-                modifier = Modifier.padding(
-                    start = IosMetrics.screenMargin,
-                    end = IosMetrics.screenMargin,
-                    top = 6.dp,
-                    bottom = 14.dp,
-                ),
+                modifier = Modifier
+                    .iosEnter(0, entrance)
+                    .padding(
+                        start = IosMetrics.screenMargin,
+                        end = IosMetrics.screenMargin,
+                        top = 6.dp,
+                        bottom = 14.dp,
+                    ),
             )
 
             if (!state.permissionGranted) {
-                SectionCard(color = IosColor.noticeBackground) {
+                SectionCard(modifier = Modifier.iosEnter(1, entrance), color = IosColor.noticeBackground) {
                     Text(
                         "还没有“所有文件访问”权限，读写公共目录会被系统拒绝，批次不会开始。",
                         style = IosType.footnote.copy(color = IosColor.red),
@@ -120,16 +143,16 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
                 Spacer(Modifier.height(IosMetrics.sectionGap))
             }
 
-            SectionCard {
+            SectionCard(Modifier.iosEnter(2, entrance)) {
                 DetailRow(
                     title = "源目录",
-                    value = state.sourceDir,
+                    value = displayPath(state.sourceDir, vm.root),
                     enabled = !state.running,
                     onClick = { picking = Picking.Source },
                 )
                 DetailRow(
                     title = "目标目录",
-                    value = state.targetDir,
+                    value = displayPath(state.targetDir, vm.root),
                     enabled = !state.running,
                     divider = false,
                     onClick = { picking = Picking.Target },
@@ -138,7 +161,7 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
 
             Spacer(Modifier.height(IosMetrics.sectionGap))
 
-            SectionCard {
+            SectionCard(Modifier.iosEnter(3, entrance)) {
                 SwitchRow(
                     title = "合成后删除原文件（不可撤销）",
                     checked = state.deleteOriginals,
@@ -153,6 +176,7 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
                     "只有改名成功的项目才会删源文件；删不掉的会在报告里标成警告，产物不会被回退成失败。",
                     style = IosType.footnote.copy(color = IosColor.red),
                     modifier = Modifier
+                        .iosEnter(4, entrance)
                         .padding(horizontal = IosMetrics.screenMargin)
                         .padding(top = 8.dp),
                 )
@@ -161,7 +185,7 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
             Spacer(Modifier.height(IosMetrics.sectionGap))
 
             // 没授权就点不动：spec §9 把权限列为全局前置条件，别让人先按下开始再收一条错误。
-            Column(Modifier.padding(horizontal = IosMetrics.screenMargin)) {
+            Column(Modifier.iosEnter(5, entrance).padding(horizontal = IosMetrics.screenMargin)) {
                 IosButton(text = "开始合成", enabled = state.permissionGranted && !state.running, onClick = vm::start)
                 Spacer(Modifier.height(12.dp))
                 IosButton(
@@ -174,7 +198,7 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
 
             state.globalError?.let {
                 Spacer(Modifier.height(IosMetrics.sectionGap))
-                SectionCard(color = IosColor.noticeBackground) {
+                SectionCard(modifier = Modifier.iosEnter(6, entrance), color = IosColor.noticeBackground) {
                     Text(
                         it,
                         style = IosType.body.copy(color = IosColor.red),
@@ -185,7 +209,7 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
 
             Spacer(Modifier.height(IosMetrics.sectionGap))
 
-            SectionCard {
+            SectionCard(Modifier.iosEnter(7, entrance)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
                         "进度 ${state.done}/${state.total}，已写出 ${state.bytes / 1024 / 1024} MB",
@@ -201,7 +225,7 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
                 Text(
                     "报告",
                     style = IosType.title,
-                    modifier = Modifier.padding(horizontal = IosMetrics.screenMargin),
+                    modifier = Modifier.iosEnter(8, entrance).padding(horizontal = IosMetrics.screenMargin),
                 )
                 // spec §9：单项失败不中断批次，但 UI 要在末尾汇总计数（磁盘写满就是逐项 IO_ERROR）。
                 val counts = state.items.groupingBy { it.status }.eachCount()
@@ -215,10 +239,11 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
                     },
                     style = IosType.footnote,
                     modifier = Modifier
+                        .iosEnter(8, entrance)
                         .padding(horizontal = IosMetrics.screenMargin)
                         .padding(top = 6.dp, bottom = 8.dp),
                 )
-                SectionCard {
+                SectionCard(Modifier.iosEnter(9, entrance)) {
                     state.items.forEachIndexed { index, item ->
                         StatusRow(
                             dot = dotColor(item),
@@ -252,13 +277,18 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
 /**
  * 目录浏览器，呈现为全屏模态卡片。起点是 [startPath]（不可用时退回 [root]），一级一级往下走。
  *
- * **只有一条列表**：`上一级`（有父级时）排在最前，后面就是这一层要显示的目录，共用一张卡片与
- * 同一套分隔线规则。在存储根那一级由 [mergedRootEntries] 把常用入口的中文别名和「相机」这种嵌套
- * 快捷方式并进真实子目录里 —— 之前"上面一坨预设、下面一坨子目录"的分段不再存在。
+ * **只有一条列表**：`上一级`（父级还在 root 之内时）排在最前，后面就是这一层要显示的目录，
+ * 共用一张卡片与同一套分隔线规则。根那一级由 [mergedRootEntries] 决定内容：真实子目录，命中
+ * 预设的换成中文显示名（`Pictures → 图片`）。这里**没有任何快捷方式**——画出来和真实目录无法
+ * 区分、文件管理里又根本没有那个条目（曾经的 `相机 = DCIM/Camera` 就是这个问题），所以到相机
+ * 目录老老实实两跳：`DCIM → Camera`。
  *
- * [root] 之外（比如从根再点"上一级"到 `/storage/emulated`）照样能浏览——`DirBrowser.subdirs`
- * 只看 `startsWith("/")`，本来就是个宽口子；但 [selectable] 为假时会禁掉"选这里"并说明原因，
- * 因为那种串喂给 `FileStorage.resolve()` 会被重新拼到 root 之下，选了就等于把批次指向另一个目录。
+ * **最顶层就是 root 的内容**（DCIM、下载、图片…），root 自己不再作为一个条目出现，
+ * 也不给"从 root 再往上一级"的入口。这不是保守，是真机测出来的死角：`/storage/emulated`
+ * 通常读不出来（`listFiles()` 给 null → 空列表），而 root 作为它的子项只显示成一个 `0`，
+ * 退进去之后既看不到 DCIM 也回不到原来那层——一条没有回头路的分支。
+ * [selectable] 为假的父级因此一律不列出来（同一判定也继续挡住"选这里"：那种串喂给
+ * `FileStorage.resolve()` 会被重新拼到 root 之下，选了就等于把批次指向另一个目录）。
  *
  * **列目录绝不发生在组合期。** `presets()` / `subdirs()` / `File.parentFile` 背后是
  * `listFiles()` + 多次 `isDirectory` stat——都是磁盘调用。`remember` 只是缓存，不是副作用护栏：
@@ -282,41 +312,69 @@ private fun DirectoryPicker(
     // 上一级只能自己算：DirItem.parent 的定义是"这批条目出自哪个目录"（subdirs 里就是被列的
     // 目录本身，presets 里才是该项的父级），当不了从 path 往上走的串。
     // 这里用 java.io.File 的 parent 语义——和 DirBrowser 内部拼路径用的是同一套 API，不手写 "/"。
-    val listing by produceState<Listing?>(initialValue = null, browser, path) {
+    val loaded by produceState<Listing?>(initialValue = null, browser, path) {
         value = withContext(Dispatchers.IO) {
             Listing(
+                path = path,
                 subdirs = browser.subdirs(path),
                 parent = File(path).parentFile?.absolutePath ?: "",
             )
         }
     }
-    val canPick = selectable(path)
-    val now = listing
-    val quick = presets
 
-    // 导航栏标题放最后一级目录名，整条绝对路径留给副标题——两者都是同一个 path 的片段。
-    val leaf = path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
-    val atRoot = File(path).absoluteFile == File(root).absoluteFile
-    // 只出**一条**列表：根上把预设的中文别名与嵌套快捷方式并进真实子目录，子层就是该层的子目录。
-    val entries = when {
-        now == null -> emptyList()
-        atRoot && quick != null -> mergedRootEntries(quick, now.subdirs, path)
-        else -> now.subdirs
+    // **画出来的是已经读完的那一层**，不是刚点下去的那一层：新目录读出来之前继续画旧的一层，
+    // 读完了才整层换过去。三件事因此同时对齐——标题/副标题、列表、"选这里"要提交的路径；
+    // 也不会出现"标题已经变成 Camera、列表还是 DCIM"或者加载那一瞬闪出空列表提示。
+    var shown by remember(root, startPath) { mutableStateOf<Listing?>(null) }
+    // 推入还是弹出：新层是当前层的子级就向左推，否则（回上一级）向右弹。
+    var forward by remember(root, startPath) { mutableStateOf(true) }
+    LaunchedEffect(loaded) {
+        val fresh = loaded ?: return@LaunchedEffect
+        forward = fresh.path.startsWith("${shown?.path?.trimEnd('/')}/")
+        shown = fresh
     }
-    val rows: List<NavRow> = buildList {
-        now?.parent?.takeIf { it.isNotEmpty() }?.let { add(NavRow("上一级", it, isBack = true)) }
-        entries.forEach { add(NavRow(it.name, it.absolutePath, isBack = false)) }
+    val quick = presets
+    // `shown` 是委托属性，智能转换不了，先取进局部变量再判空。
+    val done = shown
+    val view = done ?: Listing(path, emptyList(), "")
+    // 还没读出来（首帧，或点了但新层未到）：这时不画"没有子目录"，那是在骗人。
+    val settled = done != null && done.path == path
+
+    // 别名与"上一级"的判定都按**画出来的那一层**算，所以返回手势、返回行、列表说的是同一件事。
+    fun rowsFor(level: Listing): List<NavRow> {
+        val atRoot = File(level.path).absoluteFile == File(root).absoluteFile
+        val items = if (atRoot && quick != null) mergedRootEntries(quick, level.subdirs, level.path) else level.subdirs
+        return buildList {
+            // 父级出不了 root 才有"上一级"：退到 /storage/emulated 就读不出子目录、root 只剩一个
+            // "0" 条目，是一条回不来的死路（见函数 KDoc）。root 这一级因此就是最顶层。
+            level.parent.takeIf { it.isNotEmpty() && selectable(it) }?.let { add(NavRow("上一级", it, isBack = true)) }
+            items.forEach { add(NavRow(it.name, it.absolutePath, isBack = false)) }
+        }
     }
+    val upPath = view.parent.takeIf { it.isNotEmpty() && selectable(it) }
+    val atRoot = File(view.path).absoluteFile == File(root).absoluteFile
+    // 标题是最后一级目录名，副标题是整条路径的**显示形式**：root 那一级读作「内部存储」，
+    // 往下就是「内部存储/DCIM/Camera」。这里刻意不把 "/storage/emulated/0" 摊给用户看——
+    // 那串既没人读得懂，root 又确实是可以选作源/目标的，所以用别名而不是藏掉。
+    val leaf = if (atRoot) STORAGE_ROOT_LABEL else view.path.trimEnd('/').substringAfterLast('/').ifEmpty { view.path }
+    val subtitle = displayPath(view.path, root)
+    val canPick = selectable(view.path)
 
     IosSheet(
         title = leaf,
-        subtitle = path,
+        subtitle = subtitle,
         cancelText = "关闭",
         confirmText = "选这里",
         confirmEnabled = canPick,
         onDismiss = onDismiss,
-        onConfirm = { onPick(path) },
+        onConfirm = { onPick(view.path) },
     ) {
+        // 返回手势**先当"上一级"用**，到 root（没有可去的父级）才让弹窗关掉。
+        // BackHandler 必须在 IosSheet 的 content 里——那是 Dialog 自己的组合，返回键先落到它的
+        // OnBackPressedDispatcher 上；放在外面这层（Activity 组合）拦不到。
+        val up = upPath
+        BackHandler(enabled = up != null) { up?.let { path = it } }
+
         if (!canPick) {
             Text(
                 "这个目录在存储根 $root 之外，只能看，不能当源/目标。",
@@ -324,27 +382,44 @@ private fun DirectoryPicker(
                 modifier = Modifier.padding(horizontal = IosMetrics.screenMargin, vertical = 8.dp),
             )
         }
-        SectionCard {
-            rows.forEachIndexed { index, row ->
-                if (row.isBack) {
-                    BackRow(title = row.label, divider = index < rows.lastIndex) { path = row.path }
-                } else {
-                    FolderRow(title = row.label, divider = index < rows.lastIndex) { path = row.path }
+        // 换层时整层推入/弹出 + 淡入淡出：点进去向左推、返回向右弹，和标题的改动同一时刻发生。
+        AnimatedContent(
+            targetState = view,
+            transitionSpec = {
+                val slide = tween<IntOffset>(IosMotion.ENTER_MS, easing = IosMotion.EaseOut)
+                val fade = tween<Float>(IosMotion.ENTER_MS, easing = IosMotion.EaseOut)
+                // +1：新层从右边推进来（进子目录）；-1：从左边推进来（回上一级）。
+                // 用 slideIn/OutHorizontally 而不是 AnimatedContentScope 的 slideIntoContainer——
+                // 后者是作用域里的成员扩展，在这里这个位置上取不到。
+                val sign = if (forward) 1 else -1
+                (slideInHorizontally(slide) { sign * it } + fadeIn(fade))
+                    .togetherWith(slideOutHorizontally(slide) { -sign * it } + fadeOut(tween(IosMotion.ENTER_MS / 2)))
+            },
+            label = "folderLevel",
+        ) { level ->
+            val rows = rowsFor(level)
+            SectionCard {
+                rows.forEachIndexed { index, row ->
+                    if (row.isBack) {
+                        BackRow(title = row.label, divider = index < rows.lastIndex) { path = row.path }
+                    } else {
+                        FolderRow(title = row.label, divider = index < rows.lastIndex) { path = row.path }
+                    }
                 }
-            }
-            if (now != null && entries.isEmpty()) {
-                Text(
-                    "（没有可进入的子目录）",
-                    style = IosType.footnote,
-                    modifier = Modifier.padding(16.dp),
-                )
+                if (settled && rows.none { !it.isBack }) {
+                    Text(
+                        "（没有可进入的子目录）",
+                        style = IosType.footnote,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
             }
         }
     }
 }
 
-/** 一次目录读取的结果（[produceState] 只能发布一个值，子目录和上一级合并成一条）。 */
-private data class Listing(val subdirs: List<DirItem>, val parent: String)
+/** 一层目录读完的结果（[produceState] 只能发布一个值，子目录和上一级合并成一条）。 */
+private data class Listing(val path: String, val subdirs: List<DirItem>, val parent: String)
 
 /** 卡片里的一行导航项；[isBack] 决定用返回样式还是文件夹样式。 */
 private data class NavRow(val label: String, val path: String, val isBack: Boolean)
