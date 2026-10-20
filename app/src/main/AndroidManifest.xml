@@ -10,14 +10,13 @@
         tools:ignore="ScopedStorage" />
 
     <application
-        android:label="vlive"
+        android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.Vlive.Starting">
-        <!-- Task 11 的类在 dev.zayn.vlive 包下，而 android:name 的点号前缀
-             展开的是 namespace（dev.zayn.vlive），不是包名，所以这里必须写 .app.
-             完整组件名：dev.zayn.vlive/dev.zayn.vlive.MainActivity
-             （Task 12 的 am start 用这一串）。 -->
+        <!-- android:name 的点号前缀展开的是 namespace（dev.zayn.vlive），不是包目录名，
+             所以 MainActivity 必须就留在这个包下。完整组件名：
+             dev.zayn.vlive/dev.zayn.vlive.MainActivity（真机 am start 用这一串）。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true">

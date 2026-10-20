@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      夜态只覆盖两件事：父类换成非 Light 的 DeviceDefault（否则系统控件层仍按浅色语义画），
+      以及状态栏/导航栏图标改成亮色 —— 底色现在是黑的，亮色图标才看得见。
+      颜色本身由 values-night/colors.xml 覆盖，这里不重复。
+    -->
+    <style name="Theme.Vlive" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/grouped_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

@@ -1,6 +1,7 @@
 package dev.zayn.vlive
 
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -33,11 +34,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.zayn.vlive.browse.DirBrowser
 import dev.zayn.vlive.browse.DirItem
-import dev.zayn.vlive.browse.STORAGE_ROOT_LABEL
 import dev.zayn.vlive.browse.displayPath
 import dev.zayn.vlive.browse.mergedRootEntries
 import dev.zayn.vlive.ui.BackRow
@@ -45,13 +47,13 @@ import dev.zayn.vlive.ui.DetailRow
 import dev.zayn.vlive.ui.FolderRow
 import dev.zayn.vlive.ui.IosButton
 import dev.zayn.vlive.ui.IosButtonStyle
-import dev.zayn.vlive.ui.IosColor
 import dev.zayn.vlive.ui.IosEntrance
 import dev.zayn.vlive.ui.IosEntranceFallback
 import dev.zayn.vlive.ui.IosMetrics
 import dev.zayn.vlive.ui.IosMotion
 import dev.zayn.vlive.ui.IosSheet
-import dev.zayn.vlive.ui.IosType
+import dev.zayn.vlive.ui.IosStyle
+import dev.zayn.vlive.ui.LocalIosStyle
 import dev.zayn.vlive.ui.SectionCard
 import dev.zayn.vlive.ui.StatusRow
 import dev.zayn.vlive.ui.SwitchRow
@@ -80,9 +82,15 @@ private enum class Picking { Source, Target }
  *    和这里的 `LaunchedEffect` 推进；组合期每次重组都调一次
  *    `Environment.isExternalStorageManager()`（一次 binder 调用）会在批次逐项回报时拖慢主线程。
  * 3. **路径只能来自 [DirectoryPicker]，画出来的是它的显示形式，且不许被截断。** 值一栏走
- *    [displayPath]：存储根那一段换成「内部存储」，与弹窗副标题同一个形式（`/storage/emulated/0/DCIM/Camera`
- *    读作 `内部存储/DCIM/Camera`）。**批次真正用的仍是 `state.sourceDir` 那条绝对路径**，这里只是显示层，
- *    所以 [DetailRow] 的值一栏不设 `maxLines`，宁可换行也要把整条路径画全 —— 别名可以省前缀，截断不行。
+ *    [displayPath]：存储根那一段换成 `folder_internal_storage`，与弹窗副标题同一个形式
+ *    （`/storage/emulated/0/DCIM/Camera` 读作 `内部存储/DCIM/Camera`）。**批次真正用的仍是
+ *    `state.sourceDir` 那条绝对路径**，这里只是显示层，所以 [DetailRow] 的值一栏不设
+ *    `maxLines`，宁可换行也要把整条路径画全 —— 别名可以省前缀，截断不行。
+ *
+ * ## 这一屏没有一个字面文案
+ * 全部走 `stringResource`：默认（未限定）语言是英文，中文在 `values-zh`，跟随系统语言。
+ * [BatchViewModel] 那边同理——[UiState.globalError] 带的是资源 id 与参数，不是拼好的中文串，
+ * 所以纯 JVM 单测不必把资源系统拖进来，UI 侧才按当前语言解析。
  */
 @Composable
 fun BatchScreen(
@@ -90,8 +98,11 @@ fun BatchScreen(
     entrance: IosEntrance = remember { IosEntrance() },
     request: () -> Unit,
 ) {
+    val s = LocalIosStyle.current
     val state by vm.state.collectAsState()
     var picking by remember { mutableStateOf<Picking?>(null) }
+    val rootLabel = stringResource(R.string.folder_internal_storage)
+    val aliases = folderAliases(vm.root)
 
     LaunchedEffect(Unit) { vm.refreshPermission() }
     IosEntranceFallback(entrance)
@@ -100,7 +111,7 @@ fun BatchScreen(
         // targetSdk 35+ 起窗口强制 edge-to-edge，底色必须铺到状态栏底下，否则顶部是一条系统给的接缝。
         Modifier
             .fillMaxSize()
-            .background(IosColor.groupedBackground),
+            .background(s.groupedBackground),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -114,8 +125,8 @@ fun BatchScreen(
         ) {
             Column(Modifier.iosEnter(0, entrance)) {
                 Text(
-                    "vlive",
-                    style = IosType.largeTitle,
+                    stringResource(R.string.app_name),
+                    style = s.largeTitle,
                     modifier = Modifier.padding(
                         start = IosMetrics.screenMargin,
                         end = IosMetrics.screenMargin,
@@ -124,8 +135,8 @@ fun BatchScreen(
                 )
                 // 品牌名占大标题，功能说明退到副标题：这一屏以后还会放别的入口。
                 Text(
-                    "live photo 批量合成",
-                    style = IosType.footnote.copy(color = IosColor.secondaryLabel),
+                    stringResource(R.string.screen_subtitle),
+                    style = s.footnote.copy(color = s.secondaryLabel),
                     modifier = Modifier.padding(
                         start = IosMetrics.screenMargin,
                         end = IosMetrics.screenMargin,
@@ -135,14 +146,14 @@ fun BatchScreen(
             }
 
             if (!state.permissionGranted) {
-                SectionCard(modifier = Modifier.iosEnter(1, entrance), color = IosColor.noticeBackground) {
+                SectionCard(modifier = Modifier.iosEnter(1, entrance), color = s.noticeBackground) {
                     Text(
-                        "还没有“所有文件访问”权限，读写公共目录会被系统拒绝，批次不会开始。",
-                        style = IosType.footnote.copy(color = IosColor.red),
+                        stringResource(R.string.perm_missing),
+                        style = s.footnote.copy(color = s.red),
                         modifier = Modifier.padding(16.dp),
                     )
                     IosButton(
-                        text = "授予所有文件访问权限",
+                        text = stringResource(R.string.perm_grant),
                         enabled = true,
                         modifier = Modifier
                             .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
@@ -154,14 +165,14 @@ fun BatchScreen(
 
             SectionCard(Modifier.iosEnter(2, entrance)) {
                 DetailRow(
-                    title = "源目录",
-                    value = displayPath(state.sourceDir, vm.root),
+                    title = stringResource(R.string.dir_source),
+                    value = displayPath(state.sourceDir, vm.root, rootLabel),
                     enabled = !state.running,
                     onClick = { picking = Picking.Source },
                 )
                 DetailRow(
-                    title = "目标目录",
-                    value = displayPath(state.targetDir, vm.root),
+                    title = stringResource(R.string.dir_target),
+                    value = displayPath(state.targetDir, vm.root, rootLabel),
                     enabled = !state.running,
                     divider = false,
                     onClick = { picking = Picking.Target },
@@ -172,18 +183,18 @@ fun BatchScreen(
 
             SectionCard(Modifier.iosEnter(3, entrance)) {
                 SwitchRow(
-                    title = "合成后删除原文件（不可撤销）",
+                    title = stringResource(R.string.del_switch),
                     checked = state.deleteOriginals,
                     enabled = !state.running,
                     // 破坏性开关用系统红而不是 iOS 默认的绿。
-                    onColor = IosColor.red,
+                    onColor = s.red,
                     onCheckedChange = vm::setDeleteOriginals,
                 )
             }
             if (state.deleteOriginals) {
                 Text(
-                    "只有改名成功的项目才会删源文件；删不掉的会在报告里标成警告，产物不会被回退成失败。",
-                    style = IosType.footnote.copy(color = IosColor.red),
+                    stringResource(R.string.del_switch_hint),
+                    style = s.footnote.copy(color = s.red),
                     modifier = Modifier
                         .iosEnter(4, entrance)
                         .padding(horizontal = IosMetrics.screenMargin)
@@ -195,22 +206,26 @@ fun BatchScreen(
 
             // 没授权就点不动：spec §9 把权限列为全局前置条件，别让人先按下开始再收一条错误。
             Column(Modifier.iosEnter(5, entrance).padding(horizontal = IosMetrics.screenMargin)) {
-                IosButton(text = "开始合成", enabled = state.permissionGranted && !state.running, onClick = vm::start)
+                IosButton(
+                    text = stringResource(R.string.action_start),
+                    enabled = state.permissionGranted && !state.running,
+                    onClick = vm::start,
+                )
                 Spacer(Modifier.height(12.dp))
                 IosButton(
-                    text = "取消",
+                    text = stringResource(R.string.action_cancel),
                     enabled = state.running,
                     style = IosButtonStyle.Secondary,
                     onClick = vm::cancel,
                 )
             }
 
-            state.globalError?.let {
+            state.globalError?.let { message ->
                 Spacer(Modifier.height(IosMetrics.sectionGap))
-                SectionCard(modifier = Modifier.iosEnter(6, entrance), color = IosColor.noticeBackground) {
+                SectionCard(modifier = Modifier.iosEnter(6, entrance), color = s.noticeBackground) {
                     Text(
-                        it,
-                        style = IosType.body.copy(color = IosColor.red),
+                        stringResource(message.id, *message.args.toTypedArray()),
+                        style = s.body.copy(color = s.red),
                         modifier = Modifier.padding(16.dp),
                     )
                 }
@@ -221,8 +236,13 @@ fun BatchScreen(
             SectionCard(Modifier.iosEnter(7, entrance)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
-                        "进度 ${state.done}/${state.total}，已写出 ${state.bytes / 1024 / 1024} MB",
-                        style = IosType.body,
+                        stringResource(
+                            R.string.progress_line,
+                            state.done,
+                            state.total,
+                            state.bytes / 1024 / 1024,
+                        ),
+                        style = s.body,
                     )
                     Spacer(Modifier.height(10.dp))
                     ThinProgressBar(if (state.total == 0) 0f else state.done.toFloat() / state.total)
@@ -232,21 +252,23 @@ fun BatchScreen(
             if (state.items.isNotEmpty()) {
                 Spacer(Modifier.height(IosMetrics.sectionGap))
                 Text(
-                    "报告",
-                    style = IosType.title,
+                    stringResource(R.string.report_title),
+                    style = s.title,
                     modifier = Modifier.iosEnter(8, entrance).padding(horizontal = IosMetrics.screenMargin),
                 )
                 // spec §9：单项失败不中断批次，但 UI 要在末尾汇总计数（磁盘写满就是逐项 IO_ERROR）。
                 val counts = state.items.groupingBy { it.status }.eachCount()
                 val warned = state.items.count { it.deleteFailures.isNotEmpty() }
                 Text(
-                    buildString {
-                        append("成功 ${counts[ItemStatus.SUCCESS] ?: 0}")
-                        append(" · 跳过 ${counts[ItemStatus.SKIPPED] ?: 0}")
-                        append(" · 失败 ${counts[ItemStatus.FAILED] ?: 0}")
-                        if (warned > 0) append(" · 原文件没删掉 $warned")
-                    },
-                    style = IosType.footnote,
+                    stringResource(
+                        R.string.report_summary,
+                        counts[ItemStatus.SUCCESS] ?: 0,
+                        counts[ItemStatus.SKIPPED] ?: 0,
+                        counts[ItemStatus.FAILED] ?: 0,
+                    ) + if (warned > 0)
+                        pluralStringResource(R.plurals.report_summary_warning, warned, warned)
+                    else "",
+                    style = s.footnote,
                     modifier = Modifier
                         .iosEnter(8, entrance)
                         .padding(horizontal = IosMetrics.screenMargin)
@@ -255,7 +277,7 @@ fun BatchScreen(
                 SectionCard(Modifier.iosEnter(9, entrance)) {
                     state.items.forEachIndexed { index, item ->
                         StatusRow(
-                            dot = dotColor(item),
+                            dot = dotColor(item, s),
                             text = itemLine(item),
                             divider = index < state.items.lastIndex,
                         )
@@ -269,6 +291,8 @@ fun BatchScreen(
         DirectoryPicker(
             browser = vm.browser,
             root = vm.root,
+            rootLabel = rootLabel,
+            aliases = aliases,
             selectable = vm::isSelectable,
             startPath = if (which == Picking.Source) state.sourceDir else state.targetDir,
             onDismiss = { picking = null },
@@ -284,12 +308,33 @@ fun BatchScreen(
 }
 
 /**
+ * 存储根下几个常用目录的**显示名别名**（真实名 → 当前语言的说法）。
+ *
+ * 键是 `<root>/<真实目录名>`：拼串用 `/`，因为 [mergedRootEntries] 两侧都过 `File.absoluteFile`
+ * 规范化，而设备上的 root 本来就是 POSIX 串。
+ *
+ * 英文那一份的值**与磁盘真实名相同**（`Movies → Movies`），不是偷懒：这一屏主界面的路径行画的是
+ * 真名（`Internal storage/Movies`），弹窗里把同一个目录叫成别的名字就会出现两个说法。中文里
+ * `视频 / 图片 / 下载` 是系统文件管理器自己在用的叫法，跟着它才有一致性；换语言时别名自然退化成
+ * 恒等映射，列表内容一个字节都没变。
+ */
+@Composable
+private fun folderAliases(root: String): Map<String, String> {
+    val movies = stringResource(R.string.folder_movies)
+    val pictures = stringResource(R.string.folder_pictures)
+    val download = stringResource(R.string.folder_download)
+    return remember(root, movies, pictures, download) {
+        mapOf("$root/Movies" to movies, "$root/Pictures" to pictures, "$root/Download" to download)
+    }
+}
+
+/**
  * 目录浏览器，呈现为全屏模态卡片。起点是 [startPath]（不可用时退回 [root]），一级一级往下走。
  *
  * **只有一条列表**：`上一级`（父级还在 root 之内时）排在最前，后面就是这一层要显示的目录，
  * 共用一张卡片与同一套分隔线规则。根那一级由 [mergedRootEntries] 决定内容：真实子目录，命中
- * 预设的换成中文显示名（`Pictures → 图片`）。这里**没有任何快捷方式**——画出来和真实目录无法
- * 区分、文件管理里又根本没有那个条目（曾经的 `相机 = DCIM/Camera` 就是这个问题），所以到相机
+ * [aliases] 的换成本地显示名（`Pictures → 图片`）。这里**没有任何快捷方式**——画出来和真实目录
+ * 无法区分、文件管理里又根本没有那个条目（曾经的 `相机 = DCIM/Camera` 就是这个问题），所以到相机
  * 目录老老实实两跳：`DCIM → Camera`。
  *
  * **最顶层就是 root 的内容**（DCIM、下载、图片…），root 自己不再作为一个条目出现，
@@ -299,27 +344,27 @@ fun BatchScreen(
  * [selectable] 为假的父级因此一律不列出来（同一判定也继续挡住"选这里"：那种串喂给
  * `FileStorage.resolve()` 会被重新拼到 root 之下，选了就等于把批次指向另一个目录）。
  *
- * **列目录绝不发生在组合期。** `presets()` / `subdirs()` / `File.parentFile` 背后是
- * `listFiles()` + 多次 `isDirectory` stat——都是磁盘调用。`remember` 只是缓存，不是副作用护栏：
- * 槽位恢复、被丢弃的重组都会重新执行它的 lambda，批次逐项回报的频繁重组里随时可能把 stat 打到
- * UI 线程上。所以列表读取挪进 [produceState] + [Dispatchers.IO]：组合只消费"已载入"的结果。
- * 展示内容不变，只是加载瞬间先渲染空列表。
+ * **列目录绝不发生在组合期。** `subdirs()` / `File.parentFile` 背后是 `listFiles()` + 多次
+ * `isDirectory` stat——都是磁盘调用。`remember` 只是缓存，不是副作用护栏：槽位恢复、被丢弃的
+ * 重组都会重新执行它的 lambda，批次逐项回报的频繁重组里随时可能把 stat 打到 UI 线程上。所以列表
+ * 读取挪进 [produceState] + [Dispatchers.IO]：组合只消费"已载入"的结果。展示内容不变，只是加载
+ * 瞬间先渲染空列表。（[aliases] 与 [rootLabel] 是资源查表，不碰磁盘，组合期取用没问题。）
  */
 @Composable
 private fun DirectoryPicker(
     browser: DirBrowser,
     root: String,
+    rootLabel: String,
+    aliases: Map<String, String>,
     selectable: (String) -> Boolean,
     startPath: String,
     onDismiss: () -> Unit,
     onPick: (String) -> Unit,
 ) {
+    val s = LocalIosStyle.current
+    val upLabel = stringResource(R.string.picker_up)
     var path by remember(root, startPath) { mutableStateOf(if (selectable(startPath)) startPath else root) }
-    val presets by produceState<List<DirItem>?>(initialValue = null, browser) {
-        value = withContext(Dispatchers.IO) { browser.presets() }
-    }
-    // 上一级只能自己算：DirItem.parent 的定义是"这批条目出自哪个目录"（subdirs 里就是被列的
-    // 目录本身，presets 里才是该项的父级），当不了从 path 往上走的串。
+    // 上一级只能自己算：DirItem.parent 的定义是"这批条目出自哪个目录"，当不了从 path 往上走的串。
     // 这里用 java.io.File 的 parent 语义——和 DirBrowser 内部拼路径用的是同一套 API，不手写 "/"。
     val loaded by produceState<Listing?>(initialValue = null, browser, path) {
         value = withContext(Dispatchers.IO) {
@@ -342,7 +387,6 @@ private fun DirectoryPicker(
         forward = fresh.path.startsWith("${shown?.path?.trimEnd('/')}/")
         shown = fresh
     }
-    val quick = presets
     // `shown` 是委托属性，智能转换不了，先取进局部变量再判空。
     val done = shown
     val view = done ?: Listing(path, emptyList(), "")
@@ -352,28 +396,29 @@ private fun DirectoryPicker(
     // 别名与"上一级"的判定都按**画出来的那一层**算，所以返回手势、返回行、列表说的是同一件事。
     fun rowsFor(level: Listing): List<NavRow> {
         val atRoot = File(level.path).absoluteFile == File(root).absoluteFile
-        val items = if (atRoot && quick != null) mergedRootEntries(quick, level.subdirs, level.path) else level.subdirs
+        val items = if (atRoot) mergedRootEntries(aliases, level.subdirs, level.path) else level.subdirs
         return buildList {
             // 父级出不了 root 才有"上一级"：退到 /storage/emulated 就读不出子目录、root 只剩一个
             // "0" 条目，是一条回不来的死路（见函数 KDoc）。root 这一级因此就是最顶层。
-            level.parent.takeIf { it.isNotEmpty() && selectable(it) }?.let { add(NavRow("上一级", it, isBack = true)) }
+            level.parent.takeIf { it.isNotEmpty() && selectable(it) }
+                ?.let { add(NavRow(upLabel, it, isBack = true)) }
             items.forEach { add(NavRow(it.name, it.absolutePath, isBack = false)) }
         }
     }
     val upPath = view.parent.takeIf { it.isNotEmpty() && selectable(it) }
     val atRoot = File(view.path).absoluteFile == File(root).absoluteFile
-    // 标题是最后一级目录名，副标题是整条路径的**显示形式**：root 那一级读作「内部存储」，
+    // 标题是最后一级目录名，副标题是整条路径的**显示形式**：root 那一级读作 [rootLabel]，
     // 往下就是「内部存储/DCIM/Camera」。这里刻意不把 "/storage/emulated/0" 摊给用户看——
     // 那串既没人读得懂，root 又确实是可以选作源/目标的，所以用别名而不是藏掉。
-    val leaf = if (atRoot) STORAGE_ROOT_LABEL else view.path.trimEnd('/').substringAfterLast('/').ifEmpty { view.path }
-    val subtitle = displayPath(view.path, root)
+    val leaf = if (atRoot) rootLabel else view.path.trimEnd('/').substringAfterLast('/').ifEmpty { view.path }
+    val subtitle = displayPath(view.path, root, rootLabel)
     val canPick = selectable(view.path)
 
     IosSheet(
         title = leaf,
         subtitle = subtitle,
-        cancelText = "关闭",
-        confirmText = "选这里",
+        cancelText = stringResource(R.string.picker_close),
+        confirmText = stringResource(R.string.picker_pick),
         confirmEnabled = canPick,
         onDismiss = onDismiss,
         onConfirm = { onPick(view.path) },
@@ -386,8 +431,8 @@ private fun DirectoryPicker(
 
         if (!canPick) {
             Text(
-                "这个目录在存储根 $root 之外，只能看，不能当源/目标。",
-                style = IosType.footnote.copy(color = IosColor.red),
+                stringResource(R.string.picker_out_of_root, root),
+                style = s.footnote.copy(color = s.red),
                 modifier = Modifier.padding(horizontal = IosMetrics.screenMargin, vertical = 8.dp),
             )
         }
@@ -417,8 +462,8 @@ private fun DirectoryPicker(
                 }
                 if (settled && rows.none { !it.isBack }) {
                     Text(
-                        "（没有可进入的子目录）",
-                        style = IosType.footnote,
+                        stringResource(R.string.picker_empty),
+                        style = s.footnote,
                         modifier = Modifier.padding(16.dp),
                     )
                 }
@@ -434,37 +479,55 @@ private data class Listing(val path: String, val subdirs: List<DirItem>, val par
 private data class NavRow(val label: String, val path: String, val isBack: Boolean)
 
 /** 报告行左侧的状态点颜色。原文件删不掉是"成功但带警告"，所以走橙色。 */
-private fun dotColor(item: ItemResult): Color = when (item.status) {
-    ItemStatus.SUCCESS -> if (item.deleteFailures.isEmpty()) IosColor.green else IosColor.orange
-    ItemStatus.SKIPPED -> IosColor.tertiaryLabel
-    ItemStatus.FAILED -> IosColor.red
+private fun dotColor(item: ItemResult, s: IosStyle): Color = when (item.status) {
+    ItemStatus.SUCCESS -> if (item.deleteFailures.isEmpty()) s.green else s.orange
+    ItemStatus.SKIPPED -> s.tertiaryLabel
+    ItemStatus.FAILED -> s.red
 }
 
-/** 一行报告文案。`when (item.status)` 的三个分支是穷尽的，核心层加状态时这里会编译不过。 */
+/**
+ * 一行报告文案。`when (item.status)` 的三个分支是穷尽的，核心层加状态时这里会编译不过。
+ *
+ * `@Composable` 是因为文案要从资源里取——这个函数在 `state.items.forEach` 里被逐项调用，
+ * 但 `stringResource` 只是一次查表（`Context` 已在组合里），没有磁盘或 binder 调用。
+ */
+@Composable
 private fun itemLine(item: ItemResult): String {
+    val reason = reasonLabel(item.reason)
     val head = when (item.status) {
-        ItemStatus.SUCCESS -> "成功 ${item.stem} → ${item.outputName}"
-        ItemStatus.SKIPPED -> "跳过 ${item.stem}：${reasonText(item.reason)}"
-        ItemStatus.FAILED -> "失败 ${item.stem}：${reasonText(item.reason)}"
+        ItemStatus.SUCCESS -> stringResource(R.string.row_success, item.stem, item.outputName)
+        ItemStatus.SKIPPED -> stringResource(R.string.row_skipped, item.stem, reason)
+        ItemStatus.FAILED -> stringResource(R.string.row_failed, item.stem, reason)
     }
     // deleteFailures 只会挂在 SUCCESS 上：Task 8 规定改名成功后状态不再被回改写，
     // 删不掉的源文件是警告。所以警告必须跟着 SUCCESS 一起显示，不能只在失败分支里拼。
     val warning = if (item.deleteFailures.isEmpty()) ""
-    else "（原文件删除失败：${item.deleteFailures.joinToString()}）"
+    else stringResource(R.string.row_delete_warning, item.deleteFailures.joinToString())
     return head + warning
 }
 
-/** `FailureReason` 的中文说法；spec §9 要求面向用户给中文短语，同时保留机器可读的枚举名。 */
-private fun reasonText(reason: FailureReason?): String {
-    val zh = when (reason) {
-        null -> "未说明"
-        FailureReason.NOT_JPEG -> "不是 JPEG"
-        FailureReason.MALFORMED_JPEG -> "JPEG 结构损坏"
-        FailureReason.ALREADY_MOTION_PHOTO -> "已是动态照片"
-        FailureReason.EXTENDED_XMP_UNSUPPORTED -> "扩展 XMP 不支持"
-        FailureReason.NOT_MP4 -> "不是 MP4"
-        FailureReason.IO_ERROR -> "读写故障"
-        FailureReason.NO_PAIR -> "没有配对的文件"
-    }
-    return if (reason == null) zh else "$zh（${reason.name}）"
+/**
+ * 原因的本地化短语，后面跟着机器可读的枚举名（spec §9 要求面向用户给短语，同时留着能贴进
+ * issue 的那个名字）。`reason == null` 时只有"未说明"，不拼括号里的代码。
+ */
+@Composable
+private fun reasonLabel(reason: FailureReason?): String {
+    val text = stringResource(reasonResource(reason))
+    return if (reason == null) text else stringResource(R.string.reason_code, text, reason.name)
+}
+
+/**
+ * [FailureReason] → 资源 id。分支是穷尽的：核心层新增枚举值时这里编译不过，
+ * 而不是悄悄显示出"未说明"。
+ */
+@StringRes
+private fun reasonResource(reason: FailureReason?): Int = when (reason) {
+    null -> R.string.reason_unspecified
+    FailureReason.NOT_JPEG -> R.string.reason_not_jpeg
+    FailureReason.MALFORMED_JPEG -> R.string.reason_malformed_jpeg
+    FailureReason.ALREADY_MOTION_PHOTO -> R.string.reason_already_motion_photo
+    FailureReason.EXTENDED_XMP_UNSUPPORTED -> R.string.reason_extended_xmp
+    FailureReason.NOT_MP4 -> R.string.reason_not_mp4
+    FailureReason.IO_ERROR -> R.string.reason_io_error
+    FailureReason.NO_PAIR -> R.string.reason_no_pair
 }

@@ -97,7 +97,9 @@ class FileStorage(private val root: String) : BatchStorage {
 
     override fun ensureDir(dirPath: String) {
         val dir = resolve(dirPath)
-        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("无法创建目录 $dirPath")
+        // 消息用英文：`BatchViewModel` 把 `e.message` 当参数塞进本地化的错误文案里，中文串被拼进
+        // 英文句子（或反过来）会让那条提示两种语言都读不顺。
+        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("cannot create directory $dirPath")
     }
 
     override fun openWrite(filePath: String): WritableByteChannel {

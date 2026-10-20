@@ -1,60 +1,122 @@
 package dev.zayn.vlive.ui
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.isSystemInDarkTheme
 
 /**
- * iOS 浅色（AA 组）系统色。
+ * 一屏用到的全部颜色。浅深两套都是 iOS 系统色（AA 组），值取自 iOS 深色规范里对应 token。
  *
- * 按设计决定只做浅色：深色不接，`res` 里也没有 night 资源，切深色时这套色板仍是浅色，
- * 属于预期行为而不是缺陷。
+ * 颜色只能从 [LocalIosStyle] 取，不许再有 `object IosColor { val card = Color(...) }` 那种
+ * 编译期常量 —— 那种写法把浅色的值烧进了调用点，跟随系统的深色就做不出来。
  */
-object IosColor {
-    val groupedBackground = Color(0xFFF2F2F7)
-    val card = Color(0xFFFFFFFF)
+@Immutable
+data class IosPalette(
+    val groupedBackground: Color,
+    val card: Color,
+    /** 行按下时的底色 —— iOS 的行高亮是整行变灰，不是水波纹。 */
+    val highlight: Color,
+    val label: Color,
+    val secondaryLabel: Color,
+    val tertiaryLabel: Color,
+    val separator: Color,
+    val trackOff: Color,
+    val blue: Color,
+    val green: Color,
+    val red: Color,
+    val orange: Color,
+    val noticeBackground: Color,
+)
 
-    /** 行按下时的底色——iOS 的行高亮是整行变灰，不是水波纹。 */
-    val highlight = Color(0xFFE4E4EA)
-    val label = Color(0xFF000000)
-    val secondaryLabel = Color(0xFF8A8A8E)
-    val tertiaryLabel = Color(0xFFC5C5CA)
-    val separator = Color(0xFFD8D8DC)
-    val trackOff = Color(0xFFE5E5EA)
-    val blue = Color(0xFF007AFF)
-    val green = Color(0xFF34C759)
-    val red = Color(0xFFFF3B30)
-    val orange = Color(0xFFFF9500)
-    val noticeBackground = Color(0xFFFFF1F0)
-}
+val IosLightPalette = IosPalette(
+    groupedBackground = Color(0xFFF2F2F7),
+    card = Color(0xFFFFFFFF),
+    highlight = Color(0xFFE4E4EA),
+    label = Color(0xFF000000),
+    secondaryLabel = Color(0xFF8A8A8E),
+    tertiaryLabel = Color(0xFFC5C5CA),
+    separator = Color(0xFFD8D8DC),
+    trackOff = Color(0xFFE5E5EA),
+    blue = Color(0xFF007AFF),
+    green = Color(0xFF34C759),
+    red = Color(0xFFFF3B30),
+    orange = Color(0xFFFF9500),
+    noticeBackground = Color(0xFFFFF1F0),
+)
 
-/** 字号对齐 iOS 文本样式（pt≈sp）：大标题 26 / 行标题 17 / 值与脚注 13–14。 */
-object IosType {
-    /**
-     * iOS 的 large title 是 34pt，但那是英文 + 系统字重的尺寸；中文 32pt 粗体在 6.7 吋屏上
-     * 一行「Live Photo 批量合成」就吃掉近 1/8 屏高，真机看着明显过大。降到 26sp：仍是全页
-     * 最大的字，行标题 17sp 与它的层级差还在。
-     */
+/** iOS 深色：卡片是 #1C1C1E、分组背景近黑，语义色换成深色下的对应值（红更亮以保证对比度）。 */
+val IosDarkPalette = IosPalette(
+    groupedBackground = Color(0xFF000000),
+    card = Color(0xFF1C1C1E),
+    highlight = Color(0xFF2C2C2E),
+    label = Color(0xFFFFFFFF),
+    secondaryLabel = Color(0xFF98989F),
+    tertiaryLabel = Color(0xFF48484A),
+    separator = Color(0xFF38383A),
+    trackOff = Color(0xFF39393B),
+    blue = Color(0xFF0A84FF),
+    green = Color(0xFF30D158),
+    red = Color(0xFFFF453A),
+    orange = Color(0xFFFF9F0A),
+    noticeBackground = Color(0xFF3A1D1E),
+)
+
+/**
+ * 颜色 + 文字样式的合一入口。合成期一次取值（`val s = LocalIosStyle.current`），后面全部走 `s.`。
+ *
+ * 字号对齐 iOS 文本样式（pt≈sp）：大标题 32 / 行标题 17 / 值与脚注 13–14。颜色由色板决定，
+ * 所以样式表是实例而不是 object 常量。
+ */
+@Immutable
+class IosStyle(private val p: IosPalette) {
+    val groupedBackground get() = p.groupedBackground
+    val card get() = p.card
+    val highlight get() = p.highlight
+    val label get() = p.label
+    val secondaryLabel get() = p.secondaryLabel
+    val tertiaryLabel get() = p.tertiaryLabel
+    val separator get() = p.separator
+    val trackOff get() = p.trackOff
+    val blue get() = p.blue
+    val green get() = p.green
+    val red get() = p.red
+    val orange get() = p.orange
+    val noticeBackground get() = p.noticeBackground
+
     val largeTitle = TextStyle(
-        fontSize = 26.sp,
+        fontSize = 32.sp,
         fontWeight = FontWeight.Bold,
-        letterSpacing = (-0.3).sp,
-        color = IosColor.label,
+        letterSpacing = (-0.4).sp,
+        color = p.label,
     )
-    val body = TextStyle(fontSize = 17.sp, color = IosColor.label)
-    val rowValue = TextStyle(fontSize = 14.sp, color = IosColor.secondaryLabel)
-    val footnote = TextStyle(fontSize = 13.sp, color = IosColor.secondaryLabel)
-    val title = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = IosColor.label)
+    val body = TextStyle(fontSize = 17.sp, color = p.label)
+    val rowValue = TextStyle(fontSize = 14.sp, color = p.secondaryLabel)
+    val footnote = TextStyle(fontSize = 13.sp, color = p.secondaryLabel)
+    val title = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = p.label)
     val button = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-    val navAction = TextStyle(fontSize = 17.sp, color = IosColor.blue)
-    val report = TextStyle(fontSize = 15.sp, color = IosColor.label)
+    val navAction = TextStyle(fontSize = 17.sp, color = p.blue)
+    val report = TextStyle(fontSize = 15.sp, color = p.label)
 }
 
+/** 默认给浅色：预览与没有 [IosTheme] 包裹的测试路径用得上，不会静默变深色。 */
+val LocalIosStyle = staticCompositionLocalOf { IosStyle(IosLightPalette) }
+
+/**
+ * 几何与时长不属于颜色，仍然是常量。
+ */
 object IosMetrics {
     val screenMargin: Dp = 16.dp
     val cardRadius: Dp = 12.dp
@@ -70,8 +132,8 @@ object IosMetrics {
 /**
  * 动效令牌。时长与缓动集中一处，调用点不许再写散装毫秒数。
  *
- * `ENTER_MS` 故意等于 `IosSwitch` 里那个 220ms：启动入场、开关拨动、进度条推进应该是同一种
- * 手感，而不是各调各的曲线。（那两处字面量还散在控件层里，见 decisions.md 的技术债一节。）
+ * `ENTER_MS` 与 `IosSwitch` 里那个 220ms 同值：启动入场、开关拨动、进度条推进应该是同一种
+ * 手感，而不是各调各的曲线。
  */
 object IosMotion {
     /** splash logo 淡出与卡片入场用同一个时长，两段动画才接得上。 */
@@ -94,18 +156,55 @@ object IosMotion {
     val EaseOut = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
 }
 
-/** 兜住仍走 MaterialTheme 默认色的东西（Text 的兜底 color、Dialog 表面色等）。 */
-val IosColorScheme = lightColorScheme(
-    primary = IosColor.blue,
+private fun colorScheme(p: IosPalette) = lightColorScheme(
+    primary = p.blue,
     onPrimary = Color.White,
-    secondary = IosColor.blue,
-    background = IosColor.groupedBackground,
-    onBackground = IosColor.label,
-    surface = IosColor.card,
-    onSurface = IosColor.label,
-    surfaceVariant = IosColor.groupedBackground,
-    onSurfaceVariant = IosColor.secondaryLabel,
-    error = IosColor.red,
+    secondary = p.blue,
+    background = p.groupedBackground,
+    onBackground = p.label,
+    surface = p.card,
+    onSurface = p.label,
+    surfaceVariant = p.groupedBackground,
+    onSurfaceVariant = p.secondaryLabel,
+    error = p.red,
     onError = Color.White,
-    outline = IosColor.separator,
+    outline = p.separator,
 )
+
+private fun darkColorSchemeOf(p: IosPalette) = darkColorScheme(
+    primary = p.blue,
+    onPrimary = Color.White,
+    secondary = p.blue,
+    background = p.groupedBackground,
+    onBackground = p.label,
+    surface = p.card,
+    onSurface = p.label,
+    surfaceVariant = p.groupedBackground,
+    onSurfaceVariant = p.secondaryLabel,
+    error = p.red,
+    onError = Color.White,
+    outline = p.separator,
+)
+
+/**
+ * 主题入口：跟随系统浅/深，把同一套色板同时交给自绘控件层（[LocalIosStyle]）与仍然走
+ * MaterialTheme 的兜底色（`Text` 的默认色、`Dialog` 的表面色）。
+ *
+ * 深浅色**只有这一处判定**；色板换了，MaterialTheme 与自绘层必须一起换，否则会出现
+ * "自绘卡片是深色、Dialog 还是白"这种两套主题同时可见的接缝。
+ */
+@Composable
+fun IosTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val palette = if (dark) IosDarkPalette else IosLightPalette
+    val scheme = if (dark) darkColorSchemeOf(palette) else colorScheme(palette)
+    MaterialTheme(colorScheme = scheme) {
+        CompositionLocalProvider(LocalIosStyle provides IosStyle(palette)) {
+            content()
+        }
+    }
+}
+
+/** 给不需要整套主题的场景（如测试里的局部组合）取色板。 */
+@Composable
+fun iosStyle(): IosStyle = LocalIosStyle.current

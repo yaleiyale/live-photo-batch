@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 中文文案。逐条与 values/strings.xml 的 key 对齐，缺一条就会在中文环境下掉回英文。 -->
+<resources>
+    <string name="app_name">vlive</string>
+    <string name="screen_subtitle">live photo 批量合成</string>
+
+    <string name="perm_missing">还没有“所有文件访问”权限，读写公共目录会被系统拒绝，批次不会开始。</string>
+    <string name="perm_grant">授予所有文件访问权限</string>
+    <string name="perm_toast">请在 设置 → 应用 → 特殊访问 → 所有文件访问 中手动开启</string>
+
+    <string name="dir_source">源目录</string>
+    <string name="dir_target">目标目录</string>
+    <string name="del_switch">合成后删除原文件（不可撤销）</string>
+    <string name="del_switch_hint">只有改名成功的项目才会删源文件；删不掉的会在报告里标成警告，产物不会被回退成失败。</string>
+
+    <string name="action_start">开始合成</string>
+    <string name="action_cancel">取消</string>
+    <string name="progress_line">进度 %1$d/%2$d，已写出 %3$d MB</string>
+
+    <string name="report_title">报告</string>
+    <string name="report_summary">成功 %1$d · 跳过 %2$d · 失败 %3$d</string>
+    <!-- 中文只有 other 一档（给 one 会被 lint 的 UnusedQuantity 挑出来；不给也不会被
+         MissingQuantity 挑，因为那条检查是按语言复数规则判断的）。 -->
+    <plurals name="report_summary_warning">
+        <item quantity="other"> · 原文件没删掉 %1$d</item>
+    </plurals>
+    <string name="row_success">成功 %1$s → %2$s</string>
+    <string name="row_skipped">跳过 %1$s：%2$s</string>
+    <string name="row_failed">失败 %1$s：%2$s</string>
+    <string name="row_delete_warning">（原文件删除失败：%1$s）</string>
+
+    <string name="reason_unspecified">未说明</string>
+    <string name="reason_not_jpeg">不是 JPEG</string>
+    <string name="reason_malformed_jpeg">JPEG 结构损坏</string>
+    <string name="reason_already_motion_photo">已是动态照片</string>
+    <string name="reason_extended_xmp">扩展 XMP 不支持</string>
+    <string name="reason_not_mp4">不是 MP4</string>
+    <string name="reason_io_error">读写故障</string>
+    <string name="reason_no_pair">没有配对的文件</string>
+    <string name="reason_code">%1$s（%2$s）</string>
+
+    <string name="picker_close">关闭</string>
+    <string name="picker_pick">选这里</string>
+    <string name="picker_up">上一级</string>
+    <string name="picker_empty">（没有可进入的子目录）</string>
+    <string name="picker_out_of_root">这个目录在存储根 %1$s 之外，只能看，不能当源/目标。</string>
+
+    <string name="folder_internal_storage">内部存储</string>
+    <string name="folder_movies">视频</string>
+    <string name="folder_pictures">图片</string>
+    <string name="folder_download">下载</string>
+
+    <string name="err_source_unreadable">源目录不存在或不可读：%1$s</string>
+    <string name="err_target_uncreatable">目标目录无法创建：%1$s</string>
+    <string name="err_batch_aborted">批次中断：%1$s</string>
+    <string name="err_scan_unconfirmed">媒体索引未确认刷新，相册可能暂时看不到新产物或仍留着已删文件的条目</string>
+    <string name="err_scan_failed">媒体索引刷新失败：%1$s</string>
+</resources>

@@ -13,8 +13,8 @@
 <text xml:space="preserve" text-anchor="middle" x="756.21" y="-856.75" font-family="Segoe UI" font-size="13.00">蓝=外部系统 &#160;绿=:core 字节层 &#160;灰=设备运行时 &#160;黄=尽力而为的收尾 &#160;红=整批被拒绝</text>
 <g id="clust1" class="cluster">
 <title>cluster_app</title>
-<polygon fill="none" stroke="#2a5d9f" stroke-dasharray="5,2" points="137.41,-195.1 137.41,-641.45 729.41,-641.45 729.41,-195.1 137.41,-195.1"/>
-<text xml:space="preserve" text-anchor="middle" x="433.41" y="-625.75" font-family="Segoe UI" font-size="13.00">:app · Android 进程（UI + 四类适配器）</text>
+<polygon fill="none" stroke="#2a5d9f" stroke-dasharray="5,2" points="124.41,-195.1 124.41,-641.45 729.41,-641.45 729.41,-195.1 124.41,-195.1"/>
+<text xml:space="preserve" text-anchor="middle" x="426.91" y="-625.75" font-family="Segoe UI" font-size="13.00">:app · Android 进程（UI + 四类适配器）</text>
 </g>
 <g id="clust2" class="cluster">
 <title>cluster_core</title>
@@ -45,16 +45,16 @@
 <!-- pick -->
 <g id="node6" class="node">
 <title>pick</title>
-<path fill="#f2f2f2" stroke="black" d="M447.05,-481.72C447.05,-481.72 157.77,-481.72 157.77,-481.72 151.77,-481.72 145.77,-475.72 145.77,-469.72 145.77,-469.72 145.77,-439.72 145.77,-439.72 145.77,-433.72 151.77,-427.72 157.77,-427.72 157.77,-427.72 447.05,-427.72 447.05,-427.72 453.05,-427.72 459.05,-433.72 459.05,-439.72 459.05,-439.72 459.05,-469.72 459.05,-469.72 459.05,-475.72 453.05,-481.72 447.05,-481.72"/>
-<text xml:space="preserve" text-anchor="middle" x="302.41" y="-464.62" font-family="Segoe UI" font-size="11.00">选路径：DirBrowser + DirectoryPicker</text>
-<text xml:space="preserve" text-anchor="middle" x="302.41" y="-451.42" font-family="Segoe UI" font-size="11.00">presets()/subdirs() 在 Dispatchers.IO 上读，绝不发生在组合期</text>
-<text xml:space="preserve" text-anchor="middle" x="302.41" y="-438.22" font-family="Segoe UI" font-size="11.00">root 之外能看不能选（isSelectable 与 FileStorage.resolve 同一条判定）</text>
+<path fill="#f2f2f2" stroke="black" d="M446.63,-481.72C446.63,-481.72 144.19,-481.72 144.19,-481.72 138.19,-481.72 132.19,-475.72 132.19,-469.72 132.19,-469.72 132.19,-439.72 132.19,-439.72 132.19,-433.72 138.19,-427.72 144.19,-427.72 144.19,-427.72 446.63,-427.72 446.63,-427.72 452.63,-427.72 458.63,-433.72 458.63,-439.72 458.63,-439.72 458.63,-469.72 458.63,-469.72 458.63,-475.72 452.63,-481.72 446.63,-481.72"/>
+<text xml:space="preserve" text-anchor="middle" x="295.41" y="-464.62" font-family="Segoe UI" font-size="11.00">选路径：DirBrowser + DirectoryPicker</text>
+<text xml:space="preserve" text-anchor="middle" x="295.41" y="-451.42" font-family="Segoe UI" font-size="11.00">subdirs() 在 Dispatchers.IO 上读，绝不发生在组合期；显示名是资源里的别名</text>
+<text xml:space="preserve" text-anchor="middle" x="295.41" y="-438.22" font-family="Segoe UI" font-size="11.00">root 之外能看不能选（isSelectable 与 FileStorage.resolve 同一条判定）</text>
 </g>
 <!-- op&#45;&gt;pick -->
 <g id="edge3" class="edge">
 <title>op&#45;&gt;pick</title>
-<path fill="none" stroke="black" d="M113.17,-791.11C110.37,-784.73 107.88,-777.85 106.41,-771.15 81.77,-658.57 37.04,-603.88 106.41,-511.85 113.99,-501.8 132.48,-493 155.23,-485.54"/>
-<polygon fill="black" stroke="black" points="156.01,-488.96 164.52,-482.65 153.93,-482.28 156.01,-488.96"/>
+<path fill="none" stroke="black" d="M113.17,-791.11C110.37,-784.73 107.88,-777.85 106.41,-771.15 81.77,-658.57 37.49,-604.21 106.41,-511.85 113.87,-501.86 132.38,-493.01 155.06,-485.46"/>
+<polygon fill="black" stroke="black" points="155.82,-488.89 164.3,-482.54 153.71,-482.21 155.82,-488.89"/>
 </g>
 <!-- startGate -->
 <g id="node7" class="node">
@@ -129,8 +129,8 @@
 <!-- pick&#45;&gt;vm -->
 <g id="edge6" class="edge">
 <title>pick&#45;&gt;vm</title>
-<path fill="none" stroke="black" d="M342.99,-427.24C365.42,-413.44 394.18,-397.1 421.36,-385.6 444.12,-375.97 469.43,-367.58 493.29,-360.63"/>
-<polygon fill="black" stroke="black" points="494.02,-364.06 502.68,-357.96 492.1,-357.33 494.02,-364.06"/>
+<path fill="none" stroke="black" d="M338.58,-427.37C362.38,-413.62 392.82,-397.27 421.36,-385.6 444.59,-376.1 470.38,-367.69 494.57,-360.69"/>
+<polygon fill="black" stroke="black" points="495.44,-364.08 504.1,-357.98 493.53,-357.34 495.44,-364.08"/>
 <text xml:space="preserve" text-anchor="middle" x="504.38" y="-388.6" font-family="Segoe UI" font-size="10.00">setSource / setTarget / setDeleteOriginals</text>
 </g>
 <!-- startGate&#45;&gt;vm -->
@@ -189,7 +189,7 @@
 <g id="node15" class="node">
 <title>globalErr</title>
 <path fill="#ffd9d9" stroke="black" d="M1139.77,-243.9C1139.77,-243.9 749.05,-243.9 749.05,-243.9 743.05,-243.9 737.05,-237.9 737.05,-231.9 737.05,-231.9 737.05,-215.1 737.05,-215.1 737.05,-209.1 743.05,-203.1 749.05,-203.1 749.05,-203.1 1139.77,-203.1 1139.77,-203.1 1145.77,-203.1 1151.77,-209.1 1151.77,-215.1 1151.77,-215.1 1151.77,-231.9 1151.77,-231.9 1151.77,-237.9 1145.77,-243.9 1139.77,-243.9"/>
-<text xml:space="preserve" text-anchor="middle" x="944.41" y="-226.8" font-family="Segoe UI" font-size="11.00">整批被拒绝 → UiState.globalError 一行，不进报告列表</text>
+<text xml:space="preserve" text-anchor="middle" x="944.41" y="-226.8" font-family="Segoe UI" font-size="11.00">整批被拒绝 → UiState.globalError 一行（MessageText：资源 id + 参数），不进报告列表</text>
 <text xml:space="preserve" text-anchor="middle" x="944.41" y="-213.6" font-family="Segoe UI" font-size="11.00">源目录不存在或不可读 / 目标目录建不起来（ensureDir 抛 IOException，刻意让它逃）/ 协程意外中断</text>
 </g>
 <!-- vm&#45;&gt;globalErr -->

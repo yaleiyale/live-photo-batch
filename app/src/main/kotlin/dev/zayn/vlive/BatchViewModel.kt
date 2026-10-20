@@ -1,6 +1,7 @@
 package dev.zayn.vlive
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.zayn.vlive.browse.DirBrowser
@@ -34,6 +35,7 @@ import kotlinx.coroutines.withContext
  *   **整批被拒绝**（源目录不可读 / 目标目录建不起来 / 批次意外中断），或**收尾媒体扫描未确认**
  *   （磁盘事实已定，只是相册索引可能暂时不准）。UiState 形状被计划钉死，扫描提示没有新字段
  *   可去，只能借用这个通道；下一次 [BatchViewModel.start] 即重置。
+ *   它是 [MessageText]（资源 id + 参数）而不是拼好的串——见那个类型的理由。
  */
 data class UiState(
     val sourceDir: String = "/storage/emulated/0/DCIM/Camera",
@@ -45,8 +47,21 @@ data class UiState(
     val total: Int = 0,
     val bytes: Long = 0,
     val items: List<ItemResult> = emptyList(),
-    val globalError: String? = null,
+    val globalError: MessageText? = null,
 )
+
+/**
+ * 一条还没解析的文案：只带资源 id 与格式化参数，UI 侧用 `stringResource(id, *args)` 按当前
+ * 语言取值（默认英文，中文在 `values-zh`）。
+ *
+ * 为什么不在这里就拼成 String：VM 要保住"纯 JVM 单测能跑"这个性质，一旦拼文案就得拖进
+ * `Context`，而英文/中文两种语言里同一件事的说法不同，拼好的串会把语言焊死在状态里——
+ * 系统语言切换后重建的组合读到的还是上一条语言的旧文案。
+ *
+ * [args] 用 `List<Any>` 而不是变长 `Any`：它要能被 data class 的 `equals` 比较（单测直接断言
+ * 整条消息），而 `Array<Any>` 的相等是引用相等。
+ */
+data class MessageText(@StringRes val id: Int, val args: List<Any> = emptyList())
 
 /**
  * spec §7.6 不变量的**唯一计算处**：每一个写出的产物，加上每一个已删除的原文件，都必须到达
@@ -194,14 +209,21 @@ class BatchViewModel internal constructor(
             // 存在但读不出来（没授权时 stat 能过、listFiles 给 null）也算全局前置失败：
             // 只查 isDirectory 会让这一批静默变成"进度 0/0"，用户看不出为什么什么都没做。
             if (!source.isDirectory || !source.canRead()) {
-                _state.update { it.copy(globalError = "源目录不存在或不可读：${snapshot.sourceDir}") }
+                _state.update {
+                    it.copy(globalError = MessageText(R.string.err_source_unreadable, listOf(snapshot.sourceDir)))
+                }
                 return
             }
             try {
                 storage.ensureDir(snapshot.targetDir)
             } catch (e: Exception) {
                 _state.update {
-                    it.copy(globalError = "目标目录无法创建：${e.message ?: e.javaClass.simpleName}")
+                    it.copy(
+                        globalError = MessageText(
+                            R.string.err_target_uncreatable,
+                            listOf(e.message ?: e.javaClass.simpleName),
+                        ),
+                    )
                 }
                 return
             }
@@ -219,7 +241,11 @@ class BatchViewModel internal constructor(
         } catch (e: Exception) {
             // 含 CancellationException（外层 scope 取消）：报一行"批次中断"，但绝不因此跳过
             // finally 的收尾扫描——已经提交的文件必须到达媒体索引。
-            _state.update { it.copy(globalError = "批次中断：${e.message ?: e.javaClass.simpleName}") }
+            _state.update {
+                it.copy(
+                    globalError = MessageText(R.string.err_batch_aborted, listOf(e.message ?: e.javaClass.simpleName)),
+                )
+            }
         } finally {
             // §7.6 + R4 的收尾。实测（BatchViewModelTest 的 scope-cancellation 用例）：
             // 外层协程已取消时，finally 里的 withContext(NonCancellable) 块会完整执行，块后的
@@ -233,12 +259,12 @@ class BatchViewModel internal constructor(
                         if (scanner(paths)) {
                             null
                         } else {
-                            "媒体索引未确认刷新，相册可能暂时看不到新产物或仍留着已删文件的条目"
+                            MessageText(R.string.err_scan_unconfirmed)
                         }
                     } catch (e: Exception) {
                         // MediaStoreSync 自己"绝不抛"（失败已在那一层进 logcat）；这里兜的是注入
                         // 实现未来的意外，不放宽到 Throwable。
-                        "媒体索引刷新失败：${e.message ?: e.javaClass.simpleName}"
+                        MessageText(R.string.err_scan_failed, listOf(e.message ?: e.javaClass.simpleName))
                     }
                     if (hint != null) {
                         _state.update { it.copy(globalError = hint) }

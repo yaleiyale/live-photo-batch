@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 夜态分组背景 = IosDarkPalette.groupedBackground，纯黑（iOS 深色设置页就是这个值）。
+         icon_background **不在这里出现**：图标底色不随深浅变，那块蓝在任何配置下都是同一个
+         "认得出是 vlive"的颜色。少写一条不是遗漏 —— 两处各写一遍迟早会漂成两个蓝。 -->
+    <color name="grouped_background">#FF000000</color>
+</resources>

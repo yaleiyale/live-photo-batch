@@ -195,7 +195,7 @@
 
 ### 5.3 权限、目录读取都不许发生在组合期
 
-**决定**：授权状态由 VM 构造、`onResume`、`LaunchedEffect` 三处推进；`presets()`/`subdirs()`/`File.parentFile` 全在 `produceState` + `Dispatchers.IO` 里。
+**决定**：授权状态由 VM 构造、`onResume`、`LaunchedEffect` 三处推进；`subdirs()`/`File.parentFile` 全在 `produceState` + `Dispatchers.IO` 里。
 
 **为什么**：`isExternalStorageManager()` 是一次 binder 调用，组合期读它会在批次逐项回报时拖慢主线程；`remember` **只是缓存，不是副作用护栏** —— 槽位恢复和被丢弃的重组都会重新执行它的 lambda。
 
@@ -245,29 +245,29 @@
 
 ### 5.10 目录浏览只出一列，根上只给别名、不给快捷方式
 
-**决定**：`DirectoryPicker` 只渲染**一个** `SectionCard`、**一条**列表：`上一级`（父级还在 root 之内时才有）排在最前，后面就是这一层要显示的目录。在存储根那一级，[`mergedRootEntries`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L123) 只做一件事 —— 把预设里的中文**别名**盖到真实子目录上（`Pictures → 图片`）；列表内容始终**只有 `subdirs(root)` 的真实子目录**，不补任何快捷方式。顺序一律按显示名 `lowercase()` 码元自然序，**不给常用项开小灶**。
+**决定**：`DirectoryPicker` 只渲染**一个** `SectionCard`、**一条**列表：`上一级`（父级还在 root 之内时才有）排在最前，后面就是这一层要显示的目录。在存储根那一级，[`mergedRootEntries`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L106) 只做一件事 —— 把**别名表**里的那些路径换成本地语言的说法（`<root>/Pictures → 图片`）；列表内容始终**只有 `subdirs(root)` 的真实子目录**，不补任何快捷方式。顺序一律按显示名 `lowercase()` 码元自然序，**不给常用项开小灶**。
 
 **为什么不两段并列**：旧结构是"上面一坨预设入口、下面一坨当前层子目录"，同一件事（"这个目录下能进哪儿"）被画成两个来源，用户要先判断哪一段才是当前层。
 
-**为什么把快捷方式撤掉**：曾有一条 `相机 = DCIM/Camera` 被提到根级别，画出来和真实目录一模一样，而文件管理里根本没有这么个根级条目 —— 看着就像凭空多出来的目录。撤掉之后到相机目录是两跳（`DCIM → Camera`），换来的是"列表里每一条都真的在那一层"。这条约束反过来也解释了 `Documents`、`Music` 为什么必须保留：它们是真实子目录，不能因为"不在预设里"就够不着。
+**为什么把快捷方式撤掉**：曾有一条 `相机 = DCIM/Camera` 被提到根级别，画出来和真实目录一模一样，而文件管理里根本没有这么个根级条目 —— 看着就像凭空多出来的目录。撤掉之后到相机目录是两跳（`DCIM → Camera`），换来的是"列表里每一条都真的在那一层"。这条约束反过来也解释了 `Documents`、`Music` 为什么必须保留：它们是真实子目录，不能因为"不在别名表里"就够不着。
 
 **代价**：
-- 排序按显示名，别名参与排序 → 中文别名与 ASCII 名混排时按码元序（`DCIM · Documents · Music · 下载 · 图片 · 视频`），常用项不再固定在顶部。
-- `presets()` 现在只是一张**根级别的别名表**（也不再含 root 自身那一条），不是一张独立清单。
-- 路径比较必须与主机分隔符无关：`canonical()` 用 `File.absoluteFile`，**不许**改回手写 `"$currentPath/"` 拼接，否则 Windows 上注入临时目录的用例会静默失真。代价是它**大小写敏感**，而共享存储挂载大小写不敏感：磁盘上叫 `download` 而预设写 `Download` 时别名不命中，会露出真实名。
+- 排序按显示名，别名参与排序 → 中文别名与 ASCII 名混排时按码元序（`DCIM · Documents · Music · 下载 · 图片 · 视频`），常用项不再固定在顶部。英文那一份别名与磁盘真实名相同（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)），所以英文下这一列就是纯 ASCII 自然序。
+- `presets()` **已整个删除**：它既给别名又给"要画出来的条目"，还自己探 `/storage/emulated/0`。别名表现在由 UI 侧用字符串资源拼（[`folderAliases`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L322)），`DirBrowser` 只回答"这一层到底有什么"。
+- 路径比较必须与主机分隔符无关：`canonical()` 用 `File.absoluteFile`，**不许**改回手写 `"$currentPath/"` 拼接，否则 Windows 上注入临时目录的用例会静默失真。代价是它**大小写敏感**，而共享存储挂载大小写不敏感：磁盘上叫 `download` 而别名写 `Download` 时别名不命中，会露出真实名。
 - UI 本身仍无自动化测试，钉住的是纯函数那一层（6 条用例，见 [testing.md](testing.md)）。
 
 **同一条决定的另一半 —— 返回手势先当"上一级"，换层用整层滑动**
 
-**决定**：目录弹窗里系统返回键**先当"上一级"用**，只有在 root（没有可去的父级）才关闭弹窗；换层用 `AnimatedContent` 做整层推入/弹出 + 淡入淡出，进子目录向左推、返回向右弹，与标题改动同一时刻发生（[BatchScreen.kt:372-398](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L372)）。时长与缓动复用 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L71) 那一套令牌，和冷启动入场是同一种手感。
+**决定**：目录弹窗里系统返回键**先当"上一级"用**，只有在 root（没有可去的父级）才关闭弹窗；换层用 `AnimatedContent` 做整层推入/弹出 + 淡入淡出，进子目录向左推、返回向右弹，与标题改动同一时刻发生（[BatchScreen.kt:426-455](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L426)）。时长与缓动复用 `IosMotion`（[IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138)）那一套令牌，和冷启动入场是同一种手感。
 
 **为什么**：这是一台设备上的文件浏览器，"返回键直接把整个弹窗关掉"会让人反复重选层级；而方向感（向左=进深、向右=回退）是让列表可读的关键，尤其在只剩一列之后。`BackHandler` 必须放在 `IosSheet` 的 content 里 —— 那是 Dialog 自己的组合，返回键先落到它的 `OnBackPressedDispatcher`，放在 Activity 那层拦不到。
 
-**为什么 `上一级` 只在父级可选时出现**：root 之上（`/storage/emulated`）是实测定出来的死角 —— 那里读不出子目录，root 只剩一个"0"条目，是一条回不来的路。所以 root 这一级就是最顶层，既不给"再往上一级"的入口，返回键到这一层就直接关窗（[BatchScreen.kt:280-292](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L280)）。
+**为什么 `上一级` 只在父级可选时出现**：root 之上（`/storage/emulated`）是实测定出来的死角 —— 那里读不出子目录，root 只剩一个"0"条目，是一条回不来的路。所以 root 这一级就是最顶层，既不给"再往上一级"的入口，返回键到这一层就直接关窗（[BatchScreen.kt:336-345](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L336)）。
 
 ### 5.11 图标与启动过渡（2026-10-21 增量）
 
-**决定**：桌面图标是**纯 XML 的 adaptive icon**（`drawable/ic_launcher_foreground.xml` + `ic_launcher_background.xml`，`mipmap-anydpi-v26/ic_launcher.xml` 与 `_round.xml`），零 PNG；`<monochrome>` 层**直接复用前景层**；冷启动走 `androidx.core:core-splashscreen`（1.2.0，`:app` 唯一新增的 androidx 依赖），退出动画再由 `BatchScreen` 的交错入场接住。
+**决定**：桌面图标是**纯 XML 的 adaptive icon**（`drawable/ic_launcher_foreground.xml` + `ic_launcher_background.xml`，`mipmap-anydpi-v26/ic_launcher.xml` 与 `_round.xml`），零 PNG；两层结构只有 `background` + `foreground`，**不给 `<monochrome>`**（理由见下面那段）；冷启动走 `androidx.core:core-splashscreen`（1.2.0，`:app` 唯一新增的 androidx 依赖），退出动画再由 `BatchScreen` 的交错入场接住。
 
 **为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:297](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L297)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
 
@@ -281,7 +281,7 @@
 
 **代价与两处刻意**：
 - `installSplashScreen()` 必须在 `super.onCreate()` **之前**（window 级的，晚一步拦不到首帧），并且随后**显式** `setTheme(Theme.Vlive)`（[MainActivity.kt:36-40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MainActivity.kt#L36)）。库自己会照 `postSplashScreenTheme` 恢复，但 API 30 走 compat、31+ 走系统两条分支，界面配色不该压在"这次落在哪条分支"上。
-- 入场有一条 **600ms 超时兜底**（[IosStyle.kt:86](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L86)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
+- 入场有一条 **600ms 超时兜底**（[IosStyle.kt:153](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L153)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
 - 入场**不读** `Settings.Global.ANIMATOR_DURATION_SCALE`：那是一次跨进程查询，与 §5.3「组合期不碰 binder」冲突。用户在系统里关掉动画时这段会不会归零，**尚未装机确认**。
 
 ### 5.12 `-v26` 这个"多余"的目录限定符不能删
@@ -303,6 +303,40 @@
 - `applicationId` 变了 = 设备上这是**另一个 app**：旧包名那份不会自动升级，也不共享它的私有目录（第 4 片的持久化与日志因此天然按新包名重来）。装机前先卸旧包。
 - 清单组件名从 `dev.zayn.livephotobatch/dev.zayn.livephotobatch.app.MainActivity` 变成 `dev.zayn.vlive/dev.zayn.vlive.MainActivity`，`am start` 那行要跟着换（testing.md 已改）。
 - 文档里 380+ 条 `file:行` 引用的**路径**全部要重算（行号本身没动 —— 包声明与 import 都是等行替换，这一点是这次敢整片改的依据）。
+
+### 5.14 文案全部进资源，默认语言是英文（2026-10-21 增量）
+
+**决定**：`res/values/strings.xml` 写**英文**（未限定配置），`res/values-zh/strings.xml` 写中文；`:app` 的界面上没有一个字面文案 —— 一屏、目录弹窗、Toast、失败原因短语全部走 `stringResource` / `pluralStringResource`。`:app` 唯一新增的语言相关结构是 [`MessageText`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L64)：`@StringRes id + List<Any> args`。
+
+**为什么默认给英文，而不是让中文当默认**：未匹配到任何 `values-*` 语言时拿到的是未限定配置。默认是中文的话，任何非中文环境（含 es / fr / ja，本仓库不打算伺候它们）都会**看到中文** —— 那等于把"没翻译"伪装成"翻译好了"。默认放英文，剩下的语言落到一种全球读得懂的说法上。
+
+**代价**：中文从"就是它"降级成一个 qualifier。改文案要改两个文件，漏一条就会在中文环境下掉回英文 —— 这条靠 lint 的 `MissingTranslation` 兜（当前 0 条，见 [testing.md](testing.md#本地化与深浅色没有设备时验到哪一层)）。
+
+**为什么 `UiState.globalError` 不是 `String`**（[:50](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L50)）：拼好的串会把语言焊死在状态里 —— 系统语言切换后重建的组合读到的还是上一条语言的旧文案；而且 VM 要摸 `Context` 才能拼串，`app/src/test` 那条"不引 Robolectric"的前提就没了。`args` 用 `List<Any>` 而不是 `vararg`：`data class` 的 `equals` 要能整条比较，`Array` 是引用相等。
+
+**为什么目录别名由调用方注入**：`DirBrowser` 原来的 `presets()` 既给别名又给"要画出来的条目"，而且自己探 `/storage/emulated/0`。现在只剩 [`mergedRootEntries(aliases, children, currentPath)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L106) 与 [`displayPath(path, root, rootLabel)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L31) 两条**纯函数**，别名表由 [`folderAliases(root)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L322) 用资源拼出来。理由和 §5.10 是同一条：这个文件要能在本地 JVM 上直接测，一旦去摸 `R.string` 就得把资源系统一起拖进来。
+
+**英文那份别名 `Movies → Movies` 是恒等映射，不是偷懒**：主界面的路径行画的永远是真名（`Internal storage/Movies`），弹窗里若把同一目录在英文中叫成 `Videos`，就会出现"一个目录两种说法"。中文跟着系统文件管理器的叫法（视频 / 图片 / 下载），换语言时别名自然退化。`folder_internal_storage` 是另一回事：`/storage/emulated/0` 不是给人读的名字，两种语言都需要一个别名。
+
+**单复数只做了一条**：只有 `report_summary_warning` 用 `<plurals>`（英文 `1 original not deleted` 与 `…2 originals…` 确实不同）；`report_summary` 里的 succeeded / skipped / failed 是过去分词，`1 succeeded` 本来就是正确英文，为它开 plurals 只是喂 lint。`values-zh` 只给 `other` —— 中文没有单复数，给 `one` 会被 `UnusedQuantity` 挑出来，不给也不会被 `MissingQuantity` 挑（那条检查按语言的复数规则判断）。
+
+**两处跟着语言改的连带决定**：
+- 失败原因后面仍然跟着机器可读的枚举名（`reason_code` = `%1$s（%2$s）` / `%1$s (%2$s)`）—— spec §9 那条"给人短语、留着能贴进 issue 的名字"的要求不因语言变。
+- [`FileStorage.ensureDir` 的 `IOException` 消息改成英文](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L100)：它的 `e.message` 会被当**参数**拼进本地化的句子（`err_target_uncreatable`），中文串嵌进英文句子（或反过来）比一句开发者看得懂的英文更难解释。
+
+### 5.15 深色跟随系统，判定只有 `IosTheme` 一处（2026-10-21 增量）
+
+**决定**：颜色从 `object IosColor { val card = Color(...) }` 那种**编译期常量**搬进 [`IosPalette`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L27)（浅/深两份实例），[**唯一**一次深浅判定在 `IosTheme`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L197)：`isSystemInDarkTheme()` 选的色板同时交给自绘层（`LocalIosStyle`）和 `MaterialTheme` 的兜底色。**不做应用内开关**，跟随系统。
+
+**为什么先把常量搬成色板**（这一条推翻原来"只有浅色"的写法）：常量把浅色的值烧进了 14 个调用点，加深色只能逐点重写、还可能只改一半；`LocalIosStyle` 让"这次运行是哪套色板"变成一个运行时取值，判定只剩一处。控件层里剩下的 `Color.White` 是有意的两处：开关旋钮与主按钮文字（蓝底上的白，深色下仍然是白）。
+
+**窗口级颜色不在 Compose 的管辖里**，所以 `values-night/` 必须自己有一条：`grouped_background` → 纯黑、`Theme.Vlive` 的 parent 换成不带 `.Light` 的 `Theme.DeviceDefault.NoActionBar`、`windowLightStatusBar` / `windowLightNavigationBar` → false（[values-night/themes.xml](file:///D:/projects/piece/live-photo-batch/app/src/main/res/values-night/themes.xml)、[values-night/colors.xml](file:///D:/projects/piece/live-photo-batch/app/src/main/res/values-night/colors.xml)）。装机反馈的"深色下大背景反而不是黑色"就破在这一层：splash 那一帧由 `windowSplashScreenBackground` 决定，`isSystemInDarkTheme()` 那时还没跑起来。
+
+**`icon_background` 刻意没有 night 变体**：那块蓝是识别物，不跟着翻。原来 `values-night/colors.xml` 里重复写了一遍同一个值 —— 已删，两处各写一遍迟早漂成两个蓝。
+
+**"图标内白色变成黑色"的真因不是深色模式**：是 `<monochrome>` 复用了纯白前景层，见 [§5.11](#511-图标与启动过渡2026-10-21-增量)。这一片的深色改动没有碰它，`windowSplashScreenIconBackgroundColor` 才是给白图形兜底的那条。
+
+**装机之前不许宣布深色可用**：本地能验的只有「资源打进包 + 配置对得上」（`aapt2 dump resources` 实测 `color/grouped_background` 有 `() #fff2f2f7` / `(night) #ff000000`，而 `icon_background` 只有默认档）。渲染结果 —— 深色 splash、Dialog 表面、状态栏明暗 —— 一条自动化都没有，见 [testing.md](testing.md#本地化与深浅色没有设备时验到哪一层)。
 
 ## 6. 构建与 CI
 
@@ -354,13 +388,14 @@
 | `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
 | `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
 | `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
-| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L58) | 收拢间距或删令牌 |
+| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:125](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L125) | 收拢间距或删令牌 |
 | 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L186) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
-| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 178 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
-| lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删) | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
-| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:187](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L187)、[:212](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L212) | 令牌 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L71) 已就位，改这两处即可对齐 |
+| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 177 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
+| lint 有 12 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)，两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
+| `:core` 与 `MediaStoreSync` 的异常/日志文案仍是**中文** | `err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子，于是英文提示里嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）；`MediaStoreSync` 的两条 `Log.w` 只进 logcat，不进 UI | 抛出消息属于"给开发者读"的边界：要么把它们也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message`。第 4 片做日志时一起收 |
+| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:192](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L192)、[:217](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L217) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |
 
 ## spec 引用索引
 

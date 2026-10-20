@@ -73,15 +73,20 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 
 ```bash
 ./gradlew :core:test                    # 145 条纯 JVM 测试，最快的反馈
-./gradlew :app:testDebugUnitTest        # 33 条 ViewModel / DirBrowser / PermissionGate
+./gradlew :app:testDebugUnitTest        # 32 条 ViewModel / DirBrowser / PermissionGate
 ./gradlew :app:connectedDebugAndroidTest # 8 条端口契约测试，需要插设备（CI 只编译不执行）
-./gradlew :app:lintDebug                # CI 不跑；当前 9 条 information 级基线，含一条被迫保留的 -v26
+./gradlew :app:lintDebug                # CI 不跑；当前 12 条 information 级基线：一条被迫保留的 `-v26`、两条刻意撤销的 monochrome、一条 `PluralsCandidate` 误报
 ```
 
-图标与启动：桌面图标是纯 XML 的 adaptive icon（零 PNG，`<monochrome>` 复用前景层，所以 Android 13+
-主题图标自动接管）；冷启动走 `androidx.core:core-splashscreen`，logo 淡出后由 `BatchScreen` 的各段
-交错上浮接住（同一套 220ms 令牌，带 600ms 超时兜底，绝不让界面停在 alpha 0）。理由与代价见
+图标与启动：桌面图标是纯 XML 的 adaptive icon（零 PNG，**两层结构只有 `background` + `foreground`，
+刻意不给 `<monochrome>`** —— 有就会被主题图标重染，深色下白变黑）；冷启动走
+`androidx.core:core-splashscreen`，logo 淡出后由 `BatchScreen` 的各段交错上浮接住（同一套 220ms 令牌，
+带 600ms 超时兜底，绝不让界面停在 alpha 0）。理由与代价见
 [docs/decisions.md §5.11-5.12](docs/decisions.md)。
+
+语言与主题：界面文案全在资源里，**默认配置是英文**、中文在 `values-zh`，跟随系统语言；深浅色同样跟随
+系统（判定只在 `IosTheme` 一处），窗口级颜色由 `values-night/` 负责，所以深色下冷启动那一帧是黑的而
+logo 里的白图形不会变黑。见 [docs/decisions.md §5.14-5.15](docs/decisions.md)。
 
 要求：JDK 17、Android SDK（`compileSdk 37.0`、`platforms;android-37.0`）。`local.properties` 里写 `sdk.dir`。
 

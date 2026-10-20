@@ -24,6 +24,10 @@ import org.junit.Test
  *
  * 钉住的核心不变量（spec §7.6 / R4 + review finding 3）：
  * 每一个产物与每一个已删原文件必须到达扫描器，**外层 scope 取消也不例外**。
+ *
+ * 全局提示断言的是 `R.string.*` 这个 int id 与参数列表，不是解析后的文案：读一个常量不需要
+ * `Resources`，所以"没有 Robolectric"这条前提没被破。真要检查中英文案本身，那是资源层的
+ * 装机验收项（`docs/testing.md`），不该把整个 VM 拖进 Robolectric。
  */
 class BatchViewModelTest {
 
@@ -250,8 +254,9 @@ class BatchViewModelTest {
         runBlocking { vm.runBatch(snapshot) }
         assertEquals(0, calls.get())
         val err = vm.state.value.globalError!!
-        assertTrue(err.startsWith("源目录不存在或不可读："))
-        assertTrue(err.contains("${t.rootPath}/nope"))
+        // 文案是资源 id + 参数，不是拼好的串：语言由 UI 侧解析（见 MessageText 的 KDoc）。
+        assertEquals(R.string.err_source_unreadable, err.id)
+        assertEquals(listOf("${t.rootPath}/nope"), err.args)
         assertFalse(vm.state.value.running)
         t.root.deleteRecursively()
     }
@@ -265,7 +270,7 @@ class BatchViewModelTest {
         val snapshot = UiState(sourceDir = t.srcPath, targetDir = t.outPath, running = true)
         runBlocking { vm.runBatch(snapshot) }
         assertEquals(0, calls.get())
-        assertTrue(vm.state.value.globalError!!.startsWith("目标目录无法创建："))
+        assertEquals(R.string.err_target_uncreatable, vm.state.value.globalError!!.id)
         assertFalse(vm.state.value.running)
         t.root.deleteRecursively()
     }
@@ -299,7 +304,7 @@ class BatchViewModelTest {
         vm.setDeleteOriginals(true)
         vm.start()
         assertTrue(vm.awaitIdle())
-        assertTrue(vm.state.value.globalError!!.contains("媒体索引"))
+        assertEquals(R.string.err_scan_unconfirmed, vm.state.value.globalError!!.id)
         assertEquals(1, vm.state.value.items.size)
         t.root.deleteRecursively()
     }
@@ -312,7 +317,8 @@ class BatchViewModelTest {
         vm.setTarget(t.outPath)
         vm.start()
         assertTrue(vm.awaitIdle())
-        assertTrue(vm.state.value.globalError!!.contains("媒体索引刷新失败"))
+        assertEquals(R.string.err_scan_failed, vm.state.value.globalError!!.id)
+        assertEquals(listOf<Any>("boom"), vm.state.value.globalError!!.args)
         assertFalse(vm.state.value.running)
         t.root.deleteRecursively()
     }

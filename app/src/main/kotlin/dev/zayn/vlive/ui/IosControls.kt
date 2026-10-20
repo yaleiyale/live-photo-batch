@@ -58,7 +58,7 @@ import androidx.compose.ui.window.DialogProperties
 @Composable
 fun SectionCard(
     modifier: Modifier = Modifier,
-    color: Color = IosColor.card,
+    color: Color = iosStyle().card,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -73,12 +73,13 @@ fun SectionCard(
 /** 卡片内的分隔线：只在左侧缩进处起笔，右边通到卡片边缘。 */
 @Composable
 fun IosDivider(indent: Boolean = true) {
+    val s = LocalIosStyle.current
     Box(
         Modifier
             .fillMaxWidth()
             .padding(start = if (indent) IosMetrics.rowPadding else 0.dp)
             .height(IosMetrics.hairline)
-            .background(IosColor.separator),
+            .background(s.separator),
     )
 }
 
@@ -88,12 +89,13 @@ private fun PressableRow(
     onClick: () -> Unit,
     content: @Composable RowScope.() -> Unit,
 ) {
+    val s = LocalIosStyle.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Row(
         Modifier
             .fillMaxWidth()
-            .background(if (pressed && enabled) IosColor.highlight else Color.Transparent)
+            .background(if (pressed && enabled) s.highlight else Color.Transparent)
             .clickable(
                 interactionSource = interaction,
                 enabled = enabled,
@@ -120,14 +122,15 @@ fun DetailRow(
     divider: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val s = LocalIosStyle.current
     Column {
         PressableRow(enabled = enabled, onClick = onClick) {
             Column(Modifier.weight(1f)) {
-                Text(title, style = IosType.body)
+                Text(title, style = s.body)
                 Text(
                     value,
-                    style = IosType.rowValue.copy(
-                        color = if (enabled) IosColor.secondaryLabel else IosColor.tertiaryLabel,
+                    style = s.rowValue.copy(
+                        color = if (enabled) s.secondaryLabel else s.tertiaryLabel,
                     ),
                 )
             }
@@ -147,13 +150,14 @@ fun SwitchRow(
     divider: Boolean = false,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val s = LocalIosStyle.current
     Column {
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(if (pressed && enabled) IosColor.highlight else Color.Transparent)
+                .background(if (pressed && enabled) s.highlight else Color.Transparent)
                 .heightIn(min = IosMetrics.rowMinHeight)
                 .padding(horizontal = IosMetrics.rowPadding, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -161,7 +165,7 @@ fun SwitchRow(
             Text(
                 title,
                 // 危险开关一勾上就把整行染成系统红，和原实现的 error 同一条规则。
-                style = IosType.body.copy(color = if (checked) IosColor.red else IosColor.label),
+                style = s.body.copy(color = if (checked) s.red else s.label),
                 modifier = Modifier
                     .weight(1f)
                     .clickable(
@@ -184,6 +188,7 @@ private fun Spacer8() = Box(Modifier.width(8.dp))
 
 @Composable
 fun IosSwitch(on: Boolean, enabled: Boolean, onColor: Color, onToggle: () -> Unit) {
+    val s = LocalIosStyle.current
     val knob by animateFloatAsState(if (on) 1f else 0f, tween(durationMillis = 220))
     val interaction = remember { MutableInteractionSource() }
     Box(
@@ -192,7 +197,7 @@ fun IosSwitch(on: Boolean, enabled: Boolean, onColor: Color, onToggle: () -> Uni
             .height(31.dp)
             .alpha(if (enabled) 1f else 0.4f)
             .clip(CircleShape)
-            .background(if (on) onColor else IosColor.trackOff)
+            .background(if (on) onColor else s.trackOff)
             .clickable(
                 interactionSource = interaction,
                 enabled = enabled,
@@ -224,18 +229,19 @@ fun IosButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val s = LocalIosStyle.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val label = when (style) {
         IosButtonStyle.Primary -> Color.White
-        IosButtonStyle.Destructive -> IosColor.red
-        IosButtonStyle.Secondary -> IosColor.blue
+        IosButtonStyle.Destructive -> s.red
+        IosButtonStyle.Secondary -> s.blue
     }
     // 禁用态只淡文字、主按钮换成淡蓝底：整块 alpha 下去，白底次按钮会直接融进分组背景里。
     val surface = if (style == IosButtonStyle.Primary) {
-        if (enabled) IosColor.blue else IosColor.blue.copy(alpha = 0.35f)
+        if (enabled) s.blue else s.blue.copy(alpha = 0.35f)
     } else {
-        IosColor.card
+        s.card
     }
     Box(
         modifier
@@ -253,32 +259,34 @@ fun IosButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = IosType.button.copy(color = if (enabled) label else label.copy(alpha = 0.4f)))
+        Text(text, style = s.button.copy(color = if (enabled) label else label.copy(alpha = 0.4f)))
     }
 }
 
 @Composable
 fun ThinProgressBar(fraction: Float) {
+    val s = LocalIosStyle.current
     val f by animateFloatAsState(fraction.coerceIn(0f, 1f), tween(durationMillis = 180))
     Box(
         Modifier
             .fillMaxWidth()
             .height(3.dp)
             .clip(RoundedCornerShape(percent = 50))
-            .background(IosColor.trackOff),
+            .background(s.trackOff),
     ) {
         Box(
             Modifier
                 .fillMaxWidth(f)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(percent = 50))
-                .background(IosColor.blue),
+                .background(s.blue),
         )
     }
 }
 
 @Composable
 fun StatusRow(dot: Color, text: String, divider: Boolean = true) {
+    val s = LocalIosStyle.current
     Column {
         Row(
             Modifier
@@ -288,7 +296,7 @@ fun StatusRow(dot: Color, text: String, divider: Boolean = true) {
         ) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
             Box(Modifier.width(10.dp))
-            Text(text, style = IosType.report, modifier = Modifier.weight(1f))
+            Text(text, style = s.report, modifier = Modifier.weight(1f))
         }
         if (divider) IosDivider()
     }
@@ -297,13 +305,14 @@ fun StatusRow(dot: Color, text: String, divider: Boolean = true) {
 /** 目录行：左侧文件夹图形 + 名字，右侧 chevron。图形用 Canvas 画，不引入矢量资源。 */
 @Composable
 fun FolderRow(title: String, enabled: Boolean = true, divider: Boolean = true, onClick: () -> Unit) {
+    val s = LocalIosStyle.current
     Column {
         PressableRow(enabled = enabled, onClick = onClick) {
             FolderIcon()
             Box(Modifier.width(12.dp))
             Text(
                 title,
-                style = IosType.body.copy(color = if (enabled) IosColor.label else IosColor.tertiaryLabel),
+                style = s.body.copy(color = if (enabled) s.label else s.tertiaryLabel),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -317,18 +326,19 @@ fun FolderRow(title: String, enabled: Boolean = true, divider: Boolean = true, o
 /** 回上级：iOS 导航返回样式的 chevron 放在最左。 */
 @Composable
 fun BackRow(title: String, divider: Boolean = true, onClick: () -> Unit) {
+    val s = LocalIosStyle.current
     Column {
         PressableRow(enabled = true, onClick = onClick) {
-            ChevronLeft(color = IosColor.blue)
+            ChevronLeft(color = s.blue)
             Box(Modifier.width(10.dp))
-            Text(title, style = IosType.body.copy(color = IosColor.blue))
+            Text(title, style = s.body.copy(color = s.blue))
         }
         if (divider) IosDivider(indent = false)
     }
 }
 
 @Composable
-private fun ChevronRight(color: Color = IosColor.tertiaryLabel) {
+private fun ChevronRight(color: Color = iosStyle().tertiaryLabel) {
     Canvas(Modifier.width(8.dp).height(13.dp)) {
         val stroke = 1.7.dp.toPx()
         val mid = Offset(size.width, size.height / 2f)
@@ -349,16 +359,17 @@ private fun ChevronLeft(color: Color) {
 
 @Composable
 private fun FolderIcon() {
+    val s = LocalIosStyle.current
     Canvas(Modifier.width(22.dp).height(18.dp)) {
         val tab = CornerRadius(size.width * 0.10f)
         drawRoundRect(
-            color = IosColor.blue.copy(alpha = 0.55f),
+            color = s.blue.copy(alpha = 0.55f),
             topLeft = Offset(0f, 0f),
             size = Size(size.width * 0.45f, size.height * 0.4f),
             cornerRadius = tab,
         )
         drawRoundRect(
-            color = IosColor.blue,
+            color = s.blue,
             topLeft = Offset(0f, size.height * 0.25f),
             size = Size(size.width, size.height * 0.75f),
             cornerRadius = CornerRadius(size.width * 0.14f),
@@ -383,6 +394,7 @@ fun IosSheet(
     onConfirm: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val s = LocalIosStyle.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
@@ -390,7 +402,7 @@ fun IosSheet(
         Column(
             Modifier
                 .fillMaxSize()
-                .background(IosColor.groupedBackground)
+                .background(s.groupedBackground)
                 .windowInsetsPadding(WindowInsets.safeDrawing),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -420,14 +432,14 @@ fun IosSheet(
                     ) {
                         Text(
                             title,
-                            style = IosType.title,
+                            style = s.title,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             subtitle,
-                            style = IosType.footnote.copy(fontSize = 11.sp, color = IosColor.tertiaryLabel),
+                            style = s.footnote.copy(fontSize = 11.sp, color = s.tertiaryLabel),
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -455,17 +467,18 @@ private fun BoxScope.BarAction(
     emphasized: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val s = LocalIosStyle.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Box(Modifier.fillMaxHeight().align(align), contentAlignment = Alignment.Center) {
         Text(
             text,
-            style = IosType.navAction.copy(
+            style = s.navAction.copy(
                 fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
                 color = when {
-                    !enabled -> IosColor.tertiaryLabel
-                    pressed -> IosColor.blue.copy(alpha = 0.6f)
-                    else -> IosColor.blue
+                    !enabled -> s.tertiaryLabel
+                    pressed -> s.blue.copy(alpha = 0.6f)
+                    else -> s.blue
                 },
             ),
             modifier = Modifier

@@ -1,13 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 只为对齐页面底色与系统栏：Compose 层自己画所有控件，这里不参与配色。
-         windowBackground 是冷启动那一帧的颜色，跟 iOS 分组背景同一个串，避免闪白/闪黑。 -->
-    <color name="grouped_background">#F2F2F7</color>
-    <!-- 图标底色 = Compose 侧的 IosColor.blue（0xFF007AFF）。两处必须一起改：
-         桌面图标、启动 logo 和界面控件讲的是同一套颜色，各改各的就会看出两个 app。 -->
-    <color name="icon_background">#FF007AFF</color>
+    <!-- 颜色全部在 colors.xml（含 values-night 覆盖），这里只放主题与窗口属性。 -->
 
     <style name="Theme.Vlive" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <!-- windowBackground 是冷启动那一帧的颜色：与 Compose 侧的分组背景同一个值，避免闪白/闪黑。 -->
         <item name="android:windowBackground">@color/grouped_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -18,16 +14,16 @@
     <!--
       冷启动那一帧的主题（manifest 的 android:theme 指它）。父类 Theme.SplashScreen 来自
       androidx.core:core-splashscreen，所以它不是 Android 12+ 专属，API 30 也走同一套。
-      windowSplashScreenBackground 沿用 grouped_background：这条是为了不闪白，和下面
-      android:windowBackground 同一个串。
+      windowSplashScreenBackground 走 @color/grouped_background：夜态由 values-night 换成纯黑，
+      与 Compose 的 IosDarkPalette 同一个值，所以 splash 消失的一瞬不会有底色接缝。
+      windowSplashScreenIconBackgroundColor 与 splash_logo 里那块蓝一致：万一某条渲染路径丢掉
+      drawable 自带的圆角方块，白色图形也仍然坐在蓝色底上，不会露成深色背景上的白块。
       postSplashScreenTheme 指回运行时主题；MainActivity 仍在 onCreate 里再显式 setTheme 一次，
       不把这件事交给库在 API 30/31 两条分支里的恢复逻辑。
     -->
     <style name="Theme.Vlive.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/grouped_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
-        <!-- 图标的方形底由系统画，颜色与 splash_logo 里那块蓝一致：万一某条渲染路径丢掉 drawable
-             自带的圆角方块，白色图形也仍然坐在蓝色底上，不会露成深色背景上的白块。 -->
         <item name="windowSplashScreenIconBackgroundColor">@color/icon_background</item>
         <item name="postSplashScreenTheme">@style/Theme.Vlive</item>
     </style>

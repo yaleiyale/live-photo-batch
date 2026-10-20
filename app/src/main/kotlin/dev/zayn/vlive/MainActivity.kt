@@ -6,21 +6,20 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.zayn.vlive.R
 import dev.zayn.vlive.perm.PermissionGate
-import dev.zayn.vlive.ui.IosColorScheme
 import dev.zayn.vlive.ui.IosEntrance
 import dev.zayn.vlive.ui.IosMotion
+import dev.zayn.vlive.ui.IosTheme
 
 /**
- * 唯一的 Activity。清单里声明的是 `.app.MainActivity`，而 `android:name` 的点号前缀展开的是
- * namespace（`dev.zayn.vlive`），所以完整组件名是
- * `dev.zayn.vlive/dev.zayn.vlive.MainActivity`（Task 12 的 `am start` 用这一串）。
- * 这个类必须留在 `dev.zayn.vlive` 包下，别跟着 `FileStorage`/`DirBrowser` 那些子包搬。
+ * 唯一的 Activity。清单里 `android:name=".MainActivity"` 的点号前缀展开的是 namespace
+ * （`dev.zayn.vlive`），所以完整组件名是 `dev.zayn.vlive/dev.zayn.vlive.MainActivity`
+ * （真机验收的 `am start` 用这一串）。这个类必须留在 `dev.zayn.vlive` 包下，别跟着
+ * `FileStorage`/`DirBrowser` 那些子包搬。
  */
 class MainActivity : ComponentActivity() {
 
@@ -59,18 +58,14 @@ class MainActivity : ComponentActivity() {
         // WindowInsets.safeDrawing 手动避让；真机（targetSdk 36 + API 37）本来就强制 edge-to-edge，
         // 在这里再叠一层只会把已审过的 insets 行为改掉。
         setContent {
-            MaterialTheme(colorScheme = IosColorScheme) {
+            IosTheme {
                 BatchScreen(vm, entrance = entrance, request = {
                     // vivo 上 ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION 不一定落得到系统页（spec R2）：
                     // 跳不动就退化成手动指引的 Toast，回到前台时 onResume 会再回查一次真实状态。
                     runCatching {
                         startActivity(PermissionGate.requestIntent(this@MainActivity))
                     }.onFailure {
-                        Toast.makeText(
-                            this@MainActivity,
-                            "请在 设置 → 应用 → 特殊访问 → 所有文件访问 中手动开启",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        Toast.makeText(this@MainActivity, R.string.perm_toast, Toast.LENGTH_LONG).show()
                     }
                     vm.refreshPermission()
                 })

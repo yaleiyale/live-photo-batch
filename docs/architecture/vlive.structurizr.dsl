@@ -70,13 +70,13 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
             # ========== :app ==========
             app = container ":app (Android application)" "构建单元，不是进程：与 :core 一起打包成单个 app-debug.apk，跑在同一个 Android 进程里。只提供四类适配器 —— 文件、权限、目录浏览、媒体扫描 —— 加上 UI。" "Kotlin / Compose / AGP 9.4.1 / minSdk 30" {
 
-                activity = component "MainActivity" "唯一 Activity。viewModelFactory 造 BatchViewModel；MaterialTheme 只取 IosColorScheme；跳授权页失败退化成 Toast 指引；onResume 回查授权。刻意不开 enableEdgeToEdge()。" "ComponentActivity" {
+                activity = component "MainActivity" "唯一 Activity。installSplashScreen() 在 super.onCreate 之前，退出动画放完才放行入场闸门；viewModelFactory 造 BatchViewModel；IosTheme 是浅/深唯一判定处；跳授权页失败退化成 Toast 指引（文案取资源）；onResume 回查授权。刻意不开 enableEdgeToEdge()。" "ComponentActivity" {
                     tags "App"
                 }
                 screen = component "BatchScreen + DirectoryPicker" "单屏 UI：权限提示、两个目录、危险开关、进度、逐项报告、全屏目录浏览弹窗。目录读取在 produceState + Dispatchers.IO，绝不发生在组合期；报告列表刻意不用 LazyColumn。" "Compose（自绘控件）" {
                     tags "App"
                 }
-                uiKit = component "ui/IosControls + IosStyle" "按 iOS「设置」分组列表自绘的控件层与令牌层（IosColor / IosType / IosMetrics / IosColorScheme）。图形用 Canvas 画，不引入矢量资源；状态全部提升，内部无 value 状态。" "Compose" {
+                uiKit = component "ui/IosControls + IosStyle + IosEntrance" "按 iOS「设置」分组列表自绘的控件层与令牌层：两份 IosPalette（浅/深）+ IosStyle（颜色与文字样式）+ IosMetrics / IosMotion（几何与时长）。IosTheme 一次判定 isSystemInDarkTheme，把同一套色板同时给 LocalIosStyle 与 MaterialTheme。图形用 Canvas 画，不引入位图资源；状态全部提升，内部无 value 状态。IosEntrance 是冷启动入场闸门。" "Compose" {
                     tags "App"
                 }
                 viewModel = component "BatchViewModel" "批次所有权：开工快照 → 全局前置校验 → plan/run → 逐项累积 UiState → NonCancellable 收尾扫描。root 字符串契约在这里与 FileStorage/DirBrowser 共享；权限与扫描器都是构造器注入的测试接缝。" "ViewModel + StateFlow" {
@@ -85,11 +85,15 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
                 permissionGate = component "PermissionGate" "MANAGE_EXTERNAL_STORAGE 门面；真值经注入的 () -> Boolean 每次现读、不缓存，低于 API 30 短路放行。" "Kotlin" {
                     tags "App"
                 }
-                dirBrowser = component "DirBrowser" "真文件系统目录浏览：只列可读、非点开头的子目录，按 name.lowercase() 升序，绝不抛只给空列表。presets() 只返回实际挂载的入口。" "java.io.File" {
+                dirBrowser = component "DirBrowser + mergedRootEntries + displayPath" "真文件系统目录浏览：只列可读、非点开头的子目录，按 name.lowercase() 升序，绝不抛只给空列表。presets() 已删除 —— 显示名改由调用方用字符串资源拼出别名传入，两个纯函数（mergedRootEntries / displayPath）继续在本地 JVM 上直测。" "java.io.File" {
                     tags "App"
                 }
                 fileStorage = component "FileStorage" "BatchStorage 的生产实现：RandomAccessFile + FileChannel、close 时 force(true) 再 close、move 走 rename(2) 且不先删目标、exists/delete 一律先判 isFile。" "java.io.File" {
                     tags "App", "Adapter"
+                }
+                resLayer = component "res/values（语言 + 主题限定符）" "第二条通道：默认（未限定）配置是英文、中文在 values-zh；values-night 只管窗口级颜色与主题（isSystemInDarkTheme 管不到冷启动那一帧）。界面文案零字面量，globalError 在状态里是 MessageText(id, args)，到这里才按当前语言解析。" "Android resources"
+                {
+                    tags "App"
                 }
                 mediaStoreSync = component "MediaStoreSync" "一次性把全部路径交给 scanFile，最多等 2 秒；绝不抛，但把「未确认」回报给 UI。必须从非主线程调用。" "MediaScannerConnection" {
                     tags "App", "Adapter"
@@ -105,12 +109,12 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
 
         # ---------- L3 关系：:app ----------
         lpb.app.activity -> lpb.app.screen "setContent(vm, request)"
-        lpb.app.activity -> lpb.app.uiKit "MaterialTheme(colorScheme = IosColorScheme)"
+        lpb.app.activity -> lpb.app.uiKit "IosTheme { }：同一套色板同时给自绘层与 MaterialTheme"
         lpb.app.activity -> lpb.app.permissionGate "requestIntent()；回查由 vm.refreshPermission()"
         lpb.app.activity -> lpb.app.viewModel "by viewModels { initializer { ... } }"
         lpb.app.screen -> lpb.app.viewModel "collectAsState 读 UiState；发 start/cancel/setSource/setTarget/setDeleteOriginals"
         lpb.app.screen -> lpb.app.uiKit "SectionCard / DetailRow / SwitchRow / StatusRow / IosSheet / IosButton / ThinProgressBar"
-        lpb.app.screen -> lpb.app.dirBrowser "DirectoryPicker 直接调 presets()/subdirs()"
+        lpb.app.screen -> lpb.app.dirBrowser "DirectoryPicker 在 Dispatchers.IO 上调 subdirs()；别名与 root 标签来自字符串资源"
         lpb.app.viewModel -> lpb.app.permissionGate "granted() 每次现读"
         lpb.app.viewModel -> lpb.app.dirBrowser "val browser = DirBrowser(root) 暴露给 UI"
         lpb.app.viewModel -> lpb.app.fileStorage "runBatch 里构造 FileStorage(root)"
@@ -120,6 +124,8 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
         lpb.app.fileStorage -> sharedStorage "open / openWrite / renameTo / delete" "RandomAccessFile"
         lpb.app.mediaStoreSync -> mediaStore "scanFile(paths) + 2 秒 CountDownLatch"
         lpb.app.permissionGate -> settingsUi "Environment.isExternalStorageManager() 的真值来源"
+        lpb.app.screen -> lpb.app.resLayer "stringResource / pluralStringResource；别名表由 root + 资源拼出"
+        lpb.app.uiKit -> lpb.app.resLayer "values-night 的窗口级颜色与 Compose 色板必须是两套配置、一个设计"
 
         # ---------- L3 关系：:core ----------
         lpb.core.batchRunner -> lpb.core.pairPlanner "source/target 两层列表 → jobs + unpaired"

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  默认（未限定）= 英文：没有匹配到任何 values-* 的语言时拿到的是这一份，所以它必须是
+  能在全球设备上读懂的那一种。中文在 values-zh，跟随系统语言切换。
+-->
+<resources>
+    <string name="app_name">vlive</string>
+    <string name="screen_subtitle">Live Photo batch merge</string>
+
+    <string name="perm_missing">No “All files access” permission yet. Reading or writing public folders will be refused and the batch will not start.</string>
+    <string name="perm_grant">Grant all files access</string>
+    <string name="perm_toast">Turn it on manually in Settings → Apps → Special app access → All files access</string>
+
+    <string name="dir_source">Source folder</string>
+    <string name="dir_target">Target folder</string>
+    <string name="del_switch">Delete originals after merging (irreversible)</string>
+    <string name="del_switch_hint">Only items whose rename succeeded lose their sources; anything that fails to delete is reported as a warning and never turns the result into a failure.</string>
+
+    <string name="action_start">Start merging</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="progress_line">Progress %1$d/%2$d · %3$d MB written</string>
+
+    <string name="report_title">Report</string>
+    <string name="report_summary">%1$d succeeded · %2$d skipped · %3$d failed</string>
+    <!-- 单复数只有这一条需要：英文里 1 要说 "1 original not deleted"，中文没有单复数，
+         两档给同一个串。report_summary 里的 "succeeded / skipped / failed" 是过去分词，
+         "1 succeeded" 本来就是正确英文，所以它不需要 plurals。 -->
+    <plurals name="report_summary_warning">
+        <item quantity="one"> · %1$d original not deleted</item>
+        <item quantity="other"> · %1$d originals not deleted</item>
+    </plurals>
+    <string name="row_success">Succeeded %1$s → %2$s</string>
+    <string name="row_skipped">Skipped %1$s: %2$s</string>
+    <string name="row_failed">Failed %1$s: %2$s</string>
+    <string name="row_delete_warning"> (originals not deleted: %1$s)</string>
+
+    <string name="reason_unspecified">no reason given</string>
+    <string name="reason_not_jpeg">not a JPEG</string>
+    <string name="reason_malformed_jpeg">broken JPEG structure</string>
+    <string name="reason_already_motion_photo">already a motion photo</string>
+    <string name="reason_extended_xmp">extended XMP not supported</string>
+    <string name="reason_not_mp4">not an MP4</string>
+    <string name="reason_io_error">read/write failure</string>
+    <string name="reason_no_pair">no matching pair</string>
+    <!-- 本地化短语 + 机器可读的枚举名（spec §9：给人看懂，同时留一个能贴进 issue 的名字）。 -->
+    <string name="reason_code">%1$s (%2$s)</string>
+
+    <string name="picker_close">Close</string>
+    <string name="picker_pick">Choose here</string>
+    <string name="picker_up">Up</string>
+    <string name="picker_empty">(no folders to enter)</string>
+    <string name="picker_out_of_root">This folder is outside the storage root %1$s — you can look, but it cannot be the source or target.</string>
+
+    <!-- 存储根那一级几个常用目录的显示名。英文这一份的值**就是磁盘上的真实名**（Movies /
+         Pictures / Download），别名因此是恒等映射：主界面的路径行画的是真名，弹窗里若再给
+         英文起一个别的叫法，同一个目录就会出现两个说法。中文跟着系统文件管理器的叫法。 -->
+    <string name="folder_internal_storage">Internal storage</string>
+    <string name="folder_movies">Movies</string>
+    <string name="folder_pictures">Pictures</string>
+    <string name="folder_download">Download</string>
+
+    <string name="err_source_unreadable">Source folder is missing or unreadable: %1$s</string>
+    <string name="err_target_uncreatable">Target folder could not be created: %1$s</string>
+    <string name="err_batch_aborted">Batch interrupted: %1$s</string>
+    <string name="err_scan_unconfirmed">Media index refresh was not confirmed — the album may not show the new files yet, or may still list deleted originals.</string>
+    <string name="err_scan_failed">Media index refresh failed: %1$s</string>
+</resources>
