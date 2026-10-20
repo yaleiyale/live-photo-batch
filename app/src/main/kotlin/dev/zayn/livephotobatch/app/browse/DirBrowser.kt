@@ -70,3 +70,53 @@ class DirBrowser(private val root: String) {
             .map { DirItem(it.absolutePath, it.name, dir.absolutePath) }
     }
 }
+
+/**
+ * 存储根那一级要画出来的**一条**列表：真实子目录 + 预设给的中文别名 + 预设里那条不是
+ * 直接子项的快捷方式（`相机 = DCIM/Camera`）。
+ *
+ * 纯函数，不碰磁盘，所以能在本地 JVM 单测里钉住；[DirBrowser.presets] 与 [DirBrowser.subdirs]
+ * 仍各自按原来的契约由调用方喂进来。
+ *
+ * 规则（返回值顺序即画出来的顺序）：
+ * - `currentPath` 自己**不出现**——[presets] 里那条"内部存储"就是根目录本身；
+ * - 路径落在 `currentPath` 之下的预设，用它替换真实子目录的显示名（`Pictures → 图片`）；
+ * - 预设里那些**不是**直接子项、但仍在 `currentPath` 之下的条目（`相机`），作为快捷方式补进来；
+ * - 没被预设覆盖的真实子目录（`Documents`、`Music`……）一律保留，不因为"不在预设里"就够不着；
+ * - 按显示名 `lowercase()` 码元自然序，与 [DirBrowser.subdirs] 同一条规则，不给常用项开小灶
+ *   —— 弹窗里"上面一坨预设、下面一坨子目录"的分段感就是这里去掉的。
+ *
+ * 路径比较走 [java.io.File] 的绝对化与祖先链，**不靠手写分隔符拼接**：注入临时目录的测试主机
+ * （含 Windows）因此不会把别的根下的预设当成快捷方式塞进来。
+ */
+internal fun mergedRootEntries(
+    presets: List<DirItem>,
+    children: List<DirItem>,
+    currentPath: String,
+): List<DirItem> {
+    val here = canonical(currentPath)
+    val named = presets
+        .filter { canonical(it.absolutePath) != here }
+        .associateBy({ canonical(it.absolutePath) }, { it })
+    val rows = children
+        .filter { canonical(it.absolutePath) != here }
+        .map { child -> named[canonical(child.absolutePath)]?.let { child.copy(name = it.name) } ?: child }
+    val shown = rows.map { canonical(it.absolutePath) }.toSet()
+    val shortcuts = named.values.filter {
+        val path = canonical(it.absolutePath)
+        path !in shown && isUnder(path, here)
+    }
+    return (rows + shortcuts).distinctBy { canonical(it.absolutePath) }.sortedBy { it.name.lowercase() }
+}
+
+private fun canonical(path: String): String = File(path).absoluteFile.path
+
+/** 祖先链里出现 [ancestor] 才算在它之内；同样不猜分隔符。 */
+private fun isUnder(path: String, ancestor: String): Boolean {
+    var parent = File(path).absoluteFile.parentFile
+    while (parent != null) {
+        if (parent.path == ancestor) return true
+        parent = parent.parentFile
+    }
+    return false
+}

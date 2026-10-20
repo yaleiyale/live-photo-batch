@@ -92,4 +92,103 @@ class DirBrowserTest {
             assertTrue(item.absolutePath, File(item.absolutePath).isDirectory)
         }
     }
+
+    // ---- mergedRootEntries: pure display merge, no filesystem reads involved ----
+
+    private fun item(base: String, vararg parts: String, label: String): DirItem {
+        var f = File(base)
+        for (p in parts) f = File(f, p)
+        return DirItem(f.absolutePath, label, f.parentFile?.absolutePath ?: "")
+    }
+
+    @Test fun `root level merges preset aliases into the real children, one single list`() {
+        val root = freshRoot()
+        val here = root.absolutePath
+        val presets = listOf(
+            item(here, label = "内部存储"),
+            item(here, "DCIM", label = "DCIM"),
+            item(here, "Pictures", label = "图片"),
+        )
+        val children = listOf(
+            item(here, "DCIM", label = "DCIM"),
+            item(here, "Documents", label = "Documents"),
+            item(here, "Pictures", label = "Pictures"),
+        )
+        val merged = mergedRootEntries(presets, children, here)
+        // Aliased, deduplicated (Pictures must not appear twice), ordered by the displayed name —
+        // ASCII code units before CJK, so the curated entries are not floated into their own group.
+        assertEquals(listOf("DCIM", "Documents", "图片"), merged.map { it.name })
+        assertEquals(3, merged.map { it.absolutePath }.distinct().size)
+        root.deleteRecursively()
+    }
+
+    @Test fun `a directory never lists itself`() {
+        val root = freshRoot()
+        val here = root.absolutePath
+        File(root, "DCIM").mkdirs()
+        val merged = mergedRootEntries(
+            listOf(item(here, label = "内部存储"), item(here, "DCIM", label = "DCIM")),
+            listOf(item(here, "DCIM", label = "DCIM")),
+            "$here/",  // trailing separator: canonical() has to absorb it, not the caller
+        )
+        assertEquals(listOf("DCIM"), merged.map { it.name })
+        assertTrue(merged.none { File(it.absolutePath).absoluteFile == File(here).absoluteFile })
+        root.deleteRecursively()
+    }
+
+    @Test fun `children the presets never mention stay reachable`() {
+        val root = freshRoot()
+        val here = root.absolutePath
+        val merged = mergedRootEntries(
+            listOf(item(here, "DCIM", label = "DCIM")),
+            listOf(item(here, "DCIM", label = "DCIM"), item(here, "Music", label = "Music")),
+            here,
+        )
+        assertEquals(listOf("DCIM", "Music"), merged.map { it.name })
+        root.deleteRecursively()
+    }
+
+    @Test fun `a nested preset becomes a shortcut on the root level`() {
+        val root = freshRoot()
+        val here = root.absolutePath
+        // 相机 = DCIM/Camera is a grandchild, so it can never come out of subdirs(here).
+        val merged = mergedRootEntries(
+            listOf(item(here, "DCIM", label = "DCIM"), item(here, "DCIM", "Camera", label = "相机")),
+            listOf(item(here, "DCIM", label = "DCIM")),
+            here,
+        )
+        assertEquals(listOf("DCIM", "相机"), merged.map { it.name })
+        assertEquals(File(File(root, "DCIM"), "Camera").absolutePath, merged.last().absolutePath)
+        root.deleteRecursively()
+    }
+
+    @Test fun `presets from another root are never pulled in`() {
+        val root = freshRoot()
+        val here = root.absolutePath
+        File(root, "Only").mkdirs()
+        val children = listOf(item(here, "Only", label = "Only"))
+        // presets() always probes /storage/emulated/0. With an injected temp root those strings
+        // are neither children of `here` nor descendants of it, so nothing may be aliased or
+        // shortcut in — the list must come out as the real children, untouched.
+        val foreign = listOf(
+            DirItem(File("/storage/emulated/0").absolutePath, "内部存储", ""),
+            DirItem(File("/storage/emulated/0/DCIM/Camera").absolutePath, "相机", ""),
+        )
+        assertEquals(children, mergedRootEntries(foreign, children, here))
+        root.deleteRecursively()
+    }
+
+    @Test fun `merging is deterministic across repeated calls`() {
+        val root = freshRoot()
+        val here = root.absolutePath
+        val presets = listOf(item(here, label = "内部存储"), item(here, "Pictures", label = "图片"))
+        val children = listOf(item(here, "Beta", label = "Beta"), item(here, "Pictures", label = "Pictures"))
+        val once = mergedRootEntries(presets, children, here)
+        val twice = mergedRootEntries(presets.reversed(), children, "$here/")
+        // Aliased name takes part in the ordering: "Beta" < "图片" by code unit, and an unlisted
+        // child keeps its own name.
+        assertEquals(listOf("Beta", "图片"), once.map { it.name })
+        assertEquals(once, twice)
+        root.deleteRecursively()
+    }
 }

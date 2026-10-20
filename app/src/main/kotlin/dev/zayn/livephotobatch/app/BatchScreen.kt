@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.zayn.livephotobatch.app.browse.DirBrowser
 import dev.zayn.livephotobatch.app.browse.DirItem
+import dev.zayn.livephotobatch.app.browse.mergedRootEntries
 import dev.zayn.livephotobatch.app.ui.BackRow
 import dev.zayn.livephotobatch.app.ui.DetailRow
 import dev.zayn.livephotobatch.app.ui.FolderRow
@@ -251,6 +252,10 @@ fun BatchScreen(vm: BatchViewModel, request: () -> Unit) {
 /**
  * 目录浏览器，呈现为全屏模态卡片。起点是 [startPath]（不可用时退回 [root]），一级一级往下走。
  *
+ * **只有一条列表**：`上一级`（有父级时）排在最前，后面就是这一层要显示的目录，共用一张卡片与
+ * 同一套分隔线规则。在存储根那一级由 [mergedRootEntries] 把常用入口的中文别名和「相机」这种嵌套
+ * 快捷方式并进真实子目录里 —— 之前"上面一坨预设、下面一坨子目录"的分段不再存在。
+ *
  * [root] 之外（比如从根再点"上一级"到 `/storage/emulated`）照样能浏览——`DirBrowser.subdirs`
  * 只看 `startsWith("/")`，本来就是个宽口子；但 [selectable] 为假时会禁掉"选这里"并说明原因，
  * 因为那种串喂给 `FileStorage.resolve()` 会被重新拼到 root 之下，选了就等于把批次指向另一个目录。
@@ -286,14 +291,22 @@ private fun DirectoryPicker(
         }
     }
     val canPick = selectable(path)
+    val now = listing
+    val quick = presets
 
     // 导航栏标题放最后一级目录名，整条绝对路径留给副标题——两者都是同一个 path 的片段。
     val leaf = path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
-    val heads: List<NavRow> = buildList {
-        listing?.parent?.takeIf { it.isNotEmpty() }?.let { add(NavRow("上一级", it, isBack = true)) }
-        presets?.forEach { add(NavRow(it.name, it.absolutePath, isBack = false)) }
+    val atRoot = File(path).absoluteFile == File(root).absoluteFile
+    // 只出**一条**列表：根上把预设的中文别名与嵌套快捷方式并进真实子目录，子层就是该层的子目录。
+    val entries = when {
+        now == null -> emptyList()
+        atRoot && quick != null -> mergedRootEntries(quick, now.subdirs, path)
+        else -> now.subdirs
     }
-    val subdirs = listing?.subdirs.orEmpty()
+    val rows: List<NavRow> = buildList {
+        now?.parent?.takeIf { it.isNotEmpty() }?.let { add(NavRow("上一级", it, isBack = true)) }
+        entries.forEach { add(NavRow(it.name, it.absolutePath, isBack = false)) }
+    }
 
     IosSheet(
         title = leaf,
@@ -311,30 +324,20 @@ private fun DirectoryPicker(
                 modifier = Modifier.padding(horizontal = IosMetrics.screenMargin, vertical = 8.dp),
             )
         }
-        if (heads.isNotEmpty()) {
-            SectionCard(modifier = Modifier.padding(bottom = 20.dp)) {
-                heads.forEachIndexed { index, row ->
-                    if (row.isBack) {
-                        BackRow(title = row.label, divider = index < heads.lastIndex) { path = row.path }
-                    } else {
-                        FolderRow(title = row.label, divider = index < heads.lastIndex) { path = row.path }
-                    }
+        SectionCard {
+            rows.forEachIndexed { index, row ->
+                if (row.isBack) {
+                    BackRow(title = row.label, divider = index < rows.lastIndex) { path = row.path }
+                } else {
+                    FolderRow(title = row.label, divider = index < rows.lastIndex) { path = row.path }
                 }
             }
-        }
-        if (listing != null && subdirs.isEmpty()) {
-            SectionCard {
+            if (now != null && entries.isEmpty()) {
                 Text(
                     "（没有可进入的子目录）",
                     style = IosType.footnote,
                     modifier = Modifier.padding(16.dp),
                 )
-            }
-        } else if (subdirs.isNotEmpty()) {
-            SectionCard {
-                subdirs.forEachIndexed { index, d ->
-                    FolderRow(title = d.name, divider = index < subdirs.lastIndex) { path = d.absolutePath }
-                }
             }
         }
     }
