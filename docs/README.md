@@ -1,6 +1,6 @@
 # 文档索引
 
-- **基准**：提交 `52d0621`（分支 `feat/live-photo-batch`），采集日期 **2026-10-20**。所有文档描述的是 **as-built（代码现状）**。
+- **基准**：`ff9ad98`（分支 `feat/live-photo-batch`）+ 其后的工作区增量，采集 **2026-10-20**、刷新 **2026-10-21**（图标 / SplashScreen / 入场动画 / 单列目录浏览 / 存储根别名）。所有文档描述的是 **as-built（代码现状）**。
 - **建模方式**：`architecture-visualization` 插件下的 `system-modeler` + `c4model`（结构）、`flow-visualizer` + `graphviz`（流动）。
 - **一句话规则**：文本结论在 `.md`，图源在 `.dsl` / `.dot`，`.svg` 是**派生产物**（别手改），逐条断言的文件与行号只在 [architecture/system-model.evidence.md](architecture/system-model.evidence.md) 里维护一份。
 
@@ -16,7 +16,7 @@
 | [architecture/compose-pipeline.md](architecture/compose-pipeline.md) + `.dot`/`.svg` | 一项要过哪八道关口、失败与取消时磁盘留什么 | 改 `MotionPhotoComposer` 之前必读 |
 | [motion-photo-container.md](motion-photo-container.md) | 产物字节布局、XMP 目录规则、尾巴声明矩阵、vivo 末盒、厂商反例 | 排查"相册不认" |
 | [decisions.md](decisions.md) | 为什么这样设计；哪些地方**刻意**不寻常；已知技术债；spec 引用索引 | 觉得"这里写得真怪"的时候 |
-| [testing.md](testing.md) | 183 条测试怎么分布、钉住了什么、测不到什么、真机验收清单 | 提交前 |
+| [testing.md](testing.md) | 186 条测试怎么分布、钉住了什么、测不到什么、真机验收清单 | 提交前 |
 | [architecture/render-svg.mjs](architecture/render-svg.mjs) | 怎么重新渲染两张 DOT | 改了 `.dot` |
 | [architecture/dsl-check.mjs](architecture/dsl-check.mjs) | 没有 Java 时怎么给 C4 图源做结构自检 | 改了 `.dsl` |
 
@@ -74,7 +74,7 @@ node docs/architecture/dsl-check.mjs
 
 | 未知 | 为什么重要 | 怎么确认 |
 | --- | --- | --- |
-| 相册是否把产物认成动态照片 | 这是**唯一**的验收判据，而 183 条测试没有一条能判它 | 真机跑一批（[testing.md 清单](testing.md#真机验收清单改了字节层就必须重跑)） |
+| 相册是否把产物认成动态照片 | 这是**唯一**的验收判据，而 186 条测试没有一条能判它 | 真机跑一批（[testing.md 清单](testing.md#真机验收清单改了字节层就必须重跑)） |
 | 现 XMP 包（1,057 字节那份）的真机接受度 | 它是在 1,024 那份"被认"的包之上加了 `Primary Length=0` + `Padding` 之后得到的 | 同上 |
 | OPPO / 小米 / Pixel 等非 vivo 机型的识别 | `VivoLivePhotoTail` 只认 vivo 末盒；OPPO 样本只作为**反例**被分析过 | 各厂商真机各跑一批 |
 | "源片没有 XMP 段"这一形状的产物是否被认 | 此时按规范插在 SOI 之后，而语料的源片**都带 XMP**，没有参考实现可比 | 造一份无 XMP 的 JPEG 上真机试 |

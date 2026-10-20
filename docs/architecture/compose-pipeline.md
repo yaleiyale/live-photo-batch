@@ -2,7 +2,7 @@
 
 - **回答的问题**：一个 `PairJob` 从两个源文件到相册可见，要按什么顺序过哪几道关口？失败和取消时磁盘上留下什么？
 - **读者**：要改字节层判断的人 / agent。**改 `MotionPhotoComposer` 之前先读这张图** —— 关口顺序本身就是设计，不是实现细节。
-- **范围**：as-built @ `52d0621`，2026-10-20。建模方式 `flow-visualizer` + `graphviz`。
+- **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览），2026-10-21。建模方式 `flow-visualizer` + `graphviz`。
 - **图源**：[compose-pipeline.dot](compose-pipeline.dot)（渲染产物 [compose-pipeline.svg](compose-pipeline.svg)，勿手改）。
 - **证据**：逐条断言见 [system-model.evidence.md](system-model.evidence.md)；本文只标关键行号。
 

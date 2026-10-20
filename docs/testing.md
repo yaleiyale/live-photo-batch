@@ -1,14 +1,14 @@
 # 测试与验证
 
 - **回答的问题**：哪些行为已经被钉死、钉在哪个测试里；哪些**只能靠真机**，验收该跑什么命令、看什么现象。
-- **范围**：as-built @ `52d0621`，2026-10-20。计数来自 `grep -c "@Test"`（全部是普通 `@Test`，没有 `@ParameterizedTest`/`@TestFactory`）。
+- **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览），2026-10-21。计数来自 `grep -c "@Test"`（全部是普通 `@Test`，没有 `@ParameterizedTest`/`@TestFactory`）。
 
-## 总览：183 条测试，三个 sourceSet
+## 总览：186 条测试，三个 sourceSet
 
 | sourceSet | 框架 | 条数 | 跑在哪 | CI 是否执行 |
 | --- | --- | --- | --- | --- |
-| `core/src/test` | JUnit 5 Jupiter（BOM 6.1.3），`useJUnitPlatform()` | **151** | 本机 JVM，不需要设备 | ✅ `:core:test` |
-| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **30** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest` |
+| `core/src/test` | JUnit 5 Jupiter（BOM 6.1.3），`useJUnitPlatform()` | **145** | 本机 JVM，不需要设备 | ✅ `:core:test` |
+| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **33** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest` |
 | `app/src/androidTest` | JUnit 4 + `AndroidJUnit4` / `AndroidJUnitRunner` | **8** | 真机/模拟器 | ❌ **只编译**（`assembleDebugAndroidTest`） |
 
 每个文件的方法数：
@@ -18,15 +18,15 @@ core:  BatchRunnerTest 23 · MotionPhotoComposerTest 21 · TrailerClassifierTest
        PairPlannerTest 13 · JpegXmpPatcherTest 13 · JpegStructureTest 12 · XmpPacketTest 12
        InMemoryStorageTest 10 · VivoLivePhotoTailTest 9 · TrailerModelTest 7
        SourcesTest 3 · MotionDetectorTest 2      （Fixtures / InMemoryStorage 是夹具，0 条）
-app:   BatchViewModelTest 11 · DirBrowserTest 13 · TouchedPathsForTest 4 · PermissionGateTest 2
+app:   BatchViewModelTest 11 · DirBrowserTest 16 · TouchedPathsForTest 4 · PermissionGateTest 2
 androidTest: FileStorageTest 8
 ```
 
 ## 命令
 
 ```bash
-./gradlew :core:test                     # 151 条，最快反馈，纯 JVM
-./gradlew :app:testDebugUnitTest         # 30 条 ViewModel / DirBrowser / PermissionGate
+./gradlew :core:test                     # 145 条，最快反馈，纯 JVM
+./gradlew :app:testDebugUnitTest         # 33 条 ViewModel / DirBrowser / PermissionGate
 ./gradlew :app:assembleDebug             # 产出 app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:assembleDebugAndroidTest   # CI 用它保证仪器化测试还能编译
 ./gradlew :app:connectedDebugAndroidTest  # 8 条契约测试，必须插着设备跑
@@ -84,7 +84,8 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | `touchedPathsFor`：每个 SUCCESS 产物 + 每个已删原文件；取消尾巴天然覆盖 | [TouchedPathsForTest.kt](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/TouchedPathsForTest.kt)（4 条） |
 | 收尾扫描在 `NonCancellable` 里送达；扫描未确认变成**可见的一行提示**而不是沉默；扫描器抛出不会卡死批次 | [BatchViewModelTest.kt:130](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/BatchViewModelTest.kt#L130)、[:291](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/BatchViewModelTest.kt#L291)、[:307](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/BatchViewModelTest.kt#L307) |
 | root 选择规则与 `FileStorage` 共享同一个谓词；越界快照静默拒绝 | [:273](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/BatchViewModelTest.kt#L273)、[:320](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/BatchViewModelTest.kt#L320) |
-| 目录浏览**只出一列**：预设别名替换真实子目录名、当前目录不列自己、没被预设提到的子目录仍然可达、嵌套预设（`相机 = DCIM/Camera`）当快捷方式补进来、别的根下的预设一律忽略、顺序稳定 | [DirBrowserTest.kt:104](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L104)、[:125](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L125)、[:139](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L139)、[:151](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L151)、[:165](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L165)、[:181](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L181) |
+| 目录浏览**只出一列**：预设只替换显示名、当前目录不列自己、没被预设提到的子目录仍然可达、**嵌套预设不得补成快捷方式**（`相机 = DCIM/Camera` 那条机制已撤销）、别的根下的预设一律不掺、顺序稳定 | [DirBrowserTest.kt:105](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L105)、[:126](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L126)、[:140](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L140)、[:152](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L152)、[:168](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L168)、[:184](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L184) |
+| 副标题 `displayPath`：根显示 `内部存储`、下级保持 `内部存储/DCIM/Camera`、**root 之外不改名**（那种路径选不了，改名就是骗人） | [DirBrowserTest.kt:201](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L201)、[:211](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L211)、[:219](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowserTest.kt#L219) |
 | 端口实现分叉点：`exists`/`delete` 对目录必须 false、`list` 排序与缺目录给空、root 不二次拼接、close 后字节完整 | [FileStorageTest.kt:94](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt#L94)、[:58](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt#L58)、[:73](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt#L73)、[:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt#L162)、[:144](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt#L144) |
 | 内存实现镜像同样几条契约（两侧对齐才有意义） | [InMemoryStorageTest.kt:48-83](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/livephotobatch/core/InMemoryStorageTest.kt#L48) |
 
@@ -102,6 +103,7 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | 进程被杀后的索引收敛 | 代码里如实写了"修不了"（[BatchViewModel.kt:104-105](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L104)） | 等 MediaStore 例行收敛 |
 | 性能（"100 张约 15 秒"只是动机） | 无计时测试 | 真机计时 |
 | 三条 gain map 声明串的实际覆盖 | 代码认三种拼法（连字符 / 冒号 / Adobe 旧命名空间，[TrailerModel.kt:46-50](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/TrailerModel.kt#L46)），但**只有冒号形态**被夹具真正走过（`urn:iso:std:iso:ts:21496:-1`，[Fixtures.kt:213](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/livephotobatch/core/Fixtures.kt#L213)）；另两种没有各自的用例 | 各补一条 `TrailerModelTest` |
+| 图标观感、启动入场时序、以及目录弹窗的**返回手势与换层滑动** | 验到的只有「XML 资源打进 APK（`aapt2 dump badging` 实测）+ 编译 + 178 条 JVM 测试绿 + `:app:lintDebug`」。圆形遮罩下会不会啃到图形、主题图标重染后齿孔还在不对对、logo 淡出与卡片上浮接不接得上、返回键是否真的先回上一级再到 root 才关窗、系统关掉动画时入场是否直接落位 —— 全部**未确认**，这批 UI 代码一条自动化测试都没有 | 装机看一次：桌面（含遮罩与主题图标切换）+ 冷启动 + 逐级进出目录 |
 | 非 vivo 厂商（OPPO/小米/Pixel）识别 | 只有 OPPO 作为**反例**被分析过 | 各厂商真机各跑一批 |
 
 ## 真机验收清单（改了字节层就必须重跑）

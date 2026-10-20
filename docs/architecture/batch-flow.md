@@ -2,7 +2,7 @@
 
 - **回答的问题**：操作者点下"开始合成"之后，一个批次按什么顺序经过哪些所有权边界？什么算成功，什么只是"索引还没跟上"？
 - **读者**：第一次接手这个仓库的人 / 要判断"改这里会影响端到端链路的哪一段"的 agent。
-- **范围**：as-built @ `52d0621`，2026-10-20。建模方式 `flow-visualizer` + `graphviz`。
+- **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览），2026-10-21。建模方式 `flow-visualizer` + `graphviz`。
 - **图源**：[batch-flow.dot](batch-flow.dot)（渲染产物 [batch-flow.svg](batch-flow.svg)，勿手改）。
 - **和另一张图的分工**：本文是**一批**的流程；**一项**内部怎么过八道关口，在 [compose-pipeline.md](compose-pipeline.md)。
 
@@ -10,9 +10,9 @@
 
 | 步 | 发生什么 | 归属 | 代码 |
 | --- | --- | --- | --- |
-| 1 | 首次打开：跳系统授权页要 `MANAGE_EXTERNAL_STORAGE`；vivo 上可能落不到系统页 → 退化成 Toast 手动指引 | `:app` → 系统 | [MainActivity.kt:36-47](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L36) |
-| 2 | 回前台 `onResume` 重读授权 —— 授权状态只能在运行时问，缓存会一直说谎 | `:app` | [MainActivity.kt:54-57](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L54) |
-| 3 | 选源/目标目录：全屏 `DirectoryPicker`，**只有一条列表**（`上一级` + 当前层条目，根上由 `mergedRootEntries` 并入预设别名）；`presets()`/`subdirs()` 在 `Dispatchers.IO` 上读，组合期只消费"已载入"的结果 | `:app` → 共享存储 | [BatchScreen.kt:270-344](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L270)、[DirBrowser.kt:92](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L92) |
+| 1 | 首次打开：跳系统授权页要 `MANAGE_EXTERNAL_STORAGE`；vivo 上可能落不到系统页 → 退化成 Toast 手动指引 | `:app` → 系统 | [MainActivity.kt:66-75](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L66) |
+| 2 | 回前台 `onResume` 重读授权 —— 授权状态只能在运行时问，缓存会一直说谎 | `:app` | [MainActivity.kt:82-85](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L82) |
+| 3 | 选源/目标目录：全屏 `DirectoryPicker`，**只有一条列表**（`上一级` + 当前层条目，根上由 `mergedRootEntries` 并入预设别名）；`presets()`/`subdirs()` 在 `Dispatchers.IO` 上读，组合期只消费"已载入"的结果 | `:app` → 共享存储 | [BatchScreen.kt:300-425](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L300)、[DirBrowser.kt:121](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L121) |
 | 4 | 开工快照：`running \|\| !isGranted()` 直接静默忽略；快照一旦取定，运行中禁改目录与删除开关 | `:app` | [BatchViewModel.kt:152-175](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L152) |
 | 5 | 全局前置校验：快照路径在 root 内 → 源目录可读 → 目标目录建得起来（`ensureDir` 抛出的 `IOException` 由这里兜住） | `:app` | [BatchViewModel.kt:189-207](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L189) |
 | 6 | `plan()`：`list(source)` + `list(target)` → `jobs` + `unpaired`，先让用户看到 `total` | `:core` | [BatchRunner.kt:59-60](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchRunner.kt#L59) |
@@ -58,9 +58,9 @@
 
 这一步**没有 API 可问**。代码对 MediaStore 的唯一调用只提交路径去扫描（[MediaStoreSync.kt:48](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MediaStoreSync.kt#L48)），"认不认"完全由字节布局 + XMP 目录决定，判据来自 vivo V2419A 上的真机单变量对照与二分实验（2026-10-18 ~ 2026-10-20，记录在 [motion-photo-container.md](../motion-photo-container.md)）。
 
-因此这张端到端图的最后一条边是**低置信**的，而且是系统的全部 183 条自动化测试覆盖不到的唯一实质风险面：
+因此这张端到端图的最后一条边是**低置信**的，而且是系统的全部 186 条自动化测试覆盖不到的唯一实质风险面：
 
-- 151 条 `:core` JVM 测试能证明字节布局符合我们自己钉下的规则；
+- 145 条 `:core` JVM 测试能证明字节布局符合我们自己钉下的规则；
 - 8 条仪器化测试能证明 `FileStorage` 满足端口契约；
 - 但没有任何测试能证明 vivo 相册认可这份布局 —— 那需要装机肉眼看。
 

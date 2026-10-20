@@ -2,7 +2,7 @@
 
 - **回答的问题**：这里为什么是这样？哪些地方**故意**不像一个普通 Android 项目，改动前必须知道的理由。
 - **读者**：要改这个仓库的人 / agent。看到"这里写得好怪"就先来这一页。
-- **范围**：as-built @ `52d0621`，2026-10-20。每条都能追溯到代码；被删掉的预构建设计稿不构成依据。
+- **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览），2026-10-21。每条都能追溯到代码；被删掉的预构建设计稿不构成依据。
 - **格式**：决定 → 为什么 → 代价。判据来自真机实验的地方都点名是哪一次实验。
 
 ## 1. 架构分层
@@ -11,7 +11,7 @@
 
 **决定**：字节层与批次层全在 `:core`，它只依赖 JDK（`kotlin.jvm` 插件 + JUnit），不知道 `java.io.File` 也不知道 Android。全部文件动作走 `BatchStorage`（7 个方法）+ `ChannelSource`（可反复 `open()`）。
 
-**为什么**：这是一次性拿到可测性的唯一办法 —— 151 条测试不需要设备，`PairPlanner`/`BatchRunner`/合成整条线都能在 JVM 上驱动。路径是字符串、分隔符固定 `/`，`ChannelSource` 表达"同一个文件要读两遍"，所以 `:core` 不需要真实路径抽象。
+**为什么**：这是一次性拿到可测性的唯一办法 —— 145 条测试不需要设备，`PairPlanner`/`BatchRunner`/合成整条线都能在 JVM 上驱动。路径是字符串、分隔符固定 `/`，`ChannelSource` 表达"同一个文件要读两遍"，所以 `:core` 不需要真实路径抽象。
 
 **代价**：端口契约成了**双语义风险面**——`exists`、`delete`、`openWrite` 的可见性、`list` 的排序在内存实现与 `FileStorage` 上各有一套天然行为，必须靠契约文字对齐（见 [system-model.md 的端口契约表](architecture/system-model.md#端口契约batchstorage-的-7-条方法级约定)）。任何一侧自行放宽都会让批次静默产出半截文件而**没有任何测试变红**。
 
@@ -121,7 +121,7 @@
 
 **为什么**：产物已经在最终名上了 —— 一个源文件没删掉是警告，不是失败。把它算失败会让用户重跑整批，而重跑又会撞上 `ALREADY_MOTION_PHOTO`。
 
-**代价**：报告里"成功但带警告"需要 UI 单独显示（橙色状态点 + 括号里的文件名列表，[BatchScreen.kt:349-368](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L349)）。
+**代价**：报告里"成功但带警告"需要 UI 单独显示（橙色状态点 + 括号里的文件名列表，[BatchScreen.kt:428-446](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L428)）。
 
 ### 4.2 `MALFORMED_JPEG` 刻意不算跳过
 
@@ -243,17 +243,53 @@
 
 **为什么**：状态只在批次协程（`Dispatchers.IO`）上被逐项推进，但主线程同时会写权限快照与删除开关；直接赋值会在竞争时**静默丢掉一方的更新**。`StateFlow` 本身线程安全，且相等的新值不重发。
 
-### 5.10 目录浏览只出一列，常用入口合进当前层而不是另起一段
+### 5.10 目录浏览只出一列，根上只给别名、不给快捷方式
 
-**决定**：`DirectoryPicker` 只渲染**一个** `SectionCard`、**一条**列表：`上一级`（有父级时）排在最前，后面就是这一层要显示的目录。在存储根那一级，由纯函数 [`mergedRootEntries`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L92) 把预设的中文别名（`Pictures → 图片`）与嵌套快捷方式（`相机 = DCIM/Camera`）并进真实子目录列表；顺序一律按显示名 `lowercase()` 码元自然序，**不给常用项开小灶**。
+**决定**：`DirectoryPicker` 只渲染**一个** `SectionCard`、**一条**列表：`上一级`（父级还在 root 之内时才有）排在最前，后面就是这一层要显示的目录。在存储根那一级，[`mergedRootEntries`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L123) 只做一件事 —— 把预设里的中文**别名**盖到真实子目录上（`Pictures → 图片`）；列表内容始终**只有 `subdirs(root)` 的真实子目录**，不补任何快捷方式。顺序一律按显示名 `lowercase()` 码元自然序，**不给常用项开小灶**。
 
-**为什么**：旧结构是"上面一坨预设入口、下面一坨当前层子目录"两段并列 —— 同一件事（"这个目录下能进哪儿"）被画成两个来源，用户要先判断哪一段才是当前层，这种设计在文件系统浏览器里也不常见。合并成一条之后，根上仍然一键到 `相机`，同时 `Documents`、`Music` 这些没被预设提到的目录**照旧可达**（这是合并而非删除的关键约束）。
+**为什么不两段并列**：旧结构是"上面一坨预设入口、下面一坨当前层子目录"，同一件事（"这个目录下能进哪儿"）被画成两个来源，用户要先判断哪一段才是当前层。
+
+**为什么把快捷方式撤掉**：曾有一条 `相机 = DCIM/Camera` 被提到根级别，画出来和真实目录一模一样，而文件管理里根本没有这么个根级条目 —— 看着就像凭空多出来的目录。撤掉之后到相机目录是两跳（`DCIM → Camera`），换来的是"列表里每一条都真的在那一层"。这条约束反过来也解释了 `Documents`、`Music` 为什么必须保留：它们是真实子目录，不能因为"不在预设里"就够不着。
 
 **代价**：
-- 排序按显示名，别名参与排序 → 中文别名与 ASCII 名混排时按码元序（`DCIM · Documents · Music · 下载 · 图片 · 相机 · 视频`），常用项不再固定在顶部。
-- `presets()` 的语义（六个候选 + 中文别名）现在只在"当前目录 == root"这一支被消费；它不再是一张独立清单。
-- 路径比较必须与主机分隔符无关：`canonical()` 用 `File.absoluteFile`、`isUnder()` 走祖先链，**不许**改回手写 `"$currentPath/"` 拼接，否则 Windows 上注入临时目录的用例会静默失真。
+- 排序按显示名，别名参与排序 → 中文别名与 ASCII 名混排时按码元序（`DCIM · Documents · Music · 下载 · 图片 · 视频`），常用项不再固定在顶部。
+- `presets()` 现在只是一张**根级别的别名表**（也不再含 root 自身那一条），不是一张独立清单。
+- 路径比较必须与主机分隔符无关：`canonical()` 用 `File.absoluteFile`，**不许**改回手写 `"$currentPath/"` 拼接，否则 Windows 上注入临时目录的用例会静默失真。代价是它**大小写敏感**，而共享存储挂载大小写不敏感：磁盘上叫 `download` 而预设写 `Download` 时别名不命中，会露出真实名。
 - UI 本身仍无自动化测试，钉住的是纯函数那一层（6 条用例，见 [testing.md](testing.md)）。
+
+**同一条决定的另一半 —— 返回手势先当"上一级"，换层用整层滑动**
+
+**决定**：目录弹窗里系统返回键**先当"上一级"用**，只有在 root（没有可去的父级）才关闭弹窗；换层用 `AnimatedContent` 做整层推入/弹出 + 淡入淡出，进子目录向左推、返回向右弹，与标题改动同一时刻发生（[BatchScreen.kt:372-398](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L372)）。时长与缓动复用 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L71) 那一套令牌，和冷启动入场是同一种手感。
+
+**为什么**：这是一台设备上的文件浏览器，"返回键直接把整个弹窗关掉"会让人反复重选层级；而方向感（向左=进深、向右=回退）是让列表可读的关键，尤其在只剩一列之后。`BackHandler` 必须放在 `IosSheet` 的 content 里 —— 那是 Dialog 自己的组合，返回键先落到它的 `OnBackPressedDispatcher`，放在 Activity 那层拦不到。
+
+**为什么 `上一级` 只在父级可选时出现**：root 之上（`/storage/emulated`）是实测定出来的死角 —— 那里读不出子目录，root 只剩一个"0"条目，是一条回不来的路。所以 root 这一级就是最顶层，既不给"再往上一级"的入口，返回键到这一层就直接关窗（[BatchScreen.kt:280-292](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L280)）。
+
+### 5.11 图标与启动过渡（2026-10-21 增量）
+
+**决定**：桌面图标是**纯 XML 的 adaptive icon**（`drawable/ic_launcher_foreground.xml` + `ic_launcher_background.xml`，`mipmap-anydpi-v26/ic_launcher.xml` 与 `_round.xml`），零 PNG；`<monochrome>` 层**直接复用前景层**；冷启动走 `androidx.core:core-splashscreen`（1.2.0，`:app` 唯一新增的 androidx 依赖），退出动画再由 `BatchScreen` 的交错入场接住。
+
+**为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:297](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L297)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
+
+**为什么 monochrome 复用前景层**：前景层本来就是纯白单色 + 透明孔（齿孔用 `fillType="evenOdd"` 挖成真透明，而不是涂成背景蓝）。涂成背景色的孔在 Android 13+ 主题图标里会被重染成实心块，孔就没了；而透明孔让**同一份文件**既能当 foreground 又能当 monochrome，少一份会各自漂移的副本。
+
+**尺寸边界不是审美**：adaptive 前景的安全区是居中 66×66，圆形遮罩内切半径 33。所有描边外缘到画布中心 `(54,54)` 的距离都控制在 33 以内（最远是相框左上角 ≈29.1、齿孔条右下角 ≈28.8），所以圆形 launcher 不会啃掉图形。
+
+**为什么 splash 与入场要分成两段**：系统 splash 管进程启动→首帧那段真空（这段 Compose 还没起来，做不了任何事），Compose 入场管首帧之后的衔接。`IosEntrance` 是它们之间的闸门：内容在 splash 退出动画放完之前停在 `alpha = 0`（[IosEntrance.kt:24](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosEntrance.kt#L24)），否则卡片在 logo 背后就演完了。
+
+**代价与两处刻意**：
+- `installSplashScreen()` 必须在 `super.onCreate()` **之前**（window 级的，晚一步拦不到首帧），并且随后**显式** `setTheme(Theme.LivePhotoBatch)`（[MainActivity.kt:36-40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L36)）。库自己会照 `postSplashScreenTheme` 恢复，但 API 30 走 compat、31+ 走系统两条分支，界面配色不该压在"这次落在哪条分支"上。
+- 入场有一条 **600ms 超时兜底**（[IosStyle.kt:86](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L86)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
+- 入场**不读** `Settings.Global.ANIMATOR_DURATION_SCALE`：那是一次跨进程查询，与 §5.3「组合期不碰 binder」冲突。用户在系统里关掉动画时这段会不会归零，**尚未装机确认**。
+
+### 5.12 `-v26` 这个"多余"的目录限定符不能删
+
+**决定**：图标目录保留 `res/mipmap-anydpi-v26/`，尽管 `minSdk 30` 让 lint 的 `ObsoleteSdkInt` 建议把它并成 `res/mipmap-anydpi`。
+
+**实测**：改名之后 `:app:processDebugResources` 直接失败 ——
+`AAPT: error: resource mipmap/ic_launcher not found`（`ic_launcher_round` 同），`:app:clean` 之后仍然如此，所以不是增量合并的缓存残留。改回 `-v26` 即通过，`aapt2 dump badging` 能解析出 `application: icon='res/mipmap-anydpi-v26/ic_launcher.xml'`。
+
+**结论**：这条 lint 建议在当前 AGP 9.4.1 / AAPT2 组合下会把构建搞坏，因此**不要照它改**。lint 里这一项是 information 级、不参与构建门槛（CI 不跑 lint），留着比全局 `disable += "ObsoleteSdkInt"` 好——后者会连带把 `PermissionGate.kt:46/51` 那两条"低于 API 30 的短路分支"也一起静音，而那是有意保留的双保险。
 
 ## 6. 构建与 CI
 
@@ -305,10 +341,13 @@
 | `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
 | `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
 | `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
-| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:52-57](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L52) | 收拢间距或删令牌 |
+| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L58) | 收拢间距或删令牌 |
 | 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L186) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegStructure.kt#L100) | 要提速先测 |
+| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 178 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
+| lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删) | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
+| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:187](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L187)、[:212](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L212) | 令牌 [`IosMotion`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L71) 已就位，改这两处即可对齐 |
 
 ## spec 引用索引
 

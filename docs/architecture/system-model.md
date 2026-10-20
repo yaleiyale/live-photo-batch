@@ -2,7 +2,7 @@
 
 - **这张图回答什么问题**：这个仓库的架构是什么 —— 边界在哪里、每个模块负责什么判断、一项批次任务怎么落地。不回答"该不该这么设计"（那在 [decisions.md](../decisions.md)）和"格式细则"（那在 [motion-photo-container.md](../motion-photo-container.md)）。
 - **读者**：第二次接手这个仓库的人 / 要改它的 agent。
-- **范围**：**as-built（代码现状）**，不是目标状态。基准提交 `52d0621`，采集日期 2026-10-20。
+- **范围**：**as-built（代码现状）**，不是目标状态。基准 `ff9ad98` + 工作区增量，采集 2026-10-20、刷新 2026-10-21。
 - **建模方式**：`system-modeler` + `c4model`（Structurizr DSL）+ `graphviz`（两张流程 DOT）。
 - **证据索引**：每条断言对应哪个文件哪一行、置信度多高，全部在 [system-model.evidence.md](system-model.evidence.md)。本文只写结论，不重复证据。
 - **读图顺序**：本文 → [SystemContext / Containers / CoreComponents / AppComponents 四个 C4 视图](live-photo-batch.structurizr.dsl) → [batch-flow.dot](batch-flow.dot)（一批的端到端）→ [compose-pipeline.dot](compose-pipeline.dot)（一项的八道关口）。
@@ -43,7 +43,7 @@ APK 之外只有三个东西，全部是设备本地的：
 | 并发模型是**顺序单线程**：一个协程跑完整批，没有并行合成 | [BatchViewModel.kt:174](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L174)、[BatchRunner.kt:95](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchRunner.kt#L95) |
 | 设备要求：`minSdk 30` / `targetSdk 36` / `compileSdk 37.0`，JVM 17；release 也用 debug 签名（内部工具，不发商店） | [app/build.gradle.kts:17-35](file:///D:/projects/piece/live-photo-batch/app/build.gradle.kts#L17) |
 
-`:core` 之所以值得单独一个构建单元，只有一个理由：**它能在没有设备的 JVM 上被测**（151 条测试，见 [testing.md](../testing.md)）。这不是分层仪式，是测试接缝。
+`:core` 之所以值得单独一个构建单元，只有一个理由：**它能在没有设备的 JVM 上被测**（145 条测试，见 [testing.md](../testing.md)）。这不是分层仪式，是测试接缝。
 
 ## L3 · `:core` —— 字节层面的判断全在这里
 
@@ -80,16 +80,16 @@ APK 之外只有三个东西，全部是设备本地的：
 
 | 组件 | 职责 | 位置 |
 | --- | --- | --- |
-| `MainActivity` | 唯一 Activity；`viewModelFactory` 造 VM；跳授权页失败退化成 Toast；`onResume` 回查授权；刻意**不**开 `enableEdgeToEdge()` | [MainActivity.kt:20](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L20) |
-| `BatchScreen` + `DirectoryPicker` | 单屏：权限提示、两个目录、危险开关、进度、逐项报告、全屏目录浏览弹窗（**只有一条列表**：`上一级` + 当前层条目）。目录读取在 `produceState` + `Dispatchers.IO`，**绝不发生在组合期** | [BatchScreen.kt:72](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L72)、[:270](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L270) |
-| `ui/IosControls` + `IosStyle` | 按 iOS「设置」分组列表自绘的控件层与令牌层（`IosColor`/`IosType`/`IosMetrics`/`IosColorScheme`）。图形用 Canvas 画，不引入矢量资源；状态全部提升 | [IosControls.kt:59](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L59)、[IosStyle.kt:17](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L17) |
+| `MainActivity` | 唯一 Activity；`installSplashScreen()` 在 `super.onCreate` **之前**、退出动画 220ms 淡出收缩后显式 `setTheme`；`viewModelFactory` 造 VM；跳授权页失败退化成 Toast；`onResume` 回查授权；刻意**不**开 `enableEdgeToEdge()` | [MainActivity.kt:25](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L25)、[:36-54](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MainActivity.kt#L36) |
+| `BatchScreen` + `DirectoryPicker` | 单屏：权限提示、两个目录、危险开关、进度、逐项报告、全屏目录浏览弹窗（**只有一条列表**：`上一级` + 当前层条目）。系统返回键**先当"上一级"用**，到 root 才关窗；换层用 `AnimatedContent` 整层推入/弹出+淡入淡出；别名与`上一级`都按**画出来的那一层**算，返回行、返回手势、列表说的是同一件事。目录读取在 `produceState` + `Dispatchers.IO`，**绝不发生在组合期** | [BatchScreen.kt:88](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L88)、[:280-292](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L280)、[:300](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L300)、[:344-352](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L344)、[:372-398](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L372) |
+| `ui/IosControls` + `IosStyle` + `ui/IosEntrance` | 按 iOS「设置」分组列表自绘的控件层与令牌层（`IosColor`/`IosType`/`IosMetrics`/`IosMotion`/`IosColorScheme`）。图形用 Canvas 画，不引入位图资源；状态全部提升。`IosEntrance` 是冷启动入场闸门：splash 退出前各段停在 alpha 0，退出后按 40ms 交错上浮，另有 600ms 超时兜底 | [IosControls.kt:59](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L59)、[IosStyle.kt:18](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L18)、[IosMotion:71](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L71)、[IosEntrance.kt:26-58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosEntrance.kt#L26) |
 | `BatchViewModel` | 批次所有权：开工快照 → 全局前置校验 → `plan()` → `run()` → 逐项 CAS 累积 `UiState` → `NonCancellable` 收尾扫描 | [BatchViewModel.kt:107](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L107) |
 | `PermissionGate` | `MANAGE_EXTERNAL_STORAGE` 门面；真值经注入的 `() -> Boolean` **每次现读**，低于 API 30 短路放行 | [PermissionGate.kt:35](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/perm/PermissionGate.kt#L35) |
-| `DirBrowser` + `mergedRootEntries` | 真文件系统目录浏览：只列可读、非点开头的子目录；绝不抛，只给空列表。纯函数 `mergedRootEntries` 把预设别名与嵌套快捷并进真实子目录，让根上也只画**一列** | [DirBrowser.kt:40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L40)、[:92](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L92) |
+| `DirBrowser` + `mergedRootEntries` + `displayPath` | 真文件系统目录浏览：只列可读、非点开头的子目录；绝不抛，只给空列表。纯函数 `mergedRootEntries` **只把预设的中文别名盖到真实子目录上**（`Pictures → 图片`），列表内容仍旧只有这一层的真实子目录 —— 曾经那条把 `相机 = DCIM/Camera` 提到根级的快捷方式机制已撤销，它看着像凭空多出来的目录。`displayPath` 只管**显示**：把存储根换成 `内部存储`、往下一级照原样跟着，root 之外的串不重命名（真路径仍旧喂给批次） | [DirBrowser.kt:69](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L69)、[:123-137](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L123)、[:19 与 :35](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L19)、[BatchScreen.kt:359-360](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L359) |
 | `FileStorage` | 端口的生产实现：`RandomAccessFile` + `FileChannel`、`close` 时 `force(true)` 再关、`move` 走 `rename(2)` 且不先删目标、`exists`/`delete` 一律先判 `isFile` | [FileStorage.kt:78](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L78) |
 | `MediaStoreSync` | 一次性把全部路径交给 `scanFile`，最多等 2 秒；绝不抛，但把"未确认"回报给 UI | [MediaStoreSync.kt:44](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MediaStoreSync.kt#L44) |
 
-`BatchViewModel` 有两个构造器注入的测试接缝（权限供应器、收尾扫描器），生产入口用 `Application` 构造（[BatchViewModel.kt:116-120](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L116)）；因此 `:app` 的 30 条本地单测不需要 Robolectric，也不新增依赖。
+`BatchViewModel` 有两个构造器注入的测试接缝（权限供应器、收尾扫描器），生产入口用 `Application` 构造（[BatchViewModel.kt:116-120](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L116)）；因此 `:app` 的 33 条本地单测不需要 Robolectric，也不新增依赖。
 
 ## 端口契约：`BatchStorage` 的 7 条方法级约定
 
@@ -134,9 +134,10 @@ APK 之外只有三个东西，全部是设备本地的：
 
 | 项 | 现状 | 怎么验 |
 | --- | --- | --- |
-| 相册是否把产物认成动态照片 | 判据来自真机单变量对照与二分（2026-10-18 ~ 2026-10-20，vivo V2419A），**当前 183 条测试没有一条能判它** | 装机跑一批，肉眼 + `adb` 查 MediaStore 条目 |
+| 相册是否把产物认成动态照片 | 判据来自真机单变量对照与二分（2026-10-18 ~ 2026-10-20，vivo V2419A），**当前 186 条测试没有一条能判它** | 装机跑一批，肉眼 + `adb` 查 MediaStore 条目 |
 | 现 XMP 包（1,057 字节那份）在真机上的接受度 | 夹具与断言已就位（[XmpPacketTest.kt:24-26](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/livephotobatch/core/XmpPacketTest.kt#L24)），注释明确要求重新装机验收 | 同上 |
 | 非 vivo 厂商（OPPO/小米/Pixel）的识别 | 只在 `TrailerClassifier` 的 64 位盒反例、`XmpPacket` 的 OPPO 反例里作为**反例**出现过；`VivoLivePhotoTail` 只认 vivo 末盒，其余厂商一律原样追加 | 各厂商真机各跑一批 |
+| 图标在真机上的观感与入场时序（圆形遮罩会不会啃到图形、主题图标重染后齿孔是否还在、logo 淡出与卡片上浮接不接得上、系统关掉动画时入场是否直接落位） | 验到的是「资源进包 + 编译 + 178 条测试 + lint」，视觉与手感一条都没验 | 装机看一次；`ANIMATOR_DURATION_SCALE` 的行为尤其要确认（入场代码刻意没读它，见 [decisions.md §5.11](../decisions.md#511-图标与启动过渡2026-10-21-增量)） |
 | 性能预算（"100 张约 15 秒"） | 只在注释里作为**动机**出现（[JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegStructure.kt#L100)），没有任何计时测试 | 真机计时 |
 | 跨卷 `move` 退化路径 | 代码里有（`copyTo` + `delete`），无测试覆盖 | 仪器化测试构造跨卷场景 |
 | `ByteArraySource` 住在 main sourceSet | 当前只有测试在用（[Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/Sources.kt#L20)） | 确认是否应移入 test，或留给未来的内存来源 |

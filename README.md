@@ -48,7 +48,7 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 
 `:core` 是纯 JVM 库，字节层面的判断全在里面；`:app` 只提供文件、权限、目录浏览、媒体扫描四类适配器
 加一屏 UI。两者的边界是**构建隔离**（`:core` 无 `import android`），不是进程边界 —— 打包成同一个 APK。
-`:core` 不知道 `java.io.File` 存在，全部文件动作走 `BatchStorage` 端口（7 个方法），所以 151 条测试
+`:core` 不知道 `java.io.File` 存在，全部文件动作走 `BatchStorage` 端口（7 个方法），所以 145 条测试
 不需要设备。批次是顺序单线程：一个协程、一条 `for`、一次一项、逐项回报。
 
 两张图看完全部：
@@ -72,10 +72,16 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 ## 开发
 
 ```bash
-./gradlew :core:test                    # 151 条纯 JVM 测试，最快的反馈
-./gradlew :app:testDebugUnitTest        # 30 条 ViewModel / DirBrowser / PermissionGate
+./gradlew :core:test                    # 145 条纯 JVM 测试，最快的反馈
+./gradlew :app:testDebugUnitTest        # 33 条 ViewModel / DirBrowser / PermissionGate
 ./gradlew :app:connectedDebugAndroidTest # 8 条端口契约测试，需要插设备（CI 只编译不执行）
+./gradlew :app:lintDebug                # CI 不跑；当前 9 条 information 级基线，含一条被迫保留的 -v26
 ```
+
+图标与启动：桌面图标是纯 XML 的 adaptive icon（零 PNG，`<monochrome>` 复用前景层，所以 Android 13+
+主题图标自动接管）；冷启动走 `androidx.core:core-splashscreen`，logo 淡出后由 `BatchScreen` 的各段
+交错上浮接住（同一套 220ms 令牌，带 600ms 超时兜底，绝不让界面停在 alpha 0）。理由与代价见
+[docs/decisions.md §5.11-5.12](docs/decisions.md)。
 
 要求：JDK 17、Android SDK（`compileSdk 37.0`、`platforms;android-37.0`）。`local.properties` 里写 `sdk.dir`。
 
