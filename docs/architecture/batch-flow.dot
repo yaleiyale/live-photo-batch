@@ -1,0 +1,72 @@
+// 端到端一批：从侧载 APK 到相册能播（as-built @ 52d0621）
+// skill: flow-visualizer + graphviz   evidence: docs/architecture/system-model.evidence.md
+// 渲染：node render.mjs batch-flow.dot batch-flow.svg   （或 dot -Tsvg batch-flow.dot -o batch-flow.svg）
+// 读法：自上而下 = 时间顺序；虚线 = 只在失败/取消时走；黄色 = 磁盘事实已定、只是索引新鲜度
+digraph batch_end_to_end {
+    graph [
+        rankdir=TB,
+        fontname="Segoe UI",
+        label="一批动态照片：授权 → 选路径 → 预览总数 → 逐项落地 → 收尾扫描 → 相册识别\n蓝=外部系统  绿=:core 字节层  灰=设备运行时  黄=尽力而为的收尾  红=整批被拒绝",
+        labelloc=t,
+        fontsize=13,
+        nodesep=0.4,
+        ranksep=0.55,
+        pad="0.2"
+    ];
+    node [fontname="Segoe UI", shape=box, style="rounded,filled", fontsize=11, fillcolor="#f2f2f2", margin="0.16,0.10"];
+    edge [fontname="Segoe UI", fontsize=10];
+
+    op [label="操作者\n侧载 app-debug.apk，在唯一一屏上操作", shape=ellipse, fillcolor="#dce9f7"];
+    grant [label="系统设置授权页\nACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION", shape=ellipse, fillcolor="#dce9f7"];
+    store [label="共享存储 /storage/emulated/0\n源：DCIM/Camera 里的 IMG_x.jpg + IMG_x.mp4\n汇：Pictures/LivePhoto 里的 x_MP.jpg + .tmp/*.part", shape=cylinder, fillcolor="#dce9f7"];
+    album [label="MediaStore / 相册\n产物立刻可见、被删原文件的幽灵条目消失", shape=cylinder, fillcolor="#dce9f7"];
+
+    subgraph cluster_app {
+        label=":app · Android 进程（UI + 四类适配器）";
+        style=dashed;
+        color="#2a5d9f";
+        fontname="Segoe UI";
+        perm [label="PermissionGate.granted()\n每次现读 Environment.isExternalStorageManager()\n低于 API 30 短路放行 —— 不缓存"];
+        pick [label="选路径：DirBrowser + DirectoryPicker\npresets()/subdirs() 在 Dispatchers.IO 上读，绝不发生在组合期\nroot 之外能看不能选（isSelectable 与 FileStorage.resolve 同一条判定）"];
+        startGate [label="开始合成的前置：permissionGranted && !running\n运行中禁改目录与删除开关（批次用的是开工快照）"];
+        vm [label="BatchViewModel.runBatch（单个协程，Dispatchers.IO）\n快照 → 全局前置 → plan → run → 收尾扫描"];
+        fs [label="FileStorage(root)\nBatchStorage 的生产实现：RandomAccessFile + rename(2)"];
+        scan [label="MediaStoreSync.scan(paths)\n一次性全部路径 + 最多等 2 秒；绝不抛，只回报确认与否"];
+    }
+
+    subgraph cluster_core {
+        label=":core · 纯 JVM（字节层面的判断全在这里）";
+        style=dashed;
+        color="#1f6f5c";
+        fontname="Segoe UI";
+        plan [label="PairPlanner.plan(source, target)\n驱动集 = IMG_*.mp4 → jobs(x_MP.jpg) + unpaired\n按 stem 码元自然序，与设备语言无关", fillcolor="#cfe9cf"];
+        loop [label="BatchRunner.run\n逐项：取消标志 → composeOne → onItem\nunpaired 先出，不碰文件；单项失败不中断批次", fillcolor="#cfe9cf"];
+        compose [label="compose-pipeline.dot 那条线\n八道关口 → 搬运 → 清空白写的 XMP → 末盒规整", fillcolor="#cfe9cf"];
+        report [label="BatchReport(items, composedBytes, cancelled)\nUiState: done/total/bytes/items 逐项 CAS 累加", shape=ellipse, fillcolor="#dce9f7"];
+    }
+
+    globalErr [label="整批被拒绝 → UiState.globalError 一行，不进报告列表\n源目录不存在或不可读 / 目标目录建不起来（ensureDir 抛 IOException，刻意让它逃）/ 协程意外中断", fillcolor="#ffd9d9"];
+    hint [label="尽力而为的收尾未确认 → 同样借 globalError 提示一行\n磁盘事实已定（产物与被删原文件），受影响的只是相册索引的新鲜度\n残余：进程被杀 → 只能等 MediaStore 自己例行收敛（真机验收项）", fillcolor="#fff2c2"];
+    truth [label="验收判据：相册把 x_MP.jpg 当动态照片播放\n由字节布局 + XMP 目录决定，没有任何 API 可问\n只有真机能判 —— 145 条 JVM 测试与 8 条仪器化测试都测不到它", shape=note, fillcolor="#fff2c2"];
+
+    op -> grant [label="首次授权"];
+    grant -> perm [label="回到前台 onResume 回查", style=dotted];
+    op -> pick
+    op -> startGate
+    perm -> startGate [label="没授权 = 按钮禁掉，且 start() 静默拒绝"]
+    pick -> vm [label="setSource / setTarget / setDeleteOriginals"]
+    startGate -> vm [label="start()"]
+    vm -> plan [label="runner.plan(options)\n先给用户看到 total"]
+    plan -> store [label="list(sourceDir) / list(targetDir)", style=dotted]
+    vm -> loop
+    loop -> compose
+    compose -> fs [label="open / openWrite / move / delete\n只经 BatchStorage 端口"]
+    fs -> store [label="读两个源，写 .part，rename 成最终名，可选删原文件"]
+    compose -> report
+    report -> vm [label="onItem 回调驱动进度"]
+    vm -> scan [label="finally：touchedPathsFor(targetDir, items)\n在 NonCancellable 块里"]
+    scan -> album [label="每个 SUCCESS 产物 + 每个已删原文件的绝对路径"]
+    album -> truth [style=invis];
+    vm -> globalErr [style=dotted, label="前置失败", color="#b00020"];
+    scan -> hint [style=dotted, label="返回 false 或抛出", color="#b36b00"];
+}

@@ -1,0 +1,83 @@
+// 一项的生命周期：BatchRunner.composeOne + MotionPhotoComposer.compose（as-built @ 52d0621）
+// skill: flow-visualizer + graphviz   evidence: docs/architecture/system-model.evidence.md
+// 渲染：node render.mjs compose-pipeline.dot compose-pipeline.svg   （或 dot -Tsvg compose-pipeline.dot -o compose-pipeline.svg）
+// 图例：蓝=进出数据 黄=提交后的警告 红=失败出路 绿=提交点 灰虚线框=阶段边界
+digraph compose_one_item {
+    graph [
+        rankdir=TB,
+        fontname="Segoe UI",
+        label="一项从 PairJob 到 ItemResult：八道关口（全过之前对 sink 一个字节不写）→ 搬运 → rename 提交点 → 删原文件\n蓝=进出数据  黄=提交后的警告  红=失败出路  绿=提交点",
+        labelloc=t,
+        fontsize=13,
+        nodesep=0.35,
+        ranksep=0.5,
+        pad="0.2"
+    ];
+    node [fontname="Segoe UI", shape=box, style="rounded,filled", fontsize=11, fillcolor="#f2f2f2", margin="0.16,0.10"];
+    edge [fontname="Segoe UI", fontsize=10];
+
+    job [label="PairPlanner 产出的一个 PairJob\nstem / x.jpg / IMG_x.mp4 / 输出 x_MP.jpg / outputExists", shape=ellipse, fillcolor="#dce9f7"];
+    cancelGate [label="每一项之前查一次 CancelToken\nunpaired 行与 job 行都算一项\n取消只在项与项之间生效 → 绝不留半截 .part", shape=note, fillcolor="#eaeaea"];
+    nopair [label="plan.unpaired：有 IMG_x.mp4 却无同名图像\nNO_PAIR + SKIPPED，不碰任何文件\n因此也不为它 ensureDir", shape=note, fillcolor="#eaeaea"];
+
+    io [label="FAILED(IO_ERROR)\n来源打不开、通道写坏、任何 Exception\n都折成这一条；deleteQuietly(.part)，批次继续", fillcolor="#ffd9d9"];
+    fail [label="SKIPPED 或 FAILED(reason)\n先无条件 deleteQuietly(.part)\nbytes = 0，不进 composedBytes", fillcolor="#ffd9d9"];
+    moved [label="FAILED(IO_ERROR) + deleteQuietly(.part)\n最终名上什么都没有，原文件一律不动", fillcolor="#ffd9d9"];
+
+    commit [label="★ 提交点：rename 成功的一刻本项当场提交\nItemResult(SUCCESS, totalBytes = 源图搬运 + 新APP1 + 写出的视频字节)", fillcolor="#cfe9cf"];
+    del [label="deleteOriginals 勾选时：依次删 x.jpg、删 IMG_x.mp4\n各自带守卫，返回 false 与抛出是同一种结果"];
+    warn [label="删除失败只补记录：\ndeleteFailures（文件名 → UI 警告）\ndeletedSources（绝对路径 → 收尾扫描）\n没有任何路径能回改写 SUCCESS", shape=note, fillcolor="#fff2c2"];
+
+    report [label="onItem(item) → BatchRunner 累积 BatchReport\n(items, composedBytes 只累加 SUCCESS, cancelled)", shape=ellipse, fillcolor="#dce9f7"];
+    sync [label="批次收尾（:app）\ntouchedPathsFor = 每个 SUCCESS 产物 + 每个 deletedSources\n→ MediaStoreSync.scan，NonCancellable + Dispatchers.IO，最多等 2 秒", fillcolor="#dce9f7"];
+
+    subgraph cluster_gates {
+        label="校验与规划阶段 —— 被拒的项对 sink 一个字节都不写";
+        style=dashed;
+        color="#7a7a7a";
+        fontname="Segoe UI";
+        g1 [label="① 视频头：读文件开头 16 字节\n前 12 字节内出现 ftyp？否 → NOT_MP4"];
+        g2 [label="② 图像：JpegScanner 按 marker 走段\nSOI 不对 → NOT_JPEG；段长或熵数据不收敛 → MALFORMED_JPEG\n绝不搜 FFD9 字节序列 —— 视频里合法地会出现"];
+        g3 [label="③ 分块扩展 XMP（xmp/extension/）\n→ EXTENDED_XMP_UNSUPPORTED（不做处理）"];
+        g4 [label="④ 尾巴探针：从 imageEnd 读 min(16, 尾巴长) 字节\n长度自洽检查因此有上界可验"];
+        g5 [label="⑤ TrailerClassifier.classify\n源 XMP 声明过 Motion Photo 或 video/ ，\n或这段字节本身是 ISO-BMFF（含 64 位扩展长度）\n→ ALREADY_MOTION_PHOTO（唯一 SKIPPABLE）\ngain map 副图 / 厂商 JSON / 零填充一律放行"];
+        g6 [label="⑥ TrailerModel.describe：沿尾巴自己的 marker 走完一遍\n真副图 → gainMapBytes = 整条尾巴\n其余一切形状（含畸形副图）→ paddingBytes = 整条尾巴\n降级而非报错：声明成 Padding 永远合法，本步永不抛"];
+        g7 [label="⑦ VivoLivePhotoTail.plan(video)\n末盒 com.android.camera.livephoto 值加 motionphoto 前缀\n看不懂 → null → videoBytes == video.size()，产物与原样追加逐字节相同"];
+        g8 [label="⑧ XmpPacket.app1Segment 清空白写\n包体大于 65533 字节 → EXTENDED_XMP_UNSUPPORTED\ngainMap 与 padding 同时非 null → IllegalStateException，刻意不兜（上游不变量）"];
+        g1 -> g2 -> g3 -> g4 -> g5 -> g6 -> g7 -> g8;
+    }
+
+    subgraph cluster_write {
+        label="写入阶段 —— 目标目录/.tmp 下的 .part（打开即 truncate，半途可见是文件系统事实）";
+        style=dashed;
+        color="#7a7a7a";
+        fontname="Segoe UI";
+        w1 [label="JpegXmpPatcher.patch(trailerEnd = 文件大小)\n源图[0, 旧XMP起点) + 新 APP1 + 源图[旧XMP终点, 文件大小)\n新段写回旧段原位；旧段靠「读掉不写」丢弃；尾巴整条搬走"];
+        w2 [label="copyVideo：前 verbatimBytes 原样 64 KiB 一块流式追加\n再接重写后的末盒（若有）\n视频里所有 stco/co64 的 chunk 偏移因此仍然有效"];
+        w3 [label="close() 成功返回 → .part 上的全部字节完整可见"];
+        w1 -> w2 -> w3;
+    }
+
+    job -> g1;
+    cancelGate -> job [style=dotted, label="每个 job 之前"];
+    cancelGate -> nopair [style=dotted, label="每个 unpaired 之前"];
+    g1 -> w1 [label="全过", color="#1f6f5c"];
+    g1 -> io [style=dotted, label="读失败", color="#b00020"];
+    g1 -> fail [style=dotted, label="NOT_MP4", color="#b00020"];
+    g2 -> fail [style=dotted, label="NOT_JPEG / MALFORMED_JPEG", color="#b00020"];
+    g3 -> fail [style=dotted, label="EXTENDED_XMP_UNSUPPORTED", color="#b00020"];
+    g5 -> fail [style=dotted, label="ALREADY_MOTION_PHOTO → SKIPPED", color="#b00020"];
+    g8 -> w1 [label="全过", color="#1f6f5c"];
+    g8 -> fail [style=dotted, label="EXTENDED_XMP_UNSUPPORTED", color="#b00020"];
+    w3 -> commit [label="storage.move(.part → 最终名) 成功", color="#1f6f5c"];
+    w3 -> moved [style=dotted, label="move 返回 false", color="#b00020"];
+    w1 -> io [style=dotted, label="写入阶段 IOException\nsink 里实打实留着半截文件", color="#b00020"];
+    commit -> del;
+    del -> warn [style=dotted, label="只补记录"];
+    commit -> report;
+    warn -> report;
+    moved -> report;
+    fail -> report;
+    io -> report;
+    report -> sync [label="整批结束后一次"];
+}

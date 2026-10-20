@@ -1,0 +1,331 @@
+# 设计裁定与刻意的偏离
+
+- **回答的问题**：这里为什么是这样？哪些地方**故意**不像一个普通 Android 项目，改动前必须知道的理由。
+- **读者**：要改这个仓库的人 / agent。看到"这里写得好怪"就先来这一页。
+- **范围**：as-built @ `52d0621`，2026-10-20。每条都能追溯到代码；被删掉的预构建设计稿不构成依据。
+- **格式**：决定 → 为什么 → 代价。判据来自真机实验的地方都点名是哪一次实验。
+
+## 1. 架构分层
+
+### 1.1 `:core` 是纯 JVM 库，文件动作只有一个端口
+
+**决定**：字节层与批次层全在 `:core`，它只依赖 JDK（`kotlin.jvm` 插件 + JUnit），不知道 `java.io.File` 也不知道 Android。全部文件动作走 `BatchStorage`（7 个方法）+ `ChannelSource`（可反复 `open()`）。
+
+**为什么**：这是一次性拿到可测性的唯一办法 —— 151 条测试不需要设备，`PairPlanner`/`BatchRunner`/合成整条线都能在 JVM 上驱动。路径是字符串、分隔符固定 `/`，`ChannelSource` 表达"同一个文件要读两遍"，所以 `:core` 不需要真实路径抽象。
+
+**代价**：端口契约成了**双语义风险面**——`exists`、`delete`、`openWrite` 的可见性、`list` 的排序在内存实现与 `FileStorage` 上各有一套天然行为，必须靠契约文字对齐（见 [system-model.md 的端口契约表](architecture/system-model.md#端口契约batchstorage-的-7-条方法级约定)）。任何一侧自行放宽都会让批次静默产出半截文件而**没有任何测试变红**。
+
+证据：[BatchStorage.kt:5-12](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L5)、[Sources.kt:14-18](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/Sources.kt#L14)、[core/build.gradle.kts:1-9](file:///D:/projects/piece/live-photo-batch/core/build.gradle.kts#L1)。
+
+### 1.2 纯字节搬运，不解码不转码
+
+**决定**：源 JPEG 整文件进产物，视频原始字节追加；只有 XMP 那一段被替换。
+
+**为什么**：真机单变量对照里，**重编码过的主图不被 vivo 相册认**。另外这条路线能做到常数内存、不需要解码器、不损失原始画质与 HDR 副图。
+
+**代价**：产物里带着厂商副图与记录，格式判断（尾巴定性）变复杂；我们放弃了"清理一遍元数据"的机会。
+
+证据：[MotionPhotoComposer.kt:24-34](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/MotionPhotoComposer.kt#L24)、[JpegXmpPatcher.kt:20-24](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegXmpPatcher.kt#L20)。
+
+## 2. 配对与命名
+
+### 2.1 驱动集是视频，不是图像
+
+**决定**：只有 `IMG_*.mp4` 会去找同名 JPEG；普通照片**连候选都不是**，不产"缺视频"记录。`Missing` 枚举只剩 `IMAGE`。
+
+**为什么**：以 JPEG 驱动时，真机第一批 54 项里 **28 项**是"这张图没有配对视频"的噪声，既刷长报告也说明不了任何问题。
+
+**代价**：`x.jpg` + `y.mp4`（名字不同）这种输入永远静默无输出，用户看不出来。目前接受，因为相机产物的命名本就是同名。
+
+证据：[PairPlanner.kt:22-29](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L22)、[:15-18](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L15)。
+
+### 2.2 `IMG_` 前缀硬编码
+
+**决定**：视频候选必须以 `IMG_` 开头（大小写不敏感）。
+
+**为什么**：相册目录里还躺着录屏、下载的短视频、微信保存的 mp4；vivo/Google/小米相机动态照片一律 `IMG_<时间戳>.mp4`。
+
+**代价**：非相机来源（改名过的、第三方 App 存的）不会被处理。`VIDEO_PREFIX` 是常量而不是参数 —— 想放宽就改 [PairPlanner.kt:69](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L69)。
+
+### 2.3 排序用码元自然序，且**不许改成大小写无关**
+
+**决定**：`jobs` 与 `unpaired` 按 `String.compareTo` 升序，不走 locale collator。后果：`'B'(0x42) < '_'(0x5F) < 'a'(0x61)`，且 `IMG_10` 排在 `IMG_2` 之前。
+
+**为什么**：与设备语言无关 + UI 的稳定顺序依赖它。同 stem 双候选"取第一个"也要求两次列出同一目录得到同一个列表。
+
+**代价**：相册顺序不等同于拍摄顺序，数字编号看起来"乱"。这是刻意的。
+
+证据：[PairPlanner.kt:51-56](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/PairPlanner.kt#L51)、[BatchStorage.kt:17-22](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L17)。
+
+## 3. 字节与元数据
+
+### 3.1 XMP 清空重写，不合并源包
+
+**决定**：产物里唯一那份 XMP 从清空白写生成，源包的 `hdrgm:*`、`dc:*`、厂商命名空间、源片自己的容器项**一个不掺**。
+
+**为什么**：真机单变量对照判的就是这个 —— 同一个包、同一个视频，清空白写的那份被认，从源包合并的那份不认。**读源包正是上一版掺脏东西的入口**。
+
+**代价**：不做时间戳沿用（两个 `*PresentationTimestampUs` 固定 `-1`）；第三方样本写 `0`，但 `0` 的语义是"从第 0 微秒播"，与"未提供"不是一回事，没有真机依据前不改。
+
+证据：[XmpPacket.kt:27-32](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L27)、[:65-69](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L65)。
+
+### 3.2 字段集合按规范正文写，厂商样本只当反例
+
+**决定**：`Primary Item:Length="0"`、`Padding` 只写在第一项、视频项必须正好结束在 EOF —— 判据是 Motion Photo 1.0 **规范原文**。OPPO 那份文件在这里只作为反例存在（它声明了不存在的副图、让视频项没结束在 EOF、三项都写 `Padding`）。
+
+**为什么**：`2026-10-19e` 第一次改错了方向（为了"对齐厂商样本"动序列化形状），已回退。规范那一页只有属性表与散文，**没有任何示例 XMP 包**，所以 `<rdf:li>` 与 `parseType="Resource"`、属性顺序都不产生规范性差异。
+
+**代价**：我们的形状和任何一家的都不完全一样；如果将来某个相册按字符串匹配读，这条裁定要重新检验。
+
+证据：[XmpPacket.kt:33-53](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L33)。
+
+### 3.3 `GainMap.Length` 用整条尾巴，不用副图诚实内长
+
+**决定**：声明成 GainMap 时，`Length` = EOI 之后的**整条**尾巴（含副图之后的厂商记录）。
+
+**为什么**：规范只给第一项 `Padding`，副图与视频之间没有别的合法字段。诚实内长会留下一段没人声明的字节，违反"紧密封装"MUST —— 二选一取合规的那个。
+
+**代价**：`Length` 数值不等于"那张副图 JPEG 的大小"，读代码的人会觉得奇怪；`Description.innerJpegBytes` 保留诚实内长只供诊断与测试留档，目录里的 `Length` **不用它**。
+
+证据：[TrailerModel.kt:12-15](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/TrailerModel.kt#L12)、[XmpPacket.kt:110-113](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/XmpPacket.kt#L110)。
+
+### 3.4 畸形尾巴降级成 Padding，而不是报错
+
+**决定**：`TrailerModel.describe` 对任何输入都不抛：不是 JPEG、非副图的第二张 JPEG、厂商 JSON、零填充、**遍历不收敛的畸形副图** → 整条声明成主图 `Padding`。
+
+**为什么**：把尾巴声明成 Padding 永远合法，而**把一张坏图谎称 GainMap 才是骗目录**。
+
+**代价**：坏输入不再被拒绝，产出的文件里那一段字节被声明成"主图后面的填充"。真 I/O 故障仍由后续搬运阶段报 `IO_ERROR`，这里不抢那个分类。
+
+### 3.5 只改读得懂的字节（vivo 末盒）
+
+**决定**：`VivoLivePhotoTail.plan` 只在能完整验证末盒形状与自洽性时改写，否则返回 `null`，产物与"原样追加"逐字节相同。
+
+**为什么**：真机二分（2026-10-20）证明 `livephoto` 值必须以 `motionphoto` 开头这一台机器才认，而相机自己写的是数字开头的 id —— 原样追加必然不认。但**不伪造、不强改**：非 vivo 的视频里没有这个结构，改它就是猜。
+
+**代价**：其他厂商机型可能整批不被认，且不会报错、不会有任何提示。这是刻意的保守。
+
+证据：[VivoLivePhotoTail.kt:8-24](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/VivoLivePhotoTail.kt#L8)。
+
+### 3.6 `check` 还是 `require`：不变量与输入形状必须分开
+
+**决定**：`gainMapBytes`/`paddingBytes` 互斥用 `check`（`IllegalStateException`）；APP1 超长用 `require`（`IllegalArgumentException`）。合成器**只**把 `IllegalArgumentException` 折成 `EXTENDED_XMP_UNSUPPORTED`。
+
+**为什么**：前者是**上游不变量被违反**（定性出错），后者是真·输入上限。两者混在一个类型里，`catch` 会把"我们自己算错了"报成"这张图不支持"，把调查方向彻底指错（`ddc0af3` 修的就是这条）。
+
+## 4. 批次语义
+
+### 4.1 提交点是 `rename`，删除失败只是警告
+
+**决定**：`rename` 成功的一刻本项**当场提交**，`SUCCESS` 与字节数在 `commit()` 第一行定死；之后删原文件失败只进 `deleteFailures`，没有任何路径能回改写状态。
+
+**为什么**：产物已经在最终名上了 —— 一个源文件没删掉是警告，不是失败。把它算失败会让用户重跑整批，而重跑又会撞上 `ALREADY_MOTION_PHOTO`。
+
+**代价**：报告里"成功但带警告"需要 UI 单独显示（橙色状态点 + 括号里的文件名列表，[BatchScreen.kt:349-368](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchScreen.kt#L349)）。
+
+### 4.2 `MALFORMED_JPEG` 刻意不算跳过
+
+**决定**：只有 `ALREADY_MOTION_PHOTO`（和计划层的 `NO_PAIR`）算 `SKIPPED`，其余拒绝全算 `FAILED`。
+
+**为什么**：`JpegScanner` 会把 `IOException` 折叠成 Malformed。若把 Malformed 算跳过，**真实磁盘故障会被埋进"坏文件"里**。
+
+证据：[BatchRunner.kt:184-187](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchRunner.kt#L184)。
+
+### 4.3 取消只查在项与项之间
+
+**决定**：`CancelToken` 是标志，不靠协程取消掐断循环；每一项之前查一次，unpaired 行也算一项。
+
+**为什么**：正在写的项必须走完 rename 或删除，**绝不留半截 `.part`**。同时一个开局就取消的批次不该把整屏 `NO_PAIR` 推给 UI 之后还报告 `cancelled = false`。
+
+**代价**：取消响应粒度是一项的时间（大图可能几秒）。
+
+### 4.4 全局前置失败与单项失败分两个通道
+
+**决定**：源不可读 / 目标建不起来 / 批次意外中断 → `UiState.globalError` 一行，**不进报告列表**；单项问题 → 报告列表一行。
+
+**为什么**：spec §9 的意图是"输出目录建不起来不是某一张图失败"。把它塞进报告会让用户以为只是几张图出问题。`FileStorage.ensureDir` 因此**刻意抛 `IOException`** 并让 `BatchRunner.run` 放它逃出去。
+
+**代价**：收尾扫描的提示也必须借 `globalError` 这个通道（`UiState` 形状被计划钉死，没有新字段可去）—— 这是一个如实记录的妥协，不是设计。
+
+证据：[FileStorage.kt:54-58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L54)、[BatchViewModel.kt:33-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L33)。
+
+### 4.5 `openWrite` 的可见性不对称：写进契约，不去"修"它
+
+**决定**：契约只承诺 **`close()` 成功返回后**字节完整可见，`close()` 之前不作任何保证。`FileStorage` 打开即 truncate，半途可见是文件系统事实。
+
+**为什么**：真实文件系统做不到"关闭才可见"。可见性由调用方保证 —— `BatchRunner` 先写 `.part`、`close`、再 `move`，靠 `rename(2)` 完成发布。这一层再"顺手"加临时名/改名只会把这个不对称挪个地方，还让 `move` 的替换语义变含混。
+
+**代价**：内存实现与真实实现行为不同（内存 close 才发布），测试无法暴露"半途可见"这类问题。
+
+证据：[BatchStorage.kt:54-61](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L54)、[FileStorage.kt:40-52](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L40)。
+
+### 4.6 `move` 绝不先删目标
+
+**决定**：直接 `renameTo`（→ `rename(2)`，同卷对已存在目标本就是原子替换）；只有 rename 失败才退化 `copyTo(overwrite=true)` + `delete`，且**源删不掉不把结果翻成 false**。
+
+**为什么**：先删会开出"旧产物已经没了、新产物还没就位"的窗口，中途崩溃或被媒体扫描撞上就永久丢掉上一版产物。退化路径里 `copyTo` 成功而 `src.delete()` 失败若返回 false，`BatchRunner` 会报 FAILED 并再删一次 `.part` —— 于是"失败但产物存在"，比留一个没人认领的 `.part` 糟糕得多。
+
+证据：[BatchStorage.kt:68-75](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/BatchStorage.kt#L68)、[FileStorage.kt:120-142](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L120)。
+
+### 4.7 顺序单线程，不并行合成
+
+**决定**：一个协程、一条 `for`，一次一项。
+
+**为什么**：瓶颈是磁盘顺序读写与 rename，并行只会让 `.part` 与删除交错、让取消语义变复杂；逐项报告与 `done/total` 进度天然是顺序模型。
+
+**代价**：大目录慢。真要提速，先测再改（目前没有任何计时测试）。
+
+## 5. `:app` 侧
+
+### 5.1 三个共享 root 字符串的类必须一起改
+
+**决定**：`BatchViewModel.DEFAULT_ROOT = "/storage/emulated/0"`（**不带尾斜杠、绝不空**）同时喂 `FileStorage(root)`、`DirBrowser(root)`，且 `isSelectable()` 照抄 `FileStorage.resolve()` 的判定。
+
+**为什么**：root 带尾斜杠或为空时，`"/storage/emulated/0"` 本身会被当相对路径二次拼接成 `/storage/emulated/0/storage/emulated/0` —— `list(root)` 静默返回空（用户以为"这个目录没有文件"），`ensureDir(root)` 在真实存储里种一棵垃圾树。
+
+**代价**：一个跨三个类的隐式约定，只能靠注释与测试守。
+
+证据：[FileStorage.kt:60-66](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/io/FileStorage.kt#L60)、[BatchViewModel.kt:74-82](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L74)、[FileStorageTest.kt:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/livephotobatch/app/io/FileStorageTest.kt#L162)。
+
+### 5.2 "能浏览"比"能选"宽，且批次用同一个谓词再守一遍
+
+**决定**：`DirBrowser` 只看 `startsWith("/")`，root 之外的 `/sdcard`、`/storage/emulated` 照样能浏览；`BatchScreen` 靠 `isSelectable` 禁掉"选这里"，`runBatch` 开头**再查一次同一个谓词**。
+
+**为什么**：那种串喂给 `FileStorage.resolve()` 会被重新拼到 root 之下，选了就等于把批次指向另一个目录。第二次检查把"UI 用的谓词"和"批次真正读写的路径"钉死成同一个，防止两条判定将来漂移分叉。
+
+### 5.3 权限、目录读取都不许发生在组合期
+
+**决定**：授权状态由 VM 构造、`onResume`、`LaunchedEffect` 三处推进；`presets()`/`subdirs()`/`File.parentFile` 全在 `produceState` + `Dispatchers.IO` 里。
+
+**为什么**：`isExternalStorageManager()` 是一次 binder 调用，组合期读它会在批次逐项回报时拖慢主线程；`remember` **只是缓存，不是副作用护栏** —— 槽位恢复和被丢弃的重组都会重新执行它的 lambda。
+
+### 5.4 报告列表刻意不用 `LazyColumn`
+
+**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`。
+
+**为什么**：在里面再嵌一个纵向 `LazyColumn` 会带无限高度去测量，Compose 直接抛 `"Vertically scrollable component was measured with an infinity maximum height constraints"`。报告最多几百行，够用。
+
+### 5.5 自绘 iOS 分组列表，而不是 Material3 控件
+
+**决定**：`ui/IosControls` + `IosStyle` 自己画 `SectionCard`/`DetailRow`/`SwitchRow`/`StatusRow`/`IosSheet`/`IosButton`/`ThinProgressBar`，图形用 Canvas 画不引入矢量资源；`MaterialTheme` 仍保留但只为了 `Text` 兜底色与 `Dialog` 表面色（[themes.xml](file:///D:/projects/piece/live-photo-batch/app/src/main/res/values/themes.xml) 也只对齐页面底色与系统栏）。
+
+**为什么**：外观按 iOS「设置」的分组卡片重排（`fcb9d48`）。破坏性开关刻意用系统红而不是 iOS 默认绿。
+
+**代价**：**没有 `@Preview`**（`compose-ui-tooling` 在依赖表里但没人用），且这批 UI 代码**一条自动化测试都没有**；设计令牌之外还有散落的魔法数字（开关 51/31/27 dp、导航栏 52 dp、`hairline 0.6 dp` 之外的 9/6/14/28 dp 内边距）。改这里只能靠装机肉眼看。
+
+### 5.6 不开 `enableEdgeToEdge()`
+
+**决定**：`MainActivity` 不调它，`BatchScreen` 自己在窗口层用 `WindowInsets.safeDrawing` 避让。
+
+**为什么**：真机（targetSdk 36 + API 37）本来就强制 edge-to-edge，再叠一层只会把已审过的 insets 行为改掉。底色必须铺到状态栏底下，否则顶部一条系统给的接缝。
+
+### 5.7 媒体扫描：一次性、2 秒上限、非主线程、绝不抛但回报
+
+**决定**：整批结束后一次 `scanFile` 全部路径；`CountDownLatch.await(2s)`；只能从 `Dispatchers.IO` 调；返回确认信号并把失败打进 logcat。
+
+**为什么**：只要"别留幽灵条目"这个最终效果，不关心逐条确认；`await` 阻塞的是**调用线程**，而 `onScanCompleted` 回调投递到主线程 —— 在主线程等必然等满 2 秒并顺手 ANR。"绝不抛"是因为扫描是尽力而为的收尾；"绝不静默"是因为这条不变量一旦被藏起来就没人知道相册为什么没更新。
+
+证据：[MediaStoreSync.kt:11-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/MediaStoreSync.kt#L11)。
+
+### 5.8 收尾扫描放在 `NonCancellable` 里
+
+**决定**：`finally { withContext(NonCancellable + Dispatchers.IO) { 扫描; running = false } }`。
+
+**为什么**：§7.6 的不变量不该指望"没人取消这个协程"。实测：外层 scope 在扫描挂起时被取消，NonCancellable 块仍完整执行。
+
+**代价（如实记录的两个残余）**：① 批次协程**还没被线程启动**就碰上 scope 已取消 → 整个协程体连 finally 都不执行（此刻零文件效果，代价只是 `running` 卡在 true，而 ViewModel 已销毁）；② **进程被杀** → 协程、NonCancellable、扫描一起死，索引只能等 MediaStore 自己例行收敛。两者都"JVM 测不到/修不了"。
+
+证据：[BatchViewModel.kt:99-106](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L99)、[:223-249](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/BatchViewModel.kt#L223)。
+
+### 5.9 状态写入一律 `update { }`（CAS）
+
+**决定**：不用 `value = value.copy(...)`。
+
+**为什么**：状态只在批次协程（`Dispatchers.IO`）上被逐项推进，但主线程同时会写权限快照与删除开关；直接赋值会在竞争时**静默丢掉一方的更新**。`StateFlow` 本身线程安全，且相等的新值不重发。
+
+### 5.10 目录浏览只出一列，常用入口合进当前层而不是另起一段
+
+**决定**：`DirectoryPicker` 只渲染**一个** `SectionCard`、**一条**列表：`上一级`（有父级时）排在最前，后面就是这一层要显示的目录。在存储根那一级，由纯函数 [`mergedRootEntries`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/browse/DirBrowser.kt#L92) 把预设的中文别名（`Pictures → 图片`）与嵌套快捷方式（`相机 = DCIM/Camera`）并进真实子目录列表；顺序一律按显示名 `lowercase()` 码元自然序，**不给常用项开小灶**。
+
+**为什么**：旧结构是"上面一坨预设入口、下面一坨当前层子目录"两段并列 —— 同一件事（"这个目录下能进哪儿"）被画成两个来源，用户要先判断哪一段才是当前层，这种设计在文件系统浏览器里也不常见。合并成一条之后，根上仍然一键到 `相机`，同时 `Documents`、`Music` 这些没被预设提到的目录**照旧可达**（这是合并而非删除的关键约束）。
+
+**代价**：
+- 排序按显示名，别名参与排序 → 中文别名与 ASCII 名混排时按码元序（`DCIM · Documents · Music · 下载 · 图片 · 相机 · 视频`），常用项不再固定在顶部。
+- `presets()` 的语义（六个候选 + 中文别名）现在只在"当前目录 == root"这一支被消费；它不再是一张独立清单。
+- 路径比较必须与主机分隔符无关：`canonical()` 用 `File.absoluteFile`、`isUnder()` 走祖先链，**不许**改回手写 `"$currentPath/"` 拼接，否则 Windows 上注入临时目录的用例会静默失真。
+- UI 本身仍无自动化测试，钉住的是纯函数那一层（6 条用例，见 [testing.md](testing.md)）。
+
+## 6. 构建与 CI
+
+### 6.1 不 apply `org.jetbrains.kotlin.android`
+
+**决定**：`:app` 只声明 `android.application` + `kotlin.compose`；Kotlin 编译选项写在 `android { }` 同级的 `kotlin { compilerOptions { … } }`。
+
+**为什么**：AGP 9.0 起 Kotlin 支持内置在 AGP 里，再声明那个插件会被 KGP 直接拒绝加载（本地 `:app:tasks` 实测），而 `version.ref = "kotlin"` 还会撞上 "plugin is already on the classpath with an unknown version"。
+
+### 6.2 `compileSdk 37.0` 但 `targetSdk 36`
+
+**决定**：升 compileSdk（`compileSdkMinor = 0`，因为 SDK 仓库里 37 只有 `android-37.0`/`android-37.1` 两个包名），targetSdk 不动。
+
+**为什么**：compose-bom 2026.09.00（→ compose 1.12.1）与 lifecycle 2.11.0 的 AAR 元数据要求"compile against version 37 or later"，AGP 的建议动作就是升 37。**AAR 检查只管 compileSdk，运行时行为不该被一条依赖约束牵着走。**
+
+证据：[app/build.gradle.kts:13-19](file:///D:/projects/piece/live-photo-batch/app/build.gradle.kts#L13)。
+
+### 6.3 CI 不用 `android-actions/setup-android@v3`
+
+**决定**：直接 `sdkmanager` 装 `build-tools;36.0.0` 与 `platforms;android-37.0`，其中 `platforms;android-37.0` **不允许失败**，备用名继续容忍。
+
+**为什么**：该 action 默认 packages 里的 `tools` 早已被 Google 从 SDK 仓库删掉，sdkmanager 直接 exit 1（某次 run 的 apk job 在 Gradle 启动前就挂了）。而硬依赖装不上必须让这一步红，不能跟着循环一起被容忍 —— 否则后果只是 Gradle 在后面报一堆难读的 "no matching platform"。
+
+证据：[build.yml:27-45](file:///D:/projects/piece/live-photo-batch/.github/workflows/build.yml#L27)。
+
+### 6.4 仪器化测试只编译不执行
+
+**决定**：CI 跑 `:app:assembleDebugAndroidTest` 但不在 CI 里跑它。
+
+**为什么**：没有设备农场；`FileStorageTest` 是契约测试，人工在 vivo V2419A 上跑。
+
+**代价**：端口实现与内存实现的分叉风险**不在 CI 的守备范围里** —— 见 [testing.md](testing.md)。
+
+### 6.5 release 包由 CI 直接产出，签名沿用 debug key
+
+**决定**：`apk` job 在 `assembleDebug` 之后追加 `:app:assembleRelease`，并上传 `live-photo-batch-release` 产物；不引入 keystore secret，release 仍走 `signingConfigs.getByName("debug")`。
+
+**为什么**：这是一台设备上用的侧载工具，"能装、能覆盖 debug 包"就是需求；把密钥材料塞进仓库或 CI 变量换不来任何收益，反而多一处会泄漏的东西。要出正式签名版时再建 secret，工作流里只引用名字。
+
+**代价**：release 产物**不可上商店**；`minifyEnabled = false`，所以它和 debug 包体积几乎一样（实测 23 MB），"release" 在这里只意味着不走 debug build type。
+
+证据：[app/build.gradle.kts:31-34](file:///D:/projects/piece/live-photo-batch/app/build.gradle.kts#L31)、[.github/workflows/build.yml:46-55](file:///D:/projects/piece/live-photo-batch/.github/workflows/build.yml#L46)。
+
+## 7. 已知技术债（下次动这片之前先读）
+
+| 项 | 现状 | 建议 |
+| --- | --- | --- |
+| 代码里 **49 处 `spec §…` / `增补 …` 引用**指向已删除的设计稿 | 悬空引用（见下面的索引） | 要么把设计稿作为历史归档恢复并标"已废弃"，要么把 KDoc 引用改指本文档 |
+| `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
+| `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
+| `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
+| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:52-57](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosStyle.kt#L52) | 收拢间距或删令牌 |
+| 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/livephotobatch/app/ui/IosControls.kt#L186) | 进 `IosMetrics` |
+| 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
+| 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/livephotobatch/core/JpegStructure.kt#L100) | 要提速先测 |
+
+## spec 引用索引
+
+代码 KDoc 里的 `spec` 引用现在指向**已删除**的 `docs/superpowers/specs/2026-10-17-live-photo-batch-android-design.md`（`38bd595` 退役）与其 plan（`52d0621` 删除）。下表把仍有效的 section 号映射到本文档体系；`as-built` 与旧设计稿冲突时**以代码 + 本文档为准**。
+
+| KDoc 里的引用 | 讲的规则 | 现在写在哪 |
+| --- | --- | --- |
+| `spec §2`（含 `G5`） | 紧密封装 MUST、常数内存预算 | [容器规则 §3/§4](motion-photo-container.md#3-xmp-包产物里唯一的元数据)、性能未知项见 [system-model.md](architecture/system-model.md#未知与低置信区下一步要验的) |
+| `spec §7.2` | JPEG 按 marker 遍历规则（FF 填充串、`FF00` 转义、`RSTn`） | [合成流水线 关口②](architecture/compose-pipeline.md#阶段一八道关口全过之前对-sink-一个字节不写) |
+| `spec §7.3` | 源无 XMP 段时插在 SOI 之后 | [容器规则 §2](motion-photo-container.md#为什么尾巴必须留xmp-必须回原位) |
+| `spec §7.4`（含 `.4/.5/.6`） | 校验顺序与输入约定 | [合成流水线 阶段一](architecture/compose-pipeline.md#阶段一八道关口全过之前对-sink-一个字节不写) + [容器规则 §1](motion-photo-container.md#1-命名与配对) |
+| `spec §7.5` | `.part` 无条件清理、单项失败不中断批次 | [合成流水线 阶段三](architecture/compose-pipeline.md#阶段三三条出路且三条都执行-part-清理) |
+| `spec §7.6` | 每个产物 + 每个已删原文件都必须到达媒体扫描 | [端到端 步 9 与四条路](architecture/batch-flow.md#主路径同步顺序单协程)、不变量见 [system-model.md](architecture/system-model.md#数据与状态) |
+| `spec §9` | 全局前置条件 vs 单项失败；取消语义；面向用户的中文短语 | [端到端 四条路](architecture/batch-flow.md#失败与退出的四条路) + 本页 [§4.4](#44-全局前置失败与单项失败分两个通道) |
+| `增补（2026-10-18）§1` | 只有视频形状的尾巴才算"已合成过" | [容器规则 §4](motion-photo-container.md#4-尾巴声明矩阵eoi-与视频之间不留一个没人声明的字节) |
+| `增补（2026-10-18c）§1` | 尾巴必须搬进产物 | [容器规则 §2](motion-photo-container.md#2-字节布局) |
+| `增补（2026-10-18c）§2` | XMP 清空重写 | [容器规则 §3](motion-photo-container.md#3-xmp-包产物里唯一的元数据) |
+| `增补（2026-10-18d）§2/§3` | 每一段字节都要被声明；尾巴定性为 GainMap/Padding | [容器规则 §4](motion-photo-container.md#4-尾巴声明矩阵eoi-与视频之间不留一个没人声明的字节) |
+| `增补（2026-10-19e）` | 容器项字段集合以规范正文为准，序列化形式不具规范性 | 本页 [§3.2](#32-字段集合按规范正文写厂商样本只当反例) |
+| `Task N` 编号（散落在 KDoc） | 原实现计划的步骤号 | 已失效，仅作历史线索；不要再据它推断需求 |
