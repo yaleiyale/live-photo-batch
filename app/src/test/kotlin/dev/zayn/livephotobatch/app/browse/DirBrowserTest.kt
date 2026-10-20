@@ -1,6 +1,7 @@
 package dev.zayn.livephotobatch.app.browse
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -148,17 +149,19 @@ class DirBrowserTest {
         root.deleteRecursively()
     }
 
-    @Test fun `a nested preset becomes a shortcut on the root level`() {
+    @Test fun `a nested preset is not added as a shortcut`() {
         val root = freshRoot()
         val here = root.absolutePath
-        // 相机 = DCIM/Camera is a grandchild, so it can never come out of subdirs(here).
+        // 相机 = DCIM/Camera is a grandchild. It used to be pulled up to the root level as a
+        // shortcut and looked exactly like a real folder that no file manager shows, so the whole
+        // shortcut mechanism was removed: the root list is the real children and nothing else.
         val merged = mergedRootEntries(
             listOf(item(here, "DCIM", label = "DCIM"), item(here, "DCIM", "Camera", label = "相机")),
             listOf(item(here, "DCIM", label = "DCIM")),
             here,
         )
-        assertEquals(listOf("DCIM", "相机"), merged.map { it.name })
-        assertEquals(File(File(root, "DCIM"), "Camera").absolutePath, merged.last().absolutePath)
+        assertEquals(listOf("DCIM"), merged.map { it.name })
+        assertEquals(1, merged.size)
         root.deleteRecursively()
     }
 
@@ -190,5 +193,39 @@ class DirBrowserTest {
         assertEquals(listOf("Beta", "图片"), once.map { it.name })
         assertEquals(once, twice)
         root.deleteRecursively()
+    }
+
+    // ---- displayPath: the sheet's subtitle form. Literal 内部存储 on purpose — it is what the
+    // user reads, so a renamed constant must not silently change this expectation. ----
+
+    @Test fun `subtitle labels the storage root instead of printing its raw path`() {
+        val root = freshRoot()
+        assertEquals("内部存储", displayPath(root.absolutePath, root.absolutePath))
+        // Trailing separators and mixed forms are the same directory; the label must not depend
+        // on which one the caller happened to hold.
+        assertEquals("内部存储", displayPath("${root.absolutePath}/", root.absolutePath))
+        assertEquals("内部存储", displayPath(root.absolutePath, "${root.absolutePath}/"))
+        root.deleteRecursively()
+    }
+
+    @Test fun `subtitle keeps the levels below the root under the label`() {
+        val root = freshRoot()
+        val nested = File(File(root, "DCIM"), "Camera")
+        assertEquals("内部存储/DCIM", displayPath(File(root, "DCIM").absolutePath, root.absolutePath))
+        assertEquals("内部存储/DCIM/Camera", displayPath(nested.absolutePath, root.absolutePath))
+        root.deleteRecursively()
+    }
+
+    @Test fun `a path outside the root is not relabelled`() {
+        // The picker can still show such a path (it just cannot be picked), so pretending it is
+        // under 内部存储 would be a lie, not a simplification.
+        val root = freshRoot()
+        val elsewhere = freshRoot()
+        File(elsewhere, "DCIM").mkdirs()
+        val shown = displayPath(File(elsewhere, "DCIM").absolutePath, root.absolutePath)
+        assertEquals(File(elsewhere, "DCIM").absoluteFile.path, shown)
+        assertFalse(shown.startsWith("内部存储"))
+        root.deleteRecursively()
+        elsewhere.deleteRecursively()
     }
 }
