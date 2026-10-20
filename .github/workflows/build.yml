@@ -43,8 +43,14 @@ jobs:
           for p in "platforms;android-37" "platforms;android-37.1"; do
             "$SDKM" "$p" || echo "not in repository: $p"
           done
-      - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon
+      - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest :app:assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: live-photo-batch-debug
           path: app/build/outputs/apk/debug/*.apk
+      # release 走的是 signingConfigs.getByName("debug")（app/build.gradle.kts 的 buildTypes.release），
+      # 所以这个包能侧载、能与 debug 包互相覆盖安装，但不能上商店。
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-photo-batch-release
+          path: app/build/outputs/apk/release/*.apk
