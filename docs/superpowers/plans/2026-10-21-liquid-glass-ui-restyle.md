@@ -1111,7 +1111,9 @@ fun IosSheet(
 }
 ```
 
-新增 import：`androidx.compose.foundation.layout.PaddingValues`、`androidx.compose.foundation.layout.asPaddingValues`、`androidx.compose.foundation.layout.calculateBottomPadding`、`androidx.compose.foundation.layout.calculateLeftPadding`、`androidx.compose.foundation.layout.calculateRightPadding`、`androidx.compose.foundation.layout.calculateTopPadding`、`androidx.compose.ui.platform.LocalLayoutDirection`、`dev.chrisbanes.haze.hazeSource`、`dev.chrisbanes.haze.rememberHazeState`。
+新增 import：`androidx.compose.foundation.layout.PaddingValues`、`androidx.compose.foundation.layout.asPaddingValues`、`androidx.compose.ui.platform.LocalLayoutDirection`、`dev.chrisbanes.haze.hazeSource`、`dev.chrisbanes.haze.rememberHazeState`。
+
+**实测校正（Task 6 撞过两次）：`calculateTopPadding` / `calculateBottomPadding` / `calculateLeftPadding` / `calculateRightPadding` 是 `PaddingValues` 的成员方法，不是顶层扩展函数，import 它们会直接编译失败；`verticalScroll` 也没有 `contentPadding` 形参，padding 要挂在它之后的 `Modifier.padding(paddingValues = …)` 上。**
 
 两条必须一起做的删除，否则顶栏糊不到东西：
 
