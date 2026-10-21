@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -248,24 +250,6 @@ fun BatchScreen(
                 )
             }
 
-            Spacer(Modifier.height(IosMetrics.sectionGap))
-
-            // 没授权就点不动：spec §9 把权限列为全局前置条件，别让人先按下开始再收一条错误。
-            Column(Modifier.iosEnter(5, entrance).padding(horizontal = IosMetrics.screenMargin)) {
-                IosButton(
-                    text = stringResource(R.string.action_start),
-                    enabled = state.permissionGranted && !state.running,
-                    onClick = vm::start,
-                )
-                Spacer(Modifier.height(12.dp))
-                IosButton(
-                    text = stringResource(R.string.action_cancel),
-                    enabled = state.running,
-                    style = IosButtonStyle.Secondary,
-                    onClick = vm::cancel,
-                )
-            }
-
             state.globalError?.let { message ->
                 Spacer(Modifier.height(IosMetrics.sectionGap))
                 SectionCard(modifier = Modifier.iosEnter(6, entrance), color = s.noticeBackground) {
@@ -391,10 +375,60 @@ fun BatchScreen(
                         style = s.title,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 76.dp),
+                        // 主屏顶栏两侧没有按钮，不需要弹窗那种 action reserve；标题只按「横向缺口 +
+                        // 页边距」内缩，这样既躲得开刘海/挖孔，又不把标题凭空挤窄。
+                        modifier = Modifier.padding(
+                            start = insets.calculateLeftPadding(layoutDirection) + IosMetrics.screenMargin,
+                            end = insets.calculateRightPadding(layoutDirection) + IosMetrics.screenMargin,
+                        ),
                     )
                 }
             }
+        }
+
+        // 开始 / 取消从滚动流里搬到这条常驻栏：位置不能跟着内容跳，主操作要一直够得着；
+        // 整条 bar 是这一区域唯一的那块玻璃，两颗按钮只加自己的 tint，绝不再各糊一层（spec §1.1）。
+        Row(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                // 与内容层同一道 640dp 封顶：折叠屏上 bar 不会比卡片宽出一截。
+                .widthIn(max = 640.dp)
+                .padding(
+                    start = insets.calculateLeftPadding(layoutDirection) + IosMetrics.screenMargin,
+                    end = insets.calculateRightPadding(layoutDirection) + IosMetrics.screenMargin,
+                )
+                // bar 自己的落点：只抬「导航 inset + 8dp 间距」。这半段和内容层用的是同一个 insets
+                // 对象，两处数字才不会再各算各的、慢慢飘开。
+                .padding(bottom = insets.calculateBottomPadding() + IosMetrics.barBottomGap)
+                .iosEnter(5, entrance)
+                // 圆角必须显式传 glassRadius：贴边的两条 bar 走默认 0dp 直角，底部这条要读作连续圆角。
+                .iosGlassBar(glass = glass, state = haze, radius = IosMetrics.glassRadius)
+                // 上下各 12dp + 50dp 按钮 = IosMetrics.barContentHeight(74dp)，所以 bar 的整块占位正好是
+                // barBottomGap + barContentHeight；内容层 verticalScroll 之后那份 PaddingValues 的 bottom
+                // 用的是同一组 token，最后一张卡片才恰好停在 bar 上沿之上、不被永久遮挡。
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IosButton(
+                text = stringResource(R.string.action_start),
+                // 没授权就点不动：spec §9 把权限列为全局前置条件，别让人先按下开始再收一条错误。
+                enabled = state.permissionGranted && !state.running,
+                onClick = vm::start,
+                // 宽度靠 weight 分，不写死 dp：主操作占大头，随语言/字号自动伸缩。
+                modifier = Modifier.weight(1f),
+            )
+            // 两颗按钮之间只用这 12dp 撑开，不给按钮定死宽度。
+            Box(Modifier.width(12.dp))
+            IosButton(
+                text = stringResource(R.string.action_cancel),
+                // 未运行时禁用而不是隐藏：用户要一直看得见「现在能不能取消」（沿用原实现语义）。
+                enabled = state.running,
+                style = IosButtonStyle.Secondary,
+                onClick = vm::cancel,
+                // 取消比开始窄，但两种语言的字宽不同，所以同样只给比例不给 dp。
+                modifier = Modifier.weight(0.45f),
+            )
         }
     }
 

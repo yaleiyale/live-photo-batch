@@ -202,6 +202,11 @@ object IosMetrics {
     val collapseRange: Dp = 56.dp
     /** 弹窗顶栏比主屏高一点：它要同时装下标题与整条路径的副标题（原本是 52.dp 的 Box）。 */
     val sheetBarHeight: Dp = 52.dp
+    /**
+     * 弹窗顶栏左右各留这么多净空：标题要让位给「关闭 / 选择」两颗文字按钮，否则会被压在下面。
+     * 这是弹窗专属——主屏顶栏两侧没有按钮，拿它当页边距只会把标题挤窄，还躲不开横向缺口。
+     */
+    val sheetBarActionReserve: Dp = 76.dp
 }
 
 /**
