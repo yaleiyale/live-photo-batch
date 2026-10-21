@@ -3,7 +3,6 @@ package dev.zayn.vlive.perm
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 
@@ -26,11 +25,11 @@ import android.provider.Settings
  * root 契约被建立时的入口（用户在 UI 上跳系统页 → 回到 `granted()==true` → 才允许
  * `FileStorage("/storage/emulated/0")` 开工），所以在此把契约写死以防被误改。
  *
- * ## 短路与 API 30
- * `of(context)` 的 lambda 用 `Build.VERSION.SDK_INT < Build.VERSION_CODES.R || ...`：低于
- * API 30 时短路，`Environment.isExternalStorageManager()`（API 30 才有）根本不会被调用，
- * minSdk 30 只是双保险。注意 API 常量必须写 `Build.VERSION_CODES.R`，
- * 不是 `Build.VERSION.R`（后者不存在）。
+ * ## 为什么这里没有 API 判定
+ * `minSdk = 31`，`Environment.isExternalStorageManager()`（API 30 起有）无条件可用，所以
+ * 曾经那句 `Build.VERSION.SDK_INT < R ||` 短路已经删掉。曾经留着它的理由是"minSdk 30 的双保险"，
+ * 那条理由随 minSdk 一起没了（见 docs/decisions.md §5.12 的更新与 §5.20）。
+ * 注意 API 常量若要再写，得是 `Build.VERSION_CODES.R`，不是不存在的 `Build.VERSION.R`。
  */
 class PermissionGate(private val isManager: () -> Boolean) {
     /** 委托给注入的提供器，每次调用都重新求值——不缓存。 */
@@ -38,26 +37,19 @@ class PermissionGate(private val isManager: () -> Boolean) {
 
     companion object {
         /**
-         * 生产用的薄工厂：读 `Environment.isExternalStorageManager()`，低于 API 30 直接放行。
+         * 生产用的薄工厂：直接读 `Environment.isExternalStorageManager()`，无条件、无分支。
          * 参数 `context` 保留以匹配调用点（未来若要按包名查询可在此展开），当前不读取。
          */
         @Suppress("UNUSED_PARAMETER")
         fun of(context: Context): PermissionGate = PermissionGate {
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
+            Environment.isExternalStorageManager()
         }
 
         /** vivo 上可能落不到系统页，调用方需在跳转后回查 granted()（spec R2）。 */
         fun requestIntent(context: Context): Intent =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Intent(
-                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:${context.packageName}"),
-                )
-            } else {
-                Intent(
-                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:${context.packageName}"),
-                )
-            }
+            Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:${context.packageName}"),
+            )
     }
 }

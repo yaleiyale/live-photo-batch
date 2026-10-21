@@ -13,11 +13,11 @@
 
     <!--
       冷启动那一帧的主题（manifest 的 android:theme 指它）。父类 Theme.SplashScreen 来自
-      androidx.core:core-splashscreen，所以它不是 Android 12+ 专属，API 30 也走同一套。
+      androidx.core:core-splashscreen，它不是 Android 12+ 专属；API 31 上落到的正是系统那条分支。
       windowSplashScreenBackground 走 @color/grouped_background：夜态由 values-night 换成纯黑，
       与 Compose 的 IosDarkPalette 同一个值，所以 splash 消失的一瞬不会有底色接缝。
       postSplashScreenTheme 指回运行时主题；MainActivity 仍在 onCreate 里再显式 setTheme 一次，
-      不把这件事交给库在 API 30/31 两条分支里的恢复逻辑。
+      不把这件事交给库在 API 31 系统分支里的恢复逻辑。
 
       刻意**没有** `windowSplashScreenIconBackgroundColor`：它原本是给"某条渲染路径丢掉 drawable
       自带的蓝底方块"买的保险，装机实测证明要防的那件事没有发生（蓝底方块一直在），而它会在图标背后

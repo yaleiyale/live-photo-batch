@@ -34,8 +34,8 @@ class MainActivity : ComponentActivity() {
         // 必须在 super.onCreate 之前装 splash：它是 window 级的，晚一步就拦不到首帧。
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
-        // 显式换回运行时主题。库自己也会照 postSplashScreenTheme 恢复，但 API 30 走 compat、
-        // 31+ 走系统两条分支，界面配色不该压在"这次落在哪条分支"上。
+        // 显式换回运行时主题。`core-splashscreen` 在 31+ 走系统分支；显式 `setTheme` 保留，
+        // 是为了不把恢复时机压在库的内部行为上。
         setTheme(R.style.Theme_Vlive)
         // logo 淡出 + 轻微收缩，落点交给 BatchScreen 的交错入场接住（同一条 220ms 时长）。
         splash.setOnExitAnimationListener { splashView ->

@@ -105,7 +105,7 @@ CI 有两个工作流、三个 job。[build.yml](file:///D:/projects/piece/live-
 
 | 检查 | 命令 | 现在验到了什么 |
 | --- | --- | --- |
-| 两条语言都没有漏 key、没有硬编码文案 | `./gradlew :app:lintDebug` 后读 `app/build/reports/lint-results-debug.sarif` | `MissingTranslation` / `ExtraTranslation` / `MissingQuantity` / `HardcodedText` **全部 0 条**。基线剩 12 条信息级（`MonochromeLauncherIcon` ×2 是[刻意撤销的 monochrome 层](decisions.md#511-图标与启动过渡2026-10-21-增量)、`ObsoleteSdkInt` ×3 里含[不能删的 `-v26`](decisions.md#512--v26-这个多余的目录限定符不能删)） |
+| 两条语言都没有漏 key、没有硬编码文案 | `./gradlew :app:lintDebug` 后读 `app/build/reports/lint-results-debug.sarif` | `MissingTranslation` / `ExtraTranslation` / `MissingQuantity` / `HardcodedText` **全部 0 条**。基线剩 9 条信息级（`MonochromeLauncherIcon` ×2 是[刻意撤销的 monochrome 层](decisions.md#511-图标与启动过渡2026-10-21-增量)、`ObsoleteSdkInt` ×1 就是[不能删的 `-v26`](decisions.md#512--v26-这个多余的目录限定符不能删)；`minSdk` 抬到 31 删掉两条短路分支前是 12 条，见 [§5.20](decisions.md#520-minsdk-抬到-31真模糊的门槛也是它带走了分支2026-10-21-增量)） |
 | 英文确实是**默认配置**、中文是 `zh` 限定 | `aapt2 dump resources app/build/outputs/apk/debug/app-debug.apk` | `string/action_cancel` → `() "Cancel"` / `(zh) "取消"`；`plurals/report_summary_warning` → 默认两档 `one`/`other`，`(zh)` 只 `other` |
 | 冷启动那一帧在深色下是黑的、图标底色的蓝不跟着翻 | 同上 | `color/grouped_background` → `() #fff2f2f7` / `(night) #ff000000`；`color/icon_background` → **只有 `() #ff007aff`**（没有 night 变体，正是设计要的效果）；`style/Theme.Vlive.Starting` 的 `windowSplashScreenBackground=@color/grouped_background`、`windowSplashScreenIconBackgroundColor=@color/icon_background` |
 
@@ -138,7 +138,7 @@ CI 有两个工作流、三个 job。[build.yml](file:///D:/projects/piece/live-
 
 ## 真机验收清单（改了字节层就必须重跑）
 
-前置：一台已开"所有文件访问"的 Android 11+ 设备（历史判据来自 vivo V2419A / X200 Pro mini）。
+前置：一台已开"所有文件访问"的 Android 12+ 设备（历史判据来自 vivo V2419A / X200 Pro mini）。
 
 ```bash
 adb install -r -t app/build/outputs/apk/debug/app-debug.apk

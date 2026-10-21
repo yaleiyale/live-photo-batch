@@ -71,7 +71,7 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
             }
 
             # ========== :app ==========
-            app = container ":app (Android application)" "构建单元，不是进程：与 :core 一起打包成单个 app-debug.apk，跑在同一个 Android 进程里。只提供六类适配器 —— 文件、权限、目录浏览、媒体扫描、设置持久化、日志 —— 加上 UI。" "Kotlin / Compose / AGP 9.4.1 / minSdk 30" {
+            app = container ":app (Android application)" "构建单元，不是进程：与 :core 一起打包成单个 app-debug.apk，跑在同一个 Android 进程里。只提供六类适配器 —— 文件、权限、目录浏览、媒体扫描、设置持久化、日志 —— 加上 UI。" "Kotlin / Compose / AGP 9.4.1 / minSdk 31" {
 
                 activity = component "MainActivity" "唯一 Activity。installSplashScreen() 在 super.onCreate 之前，退出动画放完才放行入场闸门；viewModelFactory 造 BatchViewModel；IosTheme 是浅/深唯一判定处；跳授权页失败退化成 Toast 指引（文案取资源）；onResume 回查授权。刻意不开 enableEdgeToEdge()。" "ComponentActivity" {
                     tags "App"
@@ -85,7 +85,7 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
                 viewModel = component "BatchViewModel" "批次所有权：开工快照 → 全局前置校验 → plan/run → 逐项累积 UiState → NonCancellable 收尾扫描。root 字符串契约在这里与 FileStorage/DirBrowser 共享；权限与扫描器都是构造器注入的测试接缝。" "ViewModel + StateFlow" {
                     tags "App"
                 }
-                permissionGate = component "PermissionGate" "MANAGE_EXTERNAL_STORAGE 门面；真值经注入的 () -> Boolean 每次现读、不缓存，低于 API 30 短路放行。" "Kotlin" {
+                permissionGate = component "PermissionGate" "MANAGE_EXTERNAL_STORAGE 门面；真值经注入的 () -> Boolean 每次现读、不缓存。" "Kotlin" {
                     tags "App"
                 }
                 dirBrowser = component "DirBrowser + mergedRootEntries + displayPath" "真文件系统目录浏览：只列可读、非点开头的子目录，按 name.lowercase() 升序，绝不抛只给空列表。presets() 已删除 —— 显示名改由调用方用字符串资源拼出别名传入，两个纯函数（mergedRootEntries / displayPath）继续在本地 JVM 上直测。" "java.io.File" {

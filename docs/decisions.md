@@ -288,18 +288,18 @@
 **为什么 splash 与入场要分成两段**：系统 splash 管进程启动→首帧那段真空（这段 Compose 还没起来，做不了任何事），Compose 入场管首帧之后的衔接。`IosEntrance` 是它们之间的闸门：内容在 splash 退出动画放完之前停在 `alpha = 0`（[IosEntrance.kt:24](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosEntrance.kt#L24)），否则卡片在 logo 背后就演完了。
 
 **代价与两处刻意**：
-- `installSplashScreen()` 必须在 `super.onCreate()` **之前**（window 级的，晚一步拦不到首帧），并且随后**显式** `setTheme(Theme.Vlive)`（[MainActivity.kt:36-40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MainActivity.kt#L36)）。库自己会照 `postSplashScreenTheme` 恢复，但 API 30 走 compat、31+ 走系统两条分支，界面配色不该压在"这次落在哪条分支"上。
+- `installSplashScreen()` 必须在 `super.onCreate()` **之前**（window 级的，晚一步拦不到首帧），并且随后**显式** `setTheme(Theme.Vlive)`（[MainActivity.kt:36-40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MainActivity.kt#L36)）。`core-splashscreen` 在 31+ 走的是系统那条分支，而 `minSdk 31` 之后这条就是唯一一条；显式 `setTheme` 保留，是为了不把恢复时机压在库的内部行为上。
 - 入场有一条 **600ms 超时兜底**（[IosStyle.kt:153](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L153)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
 - 入场**不读** `Settings.Global.ANIMATOR_DURATION_SCALE`：那是一次跨进程查询，与 §5.3「组合期不碰 binder」冲突。用户在系统里关掉动画时这段会不会归零，**尚未装机确认**。
 
 ### 5.12 `-v26` 这个"多余"的目录限定符不能删
 
-**决定**：图标目录保留 `res/mipmap-anydpi-v26/`，尽管 `minSdk 30` 让 lint 的 `ObsoleteSdkInt` 建议把它并成 `res/mipmap-anydpi`。
+**决定**：图标目录保留 `res/mipmap-anydpi-v26/`，尽管 `minSdk 31` 让 lint 的 `ObsoleteSdkInt` 建议把它并成 `res/mipmap-anydpi`。
 
 **实测**：改名之后 `:app:processDebugResources` 直接失败 ——
 `AAPT: error: resource mipmap/ic_launcher not found`（`ic_launcher_round` 同），`:app:clean` 之后仍然如此，所以不是增量合并的缓存残留。改回 `-v26` 即通过，`aapt2 dump badging` 能解析出 `application: icon='res/mipmap-anydpi-v26/ic_launcher.xml'`。
 
-**结论**：这条 lint 建议在当前 AGP 9.4.1 / AAPT2 组合下会把构建搞坏，因此**不要照它改**。lint 里这一项是 information 级、不参与构建门槛（CI 不跑 lint），留着比全局 `disable += "ObsoleteSdkInt"` 好——后者会连带把 `PermissionGate.kt:46/51` 那两条"低于 API 30 的短路分支"也一起静音，而那是有意保留的双保险。
+**结论**：这条 lint 建议在当前 AGP 9.4.1 / AAPT2 组合下会把构建搞坏，因此**不要照它改**。lint 里这一项是 information 级、不参与构建门槛（CI 不跑 lint），留着比全局 `disable += "ObsoleteSdkInt"` 好 —— `minSdk` 抬到 31 之后（见 [§5.20](#520-minsdk-抬到-31真模糊的门槛也是它带走了分支2026-10-21-增量)），原先 `PermissionGate.kt:46/51` 那两条"低于 API 30 的短路分支"已经是死代码并被删除、它们名下那两条 finding 也随之消失，于是整份报告里剩下的**唯一一条** `ObsoleteSdkInt` 就是这里说的 `-v26`；整类静音换来的只是把这一条也一起藏掉，而它仍然不能照建议改。
 
 ### 5.13 品牌名 vlive，包名一路改到 `dev.zayn.vlive`
 
@@ -429,6 +429,21 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 （一个要跑起来才会写文件，一个要 `Context`），本地测的是它们的决策逻辑。见
 [testing.md](testing.md) 的缺口表。
 
+### 5.20 minSdk 抬到 31：真模糊的门槛，也是它带走了分支（2026-10-21 增量）
+
+**决定**：`minSdk 30 → 31`，且**不为 API 30 保留任何降级路径**。
+
+**为什么**：`RenderEffect` 模糊是 API 31 起的；Haze 2.0.1 的 androidMain 里
+`platformIsBlurEnabledByDefault() = Build.VERSION.SDK_INT >= 31` —— **库自己在 30 上默认关掉模糊**，
+只剩一块半透明遮罩。与其维护"30 上是另一种观感"这条分支，不如把地板抬过去。
+判据来自构件源码，不是文档转述。
+
+**代价**：`PermissionGate` 的两条 below-API-30 分支变成死代码并删除（连带 §5.12 那句"双保险"作废，
+lint 基线 12 → 9、`ObsoleteSdkInt` 3 → 1 —— 总数掉三条而不只是那两条 `ObsoleteSdkInt`：被删的 `else`
+分支里那句 `Uri.parse` 自己还挂着一条 `UseKtx`，它跟着分支一起没了）；`WRITE_EXTERNAL_STORAGE maxSdkVersion="29"` 变成永不上号的
+死声明，删；`READ_EXTERNAL_STORAGE maxSdkVersion="32"` 保留（31–32 仍归它管）。
+设备侧：Android 11 的原装机器从此装不上，当前 V2419A 满足。
+
 ## 6. 构建与 CI
 
 ### 6.1 不 apply `org.jetbrains.kotlin.android`
@@ -511,14 +526,14 @@ CI 之外的本机构建时）。
 | 代码里 **49 处 `spec §…` / `增补 …` 引用**指向已删除的设计稿 | 悬空引用（见下面的索引） | 要么把设计稿作为历史归档恢复并标"已废弃"，要么把 KDoc 引用改指本文档 |
 | `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
 | `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
-| `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
+| `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:43-44](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L43) | 真需要按包名查询时再展开 |
 | `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:125](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L125) | 收拢间距或删令牌 |
 | 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L186) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
 | 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 196 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
 | `RollingLogTree` 与 `PreferencesBatchSettings` 没有自动化测试 | 测到的只有决策函数（`planLogCleanup`、`restore`/`save` 走的是内存假实现）；真的写文件与真的 DataStore 都要 `Context` | 要么补 `:app` 的仪器化测试（`androidTest` 里已经有一条 `FileStorageTest` 的先例），要么把「装机看 `run-as` 目录」固定成验收步骤 —— 现在选的是后者，见 testing.md 的缺口表 |
-| lint 有 12 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)，两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
+| lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)（也是 `ObsoleteSdkInt` 唯一剩下的一条），两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
 | `:core` 的异常文案仍是**中文**，`err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子 | 英文提示里会嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）。`MediaStoreSync` 那两条已经随日志层收敛到 `Timber`（[§5.18](#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量)），它们只进日志文件、不进 UI，所以不再是本地化缺陷 | 抛出消息属于「给开发者读」的边界：要么也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message` |
 | `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:192](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L192)、[:217](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L217) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |
 

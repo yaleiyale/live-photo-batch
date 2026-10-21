@@ -75,7 +75,7 @@ jobs:
             echo "CI 的 debug key 与开发者本机的不是同一把，所以**从别的来源装过的要先卸载**，"
             echo "否则会 \`INSTALL_FAILED_UPDATE_INCOMPATIBLE\`。"
             echo
-            echo "装之前：Android 11+（minSdk 30），首次打开要授予「所有文件访问」。"
+            echo "装之前：Android 12+（minSdk 31），首次打开要授予「所有文件访问」。"
             echo "已知：深色模式下冷启动那一帧的 logo 白标记会被 vivo OriginOS 画成黑色"
             echo "（实测是系统绘制 splash 窗口时的颜色替换，\`forceDarkAllowed=false\` 无效，已裁定接受）。"
             if [ -n "$NOTE" ]; then
