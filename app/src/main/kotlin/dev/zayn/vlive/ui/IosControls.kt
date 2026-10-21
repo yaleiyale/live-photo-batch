@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +29,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +49,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 /** iOS「设置」里的 inset group：白卡片 + 连续圆角，左右留出 [IosMetrics.screenMargin]。 */
 @Composable
@@ -507,10 +511,13 @@ private fun FolderIcon() {
 }
 
 /**
- * 全屏模态卡片：顶栏左取消、中标题、右确认，下面是一条可滚动的分组列表。
+ * 全屏模态卡片：玻璃顶栏左取消、中标题、右确认，压在一条可滚动的分组列表之上。
  *
- * `decorFitsSystemWindows = false` 让窗口铺到状态栏底下，配合整屏底色就没有那条接缝；
- * 避让改由内容自己用 [WindowInsets.safeDrawing] 负责。
+ * `decorFitsSystemWindows = false` 让窗口铺到状态栏底下，配合整屏底色就没有那条接缝。
+ * 竖直避让**不再由整层 insets 内缩负责**：那条 modifier 缩的是视口，列表会被整个压到
+ * 顶栏下面，顶栏底下就永远没有可糊的内容，玻璃只会糊出一块实心底色。现在容器只吃横向 inset
+ * （刘海/挖孔跟着窗口边），竖直方向交给滚动内容自己的首尾留白，于是列表从弹窗顶边铺起、
+ * 首行停在顶栏之下，但整条列表仍划得过玻璃底下。
  */
 @Composable
 fun IosSheet(
@@ -524,65 +531,101 @@ fun IosSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val s = LocalIosStyle.current
+    val glass = iosGlass()
+    // Dialog 是独立窗口，hazeBlur 采的是**同窗口内**的绘制层，主屏那个 HazeState 在这里取不到
+    // 任何位图（spec §2.5）。所以弹窗必须自己注册第二个源，而不是把外面那个传进来复用。
+    val haze = rememberHazeState()
+    val insets = WindowInsets.safeDrawing.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val topInset = insets.calculateTopPadding()
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        // 弹窗其余部分仍然是实心分组底色：玻璃只有顶栏这一条，bar 里再垫一层玻璃等于同一层糊两次。
         Column(
             Modifier
                 .fillMaxSize()
                 .background(s.groupedBackground)
-                .windowInsetsPadding(WindowInsets.safeDrawing),
+                .padding(
+                    start = insets.calculateLeftPadding(layoutDirection),
+                    end = insets.calculateRightPadding(layoutDirection),
+                ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // 折叠屏内屏约 780dp 宽，内容封顶后居中，否则卡片和行会被拉成一条横杠。
-            Column(
+            Box(
                 Modifier
                     .fillMaxHeight()
                     .widthIn(max = 640.dp)
                     .fillMaxWidth(),
             ) {
-                Box(Modifier.fillMaxWidth().height(52.dp)) {
-                    BarAction(text = cancelText, align = Alignment.CenterStart, onClick = onDismiss)
-                    BarAction(
-                        text = confirmText,
-                        align = Alignment.CenterEnd,
-                        enabled = confirmEnabled,
-                        emphasized = true,
-                        onClick = onConfirm,
-                    )
-                    Column(
-                        Modifier
-                            .align(Alignment.Center)
-                            .fillMaxWidth()
-                            .padding(horizontal = 76.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Text(
-                            title,
-                            style = s.title,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            subtitle,
-                            style = s.footnote.copy(fontSize = 11.sp, color = s.tertiaryLabel),
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                IosDivider(indent = false)
+                // Box 按声明顺序绘制：列表在前、顶栏在后，顶栏才压得住列表。hazeSource 挂在被采样
+                // 那一层（列表）的节点上，画在它上面的玻璃才有东西可糊；反过来挂到 bar 上就是自糊。
                 Column(
                     Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 14.dp, bottom = 28.dp),
+                        .fillMaxSize()
+                        .hazeSource(haze)
+                        .verticalScroll(state = rememberScrollState())
+                        // verticalScroll 没有 contentPadding 形参（Task 6 javap 实测），padding 只能
+                        // 挂在它之后 —— 链上它之前的 modifier 缩的是视口，之后的才是滚动内容自己的
+                        // 首尾留白。这段顶边距就是「首行不被顶栏永久盖住」和「内容划得到顶栏底下」的分工点。
+                        .padding(
+                            paddingValues = PaddingValues(
+                                top = topInset + IosMetrics.sheetBarHeight,
+                                bottom = 28.dp,
+                            ),
+                        ),
                     content = content,
                 )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .iosGlassBar(glass = glass, state = haze),
+                ) {
+                    // 同主屏顶栏：先糊、再让 inset 把内容推下去（玻璃自己盖到状态栏底下）。
+                    // 反过来写会在状态栏那一条和玻璃之间留一条没糊的缝。
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = topInset)
+                            .height(IosMetrics.sheetBarHeight),
+                    ) {
+                        BarAction(text = cancelText, align = Alignment.CenterStart, onClick = onDismiss)
+                        BarAction(
+                            text = confirmText,
+                            align = Alignment.CenterEnd,
+                            enabled = confirmEnabled,
+                            emphasized = true,
+                            onClick = onConfirm,
+                        )
+                        Column(
+                            Modifier
+                                .align(Alignment.Center)
+                                .fillMaxWidth()
+                                // 标题两侧让位给「关闭 / 选择」两颗文字按钮，被压住的是标题不是按钮。
+                                .padding(horizontal = IosMetrics.sheetBarActionReserve),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                title,
+                                style = s.title,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                subtitle,
+                                style = s.footnote.copy(fontSize = 11.sp, color = s.tertiaryLabel),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
