@@ -404,9 +404,10 @@ fun BatchScreen(
                 .iosEnter(5, entrance)
                 // 圆角必须显式传 glassRadius：贴边的两条 bar 走默认 0dp 直角，底部这条要读作连续圆角。
                 .iosGlassBar(glass = glass, state = haze, radius = IosMetrics.glassRadius)
-                // 上下各 12dp + 50dp 按钮 = IosMetrics.barContentHeight(74dp)，所以 bar 的整块占位正好是
-                // barBottomGap + barContentHeight；内容层 verticalScroll 之后那份 PaddingValues 的 bottom
-                // 用的是同一组 token，最后一张卡片才恰好停在 bar 上沿之上、不被永久遮挡。
+                // bar 的高度钉在 IosMetrics.barContentHeight 上，不靠「上下各 12dp + 50dp 按钮」三个数
+                // 刚好凑出 74dp：那种等式只活在注释里，改任一数字 bar 上沿就飘出内容层预留的那段。
+                // 现在两侧共用同一个 token，padding 之后剩下的 74-12-12 正好是按钮的 50dp。
+                .height(IosMetrics.barContentHeight)
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
