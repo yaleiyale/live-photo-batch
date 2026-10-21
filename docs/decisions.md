@@ -369,6 +369,66 @@
 
 **为什么到此为止**：剩下的办法都要牺牲一样明写着更好的东西 —— 把标记换成高饱和色（不再是白标记，蓝底上对比度还更差）、深色下干脆不画 logo（冷启动只剩一段纯黑）、或把 logo 搬进 Compose 自绘（logo 晚一帧出现，等于把系统 splash 存在的理由让出去）。这些都不值得为一帧开机画面的颜色付。**要重开这件事，从上面那张探针表开始，不要从猜颜色开始。**
 
+### 5.17 目录选择持久化：只记两个路径，采纳前先验一遍（2026-10-21 增量）
+
+**决定**：源/目标目录写进 Preferences DataStore（`vlive.preferences_pb`，应用私有目录），
+[`BatchViewModel`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L126) 只认 [`BatchSettings`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L28) 这个两方法接口 ——
+`load()` / `save()`，生产实现是 [`PreferencesBatchSettings`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L46)。恢复在 `init` 里由
+`viewModelScope.launch(Dispatchers.IO)` 发起，**过一遍 `isSelectable` 才采纳**。
+
+**删除开关刻意不记**（[`StoredPaths`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L20) 里只有两个字段）。它是唯一会动原文件的那一项：
+记住它等于「某次勾了一下，之后每次冷启动都悄悄带着它」，而需求要记的是「目录选择结果」。
+所以它每次启动回到关，代价是勾着删原文件跑完一批、下次要重新勾 —— 这个代价是故意付的。
+
+**为什么恢复要过 `isSelectable`**：存下来的串可能已经不再合法（注入过别的 root、或上一次存的本来就是
+root 之外那种只能看不能选的串）。那种情况静默留着默认值 —— 让批次悄悄指向另一个目录，
+比忘掉一次记忆严重得多。用例：[BatchViewModelTest 的 `a stored path outside the root is never adopted`](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt)。
+
+**为什么 `restore()` 要认「用户已经选过」**：恢复是异步的（DataStore 第一次访问要开文件），
+一次慢速恢复可以把用户刚点下去的选择**覆盖回去**。[`userPickedDir`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L157) 让最近的人类意图赢，
+`running` 时同样不覆盖。
+
+**为什么必须显式 `Dispatchers.IO`**（这条是实测撞出来的）：`viewModelScope` 默认落在
+`Dispatchers.Main.immediate` 上，纯 JVM 单测里没有主线程 —— `init` 里那条 `launch` 一旦不指定调度器，
+14 条 ViewModel 测试全红，报
+`IllegalStateException: Module with the Main dispatcher had failed to initialize`。
+`runBatch` 早就写着 `launch(Dispatchers.IO)`，当时只当是"IO 活该在 IO 线程"，现在多了一条理由：
+**它是这批测试能继续不引 Robolectric 的前提**。
+
+**读写都吞 `IOException`**：读不出来当"没存过"，存不进去只是下次回到默认值。这两件事都不值得
+掀翻界面，但也不能静默 —— 两条都走 `Timber.w`，见 [§5.18](#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量)。
+
+### 5.18 日志写进应用私有目录：三条上限、一条写线程（2026-10-21 增量）
+
+**决定**：`Timber` 是唯一入口（`android.util.Log` 全部换掉，[MediaStoreSync](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MediaStoreSync.kt) 是原来唯一的用户），
+[`VliveApp`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/VliveApp.kt) 种两棵树：`DebugTree` 进 logcat（**只在可调试构建**），
+[`RollingLogTree`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/RollingLogTree.kt#L37) 进 `filesDir/logs/`，自带轮转与清理。
+
+**为什么是私有目录而不是共享存储**：这个 app 有 `MANAGE_EXTERNAL_STORAGE`，写到
+`/storage/emulated/0` 当然做得到 —— 但那正是需求里「避免垃圾过多」要防的东西：日志散在相册看得见
+的地方，用户既找不到也删不干净。私有目录不需要任何权限、卸载即消失，出问题时
+`adb shell run-as dev.zayn.vlive ls /data/data/dev.zayn.vlive/files/logs` 拿得到。
+
+**三条上限同时生效**（默认：单文件 512 KB、最多 4 个、合计 ≤ 2 MB、最多留 7 天）：
+写满就换文件；数量、总体积、年龄任何一条超了都往下删。只限文件数会漏掉「单个文件被写爆」，
+只限体积会留一堆空壳文件，所以两条都要。**当前正在写的这个永不删**（[planLogCleanup](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/LogRotation.kt#L21)），
+否则等于把「刚刚发生了什么」丢掉；删除顺序从旧到新，部分失败也不会在中间打洞。
+8 条用例钉着：[LogRotationTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/LogRotationTest.kt)。
+
+**所有磁盘动作在 `vlive-log` 这一条守护线程上**：`Timber.log` 是同步调用，落在调用者线程，
+而调用者经常是主线程。所以 `log()` 只把参数交给单线程 executor，`mkdirs` / `listFiles` / 写 / 删
+全在后台做 —— 连时间戳都在后台格式化，因为 `SimpleDateFormat` 不是线程安全的。
+
+**日志自己不许把 app 带崩**：每个入口都吞 `IOException` / `RuntimeException`。写不进日志只是丢日志。
+
+**记什么**：批次的边界（`batch start` / `batch end`，含源、目标、删除开关、总数、字节、是否取消）、
+**没成功的项**（`item X -> SKIPPED: NO_PAIR`）、以及删除失败（`Timber.w`）。成功项不逐条写 ——
+它们已经在报告列表里，再写一份只是把文件撑大。
+
+**没验到的**：`RollingLogTree` 与 `PreferencesBatchSettings` 都是**只有真机才能验**的那类
+（一个要跑起来才会写文件，一个要 `Context`），本地测的是它们的决策逻辑。见
+[testing.md](testing.md) 的缺口表。
+
 ## 6. 构建与 CI
 
 ### 6.1 不 apply `org.jetbrains.kotlin.android`
@@ -423,9 +483,10 @@
 | 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L186) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
-| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 185 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
+| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 196 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
+| `RollingLogTree` 与 `PreferencesBatchSettings` 没有自动化测试 | 测到的只有决策函数（`planLogCleanup`、`restore`/`save` 走的是内存假实现）；真的写文件与真的 DataStore 都要 `Context` | 要么补 `:app` 的仪器化测试（`androidTest` 里已经有一条 `FileStorageTest` 的先例），要么把「装机看 `run-as` 目录」固定成验收步骤 —— 现在选的是后者，见 testing.md 的缺口表 |
 | lint 有 12 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)，两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
-| `:core` 与 `MediaStoreSync` 的异常/日志文案仍是**中文** | `err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子，于是英文提示里嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）；`MediaStoreSync` 的两条 `Log.w` 只进 logcat，不进 UI | 抛出消息属于"给开发者读"的边界：要么把它们也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message`。第 4 片做日志时一起收 |
+| `:core` 的异常文案仍是**中文**，`err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子 | 英文提示里会嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）。`MediaStoreSync` 那两条已经随日志层收敛到 `Timber`（[§5.18](#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量)），它们只进日志文件、不进 UI，所以不再是本地化缺陷 | 抛出消息属于「给开发者读」的边界：要么也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message` |
 | `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:192](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L192)、[:217](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L217) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |
 
 ## spec 引用索引

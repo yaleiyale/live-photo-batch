@@ -3,12 +3,12 @@
 - **回答的问题**：哪些行为已经被钉死、钉在哪个测试里；哪些**只能靠真机**，验收该跑什么命令、看什么现象。
 - **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览 / 英文本地化 + 跟随系统深色），2026-10-21。计数来自 `grep -c "@Test"`（全部是普通 `@Test`，没有 `@ParameterizedTest`/`@TestFactory`）。
 
-## 总览：193 条测试，三个 sourceSet
+## 总览：204 条测试，三个 sourceSet
 
 | sourceSet | 框架 | 条数 | 跑在哪 | CI 是否执行 |
 | --- | --- | --- | --- | --- |
 | `core/src/test` | JUnit 5 Jupiter（BOM 6.1.3），`useJUnitPlatform()` | **145** | 本机 JVM，不需要设备 | ✅ `:core:test` |
-| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **40** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest`（本机 1 条 `assumeTrue` 跳过，见下） |
+| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **51** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest`（本机 1 条 `assumeTrue` 跳过，见下） |
 | `app/src/androidTest` | JUnit 4 + `AndroidJUnit4` / `AndroidJUnitRunner` | **8** | 真机/模拟器 | ❌ **只编译**（`assembleDebugAndroidTest`） |
 
 每个文件的方法数：
@@ -18,7 +18,8 @@ core:  BatchRunnerTest 23 · MotionPhotoComposerTest 21 · TrailerClassifierTest
        PairPlannerTest 13 · JpegXmpPatcherTest 13 · JpegStructureTest 12 · XmpPacketTest 12
        InMemoryStorageTest 10 · VivoLivePhotoTailTest 9 · TrailerModelTest 7
        SourcesTest 3 · MotionDetectorTest 2      （Fixtures / InMemoryStorage 是夹具，0 条）
-app:   BatchViewModelTest 11 · DirBrowserTest 15 · ReportPageTest 8 · TouchedPathsForTest 4 · PermissionGateTest 2
+app:   BatchViewModelTest 14 · DirBrowserTest 15 · ReportPageTest 8 · LogRotationTest 8
+       TouchedPathsForTest 4 · PermissionGateTest 2
 androidTest: FileStorageTest 8
 ```
 
@@ -28,7 +29,7 @@ androidTest: FileStorageTest 8
 
 ```bash
 ./gradlew :core:test                     # 145 条，最快反馈，纯 JVM
-./gradlew :app:testDebugUnitTest         # 40 条 ViewModel / DirBrowser / ReportPage / PermissionGate
+./gradlew :app:testDebugUnitTest         # 51 条 ViewModel / DirBrowser / ReportPage / LogRotation / PermissionGate
 ./gradlew :app:assembleDebug             # 产出 app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:assembleDebugAndroidTest   # CI 用它保证仪器化测试还能编译
 ./gradlew :app:connectedDebugAndroidTest  # 8 条契约测试，必须插着设备跑
@@ -36,7 +37,7 @@ androidTest: FileStorageTest 8
 
 CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/piece/live-photo-batch/.github/workflows/build.yml#L12)）：`core-tests` 跑 `:core:test`，`apk` 跑 `:app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest :app:assembleRelease`，并上传两个产物 —— `vlive-debug` 与 `vlive-release`。release 用的是 `signingConfigs.debug`，所以那个包**能侧载、不能上商店**。
 
-## 四个测试接缝（为什么不需要设备）
+## 六个测试接缝（为什么不需要设备）
 
 | 接缝 | 做法 | 位置 |
 | --- | --- | --- |
@@ -45,6 +46,8 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | 权限 | `BatchViewModel(isGranted = { … })`：假 lambda 每次现读，不缓存 | [BatchViewModel.kt:122-135](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L122)、[BatchViewModelTest.kt:58-62](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L58) |
 | 媒体扫描 | `BatchViewModel(scanner = { … })`：假扫描器记录收到的路径 | 同上 |
 | 存储根 | `FileStorage(root)` / `DirBrowser(root)` / `BatchViewModel(root = …)` 允许注入临时目录，与生产同一个 root 契约规则 | [FileStorage.kt:78-82](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L78) |
+| 目录设置 | `BatchViewModel(settings = …)`：`BatchSettings` 只有 `load()` / `save()` 两个 suspend 方法，测试给内存假实现，DataStore 那一层不进单测 | [BatchSettings.kt:28-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L28)、[BatchViewModelTest.kt:61-67](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L61) |
+| 日志保留规则 | `planLogCleanup(files, now, …)` 是纯函数：目录列表由调用方给，删除决定在这里算 | [LogRotation.kt:21-57](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/LogRotation.kt#L21)、[LogRotationTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/LogRotationTest.kt) |
 
 `app/src/test` 能驱动真协程是因为 lifecycle 2.11 在没有 Android 主线程时把 `viewModelScope` 退化成 `SupervisorJob + Dispatchers.Default`（实测，写在 [BatchViewModel.kt:100-101](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L100)）。
 
@@ -90,6 +93,8 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | 目录浏览**只出一列**：别名只替换显示名、当前目录不列自己、没被别名提到的子目录仍然可达、**嵌套别名不得补成快捷方式**（`相机 = DCIM/Camera` 那条机制已撤销）、别的根下的别名一律不掺、顺序稳定 | [DirBrowserTest.kt:103](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L103)、[:124](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L124)、[:138](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L138)、[:150](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L150)、[:166](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L166)、[:182](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L182) |
 | 副标题 `displayPath`：根显示 root 别名、下级保持 `别名/DCIM/Camera`、**root 之外不改名**（那种路径选不了，改名就是骗人）。别名是**入参**而不是常量，所以这两种语言的说法都能在同一条测试里断言 | [DirBrowserTest.kt:200](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L200)、[:210](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L210)、[:221](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L221) |
 | 报告分页与筛选：`All` 保留全部且顺序不变、三个状态档各只收自己的行、尾页是短页、**连续页不重也不漏**、页码越界夹回、空结果仍算一页、空批次也是一页、`size = 0` 不死循环 | [ReportPageTest.kt](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/ReportPageTest.kt)（8 条） |
+| 目录选择的持久化：选过的路径写回设置；存下来的路径过不了 `isSelectable` 就**不采纳**；用户已经改过之后，一次迟到的 `restore()` 不许把它覆盖回去 | 3 条用例（[BatchViewModelTest.kt:362-406](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L362)） |
+| 日志保留：过期 / 数量 / **总体积** 三条上限任一条超了都往下删，删除顺序从旧到新，**当前文件永不删**，`maxFiles = 0` 也不清空目录 | 8 条用例（[LogRotationTest.kt](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/LogRotationTest.kt)） |
 | 端口实现分叉点：`exists`/`delete` 对目录必须 false、`list` 排序与缺目录给空、root 不二次拼接、close 后字节完整 | [FileStorageTest.kt:94](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L94)、[:58](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L58)、[:73](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L73)、[:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L162)、[:144](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L144) |
 | 内存实现镜像同样几条契约（两侧对齐才有意义） | [InMemoryStorageTest.kt:48-83](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/InMemoryStorageTest.kt#L48) |
 
@@ -126,6 +131,8 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | 启动入场的**手感**（logo 淡出与卡片上浮接不接得上、系统关掉动画时入场是否归零）与目录弹窗的返回手势 / 换层滑动 | 2026-10-21 装机看过一轮：桌面图标（含圆形遮罩、深色下蓝底白标记）、冷启动 splash 的**存在与配色场**、交错入场落位都正常；**逐帧手感没有量化**，`ANIMATOR_DURATION_SCALE` 归零行为仍未验 | 再装机看；要收口就补 Compose UI 测试 |
 | 深色下的**其它**渲染面：`Dialog`（目录弹窗）表面、进度条、开关轨道、报告行的语义色 | 主界面与冷启动色场已实测（黑底 + `#1C1C1E` 卡片 + 白字，状态栏图标翻亮）；**弹窗与报告行只在浅色下看过**，深色下的 Dialog 接缝还没验 | 装机：深色下开一次目录弹窗、跑一批看报告 |
 | **系统语言切成英文之后**整屏是否全英文（含目录别名、错误提示、Toast） | 只验到资源两份齐全 + lint 无漏 key。`displayPath` 与别名表在中文下是"看着对"的，在英文下别名退化成恒等映射这件事没人看过 | 装机：切英文 → 截图主界面 + 目录弹窗 + 一条失败项的报告行；顺手核对 `Movies` 这类真实目录名在弹窗与路径行里说法一致 |
+| `RollingLogTree` 真的在写文件、轮转与清理真的发生 | 只测到决策函数 `planLogCleanup`；树本身要 `Context` + 真实文件系统（`filesDir/logs`）与一条后台线程 | 装机跑一批，然后 `adb shell run-as dev.zayn.vlive ls -l /data/data/dev.zayn.vlive/files/logs`：文件数 ≤ 4、合计 ≤ 2 MB、里面能 grep 到 `batch start` / `batch end` |
+| `PreferencesBatchSettings` 真的跨进程活下来 | DataStore 需要 Android `Context`，本地只测到接口那一侧（内存假实现） | 装机：改一次目标目录 → `am force-stop` → 重开 → 那一行还是改过的值 |
 | 非 vivo 厂商（OPPO/小米/Pixel）识别 | 只有 OPPO 作为**反例**被分析过 | 各厂商真机各跑一批 |
 
 ## 真机验收清单（改了字节层就必须重跑）

@@ -21,6 +21,7 @@ adb shell am start -n dev.zayn.vlive/dev.zayn.vlive.MainActivity
    批次不会开始；vivo 上跳转可能落不到系统页，那时给出手动指引，回前台再回查一次。
 2. 选源目录与目标目录（默认 `/storage/emulated/0/DCIM/Camera` → `/storage/emulated/0/Pictures/LivePhoto`，
    也可以逐级浏览挑选）。目标目录不存在会自动创建；两个目录**可以是同一个**（原地生成安全）。
+   两个目录会被记住（下次打开还在），**「合成后删除原文件」不会被记住** —— 它每次启动回到不勾。
 3. 「开始合成」跑批，「取消」在当前项落盘后停止 —— 正在写的项一定走完改名或清理，**不会留半截 `.part`**。
 4. 产物名 `<stem>_MP.jpg`，同名已存在则**原子替换**（不先删旧文件）。
 5. 「合成后删除原文件」默认不勾。勾上时只在产物改名**成功之后**才删 `x.jpg` 与 `IMG_x.mp4`；
@@ -46,7 +47,7 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 
 ## 架构一句话
 
-`:core` 是纯 JVM 库，字节层面的判断全在里面；`:app` 只提供文件、权限、目录浏览、媒体扫描四类适配器
+`:core` 是纯 JVM 库，字节层面的判断全在里面；`:app` 只提供文件、权限、目录浏览、媒体扫描、设置与日志六类适配器
 加一屏 UI。两者的边界是**构建隔离**（`:core` 无 `import android`），不是进程边界 —— 打包成同一个 APK。
 `:core` 不知道 `java.io.File` 存在，全部文件动作走 `BatchStorage` 端口（7 个方法），所以 145 条测试
 不需要设备。批次是顺序单线程：一个协程、一条 `for`、一次一项、逐项回报。
@@ -73,7 +74,7 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 
 ```bash
 ./gradlew :core:test                    # 145 条纯 JVM 测试，最快的反馈
-./gradlew :app:testDebugUnitTest        # 40 条 ViewModel / DirBrowser / ReportPage / PermissionGate
+./gradlew :app:testDebugUnitTest        # 51 条 ViewModel / DirBrowser / ReportPage / LogRotation / PermissionGate
 ./gradlew :app:connectedDebugAndroidTest # 8 条端口契约测试，需要插设备（CI 只编译不执行）
 ./gradlew :app:lintDebug                # CI 不跑；当前 12 条 information 级基线：一条被迫保留的 `-v26`、两条刻意撤销的 monochrome、一条 `PluralsCandidate` 误报
 ```

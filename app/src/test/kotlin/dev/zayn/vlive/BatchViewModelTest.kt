@@ -2,6 +2,8 @@ package dev.zayn.vlive
 
 import androidx.lifecycle.viewModelScope
 import dev.zayn.vlive.core.ItemStatus
+import dev.zayn.vlive.settings.BatchSettings
+import dev.zayn.vlive.settings.StoredPaths
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -55,11 +57,31 @@ class BatchViewModelTest {
         return Tree(root, rootPath, "$rootPath/src", "$rootPath/out")
     }
 
+    /** 内存假设置：记下最后一次 save，并可以预置"上次存了什么"。 */
+    private class FakeSettings(initial: StoredPaths = StoredPaths()) : BatchSettings {
+        var stored: StoredPaths = initial
+        override suspend fun load(): StoredPaths = stored
+        override suspend fun save(paths: StoredPaths) { stored = paths }
+    }
+
+    // scanner 放在最后一位：现有用例都写成 `viewModel(root) { paths -> ... }`，尾随 lambda 必须
+    // 继续绑到扫描器上，而不是新加的 settings。
     private fun viewModel(
         root: String,
         granted: () -> Boolean = { true },
+        settings: BatchSettings = FakeSettings(),
         scanner: suspend (List<String>) -> Boolean = { true },
-    ): BatchViewModel = BatchViewModel(granted, scanner, root)
+    ): BatchViewModel = BatchViewModel(granted, scanner, settings, root)
+
+    /** 轮询到条件成立（start / persist 都走 viewModelScope，测试线程只能等它落位）。 */
+    private fun awaitUntil(timeoutMs: Long = 10_000, condition: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return true
+            Thread.sleep(5)
+        }
+        return condition()
+    }
 
     /** start() 走 viewModelScope，测试线程只能轮询状态等它落位（30s 上限，正常 <1s）。 */
     private fun BatchViewModel.awaitIdle(timeoutMs: Long = 30_000): Boolean {
@@ -335,6 +357,51 @@ class BatchViewModelTest {
         assertFalse(vm.isSelectable(""))
         vm.setSource("/sdcard/DCIM")
         assertEquals("/storage/emulated/0/DCIM/Camera", vm.state.value.sourceDir)
+    }
+
+    @Test fun `choosing a directory persists it`() {
+        val t = tree(pairs = listOf("IMG_a"))
+        val settings = FakeSettings()
+        val vm = viewModel(t.rootPath, settings = settings)
+        vm.setSource(t.srcPath)
+        vm.setTarget(t.outPath)
+        // save 走 viewModelScope，只能轮询等它落位。
+        assertTrue(
+            "both picks must reach the store",
+            awaitUntil { settings.stored.sourceDir == t.srcPath && settings.stored.targetDir == t.outPath },
+        )
+        t.root.deleteRecursively()
+    }
+
+    @Test fun `stored directories are restored, and a later user pick wins`() {
+        val t = tree(pairs = listOf("IMG_a"))
+        val settings = FakeSettings(StoredPaths(sourceDir = t.srcPath, targetDir = t.outPath))
+        val vm = viewModel(t.rootPath, settings = settings)
+        runBlocking { vm.restore() }
+        assertEquals(t.srcPath, vm.state.value.sourceDir)
+        assertEquals(t.outPath, vm.state.value.targetDir)
+
+        // 用户已经改过之后，一次迟到的 restore 不许把选择覆盖回去。
+        val other = "${t.rootPath}/out"
+        val chosen = "${t.rootPath}/src"
+        vm.setSource(chosen)
+        settings.stored = StoredPaths(sourceDir = other, targetDir = other)
+        runBlocking { vm.restore() }
+        assertEquals(chosen, vm.state.value.sourceDir)
+        t.root.deleteRecursively()
+    }
+
+    @Test fun `a stored path outside the root is never adopted`() {
+        // 存下来的东西可能已经不再合法（换过注入的 root、或上一次存的是 root 之外的串）。
+        // 那种情况静默留着默认值 —— 批次悄悄指向另一个目录，比忘掉一次记忆严重。
+        val t = tree(pairs = listOf("IMG_a"))
+        val defaults = UiState()
+        val settings = FakeSettings(StoredPaths(sourceDir = "/outside/only", targetDir = "/also/outside"))
+        val vm = viewModel(t.rootPath, settings = settings)
+        runBlocking { vm.restore() }
+        assertEquals(defaults.sourceDir, vm.state.value.sourceDir)
+        assertEquals(defaults.targetDir, vm.state.value.targetDir)
+        t.root.deleteRecursively()
     }
 
     // 以下两个字节工厂移植自 :core 的测试 Fixtures（:core 不许动、测试夹具也不对外发布，

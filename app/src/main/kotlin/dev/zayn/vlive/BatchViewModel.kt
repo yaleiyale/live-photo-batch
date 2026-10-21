@@ -7,6 +7,9 @@ import androidx.lifecycle.viewModelScope
 import dev.zayn.vlive.browse.DirBrowser
 import dev.zayn.vlive.io.FileStorage
 import dev.zayn.vlive.perm.PermissionGate
+import dev.zayn.vlive.settings.BatchSettings
+import dev.zayn.vlive.settings.PreferencesBatchSettings
+import dev.zayn.vlive.settings.StoredPaths
 import dev.zayn.vlive.core.BatchOptions
 import dev.zayn.vlive.core.BatchRunner
 import dev.zayn.vlive.core.CancelToken
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 /**
  * 单屏 UI 的唯一状态。字段集合与顺序就是计划钉死的，UI 只读它，不另存副本。
@@ -124,6 +128,8 @@ class BatchViewModel internal constructor(
     private val isGranted: () -> Boolean,
     /** 收尾扫描的提交点；返回 false = 未成功发起或未在超时内确认（spec §7.6 的可观测信号）。 */
     private val scanner: suspend (List<String>) -> Boolean,
+    /** 目录选择的持久化；生产是 DataStore，测试给内存假实现（同一个理由：VM 不碰 `Context`）。 */
+    private val settings: BatchSettings,
     /** 存储根；生产入口固定为 DEFAULT_ROOT，测试注入临时目录。 */
     val root: String,
 ) : ViewModel() {
@@ -131,6 +137,7 @@ class BatchViewModel internal constructor(
     constructor(app: Application) : this(
         isGranted = { PermissionGate.of(app).granted() },
         scanner = { paths -> MediaStoreSync.scan(app, paths) },
+        settings = PreferencesBatchSettings(app),
         root = DEFAULT_ROOT,
     )
 
@@ -142,8 +149,45 @@ class BatchViewModel internal constructor(
     @Volatile
     private var cancelled = false
 
+    /**
+     * 用户是否已经自己选过目录。`restore()` 是异步的（DataStore 第一次读要开文件），
+     * 没有这条守卫时，一次慢速恢复可以把用户刚点下去的选择**覆盖回去**。
+     */
+    @Volatile
+    private var userPickedDir = false
+
     init {
         refreshPermission()
+        // 上次的目录在后台读回来：DataStore 第一次访问要开文件，不该压在冷启动的同步路径上。
+        // 显式给 Dispatchers.IO，理由和 runBatch 那条协程一样 —— viewModelScope 默认落在
+        // Dispatchers.Main.immediate 上，纯 JVM 单测里没有主线程，那条 launch 会直接抛
+        // "Module with the Main dispatcher had failed to initialize"（实测）。
+        viewModelScope.launch(Dispatchers.IO) { restore() }
+    }
+
+    /**
+     * 把持久化的两个目录读回内存状态。**采纳前过一遍 [isSelectable]**：存下来的路径可能已经
+     * 不再合法（换了 root 注入、或者上一次存的是 root 之外的串），那种情况静默回到默认值 ——
+     * 让批次悄悄指向另一个目录，比丢掉一次记忆严重得多。
+     *
+     * 已经在这一轮里被用户改过的（[userPickedDir]）或批次正在跑的，一律不覆盖。
+     *
+     * `internal` 是为了让 JVM 测试能直接驱动它（不需要走 [viewModelScope] 的调度）。
+     */
+    internal suspend fun restore() {
+        val stored = settings.load()
+        if (_state.value.running || userPickedDir) return
+        val source = stored.sourceDir?.takeIf { isSelectable(it) }
+        val target = stored.targetDir?.takeIf { isSelectable(it) }
+        if (source == null && target == null) return
+        _state.update { it.copy(sourceDir = source ?: it.sourceDir, targetDir = target ?: it.targetDir) }
+        Timber.i("restored directories: source=%s target=%s", source ?: "-", target ?: "-")
+    }
+
+    /** 当前状态写回设置。失败由 [BatchSettings.save] 自己吞掉，这里不额外处理。 */
+    private fun persist() {
+        val snapshot = _state.value
+        viewModelScope.launch(Dispatchers.IO) { settings.save(StoredPaths(snapshot.sourceDir, snapshot.targetDir)) }
     }
 
     fun refreshPermission() {
@@ -166,7 +210,9 @@ class BatchViewModel internal constructor(
      */
     private fun selectPath(path: String, mutate: (UiState) -> UiState) {
         if (_state.value.running || !isSelectable(path)) return
+        userPickedDir = true
         _state.update(mutate)
+        persist()
     }
 
     /** 同样拒绝在运行中改动删除开关——它决定这批会不会动原文件。 */
@@ -233,9 +279,22 @@ class BatchViewModel internal constructor(
             // 不重新推导计划）。
             val plan = runner.plan(options)
             _state.update { it.copy(total = plan.jobs.size + plan.unpaired.size) }
+            // 日志只记"这一批的边界"和"没成功的项"：成功项已经在报告列表里，逐条再写一遍只是把
+            // 文件撑大（真机第一批 36 项、几百 MB 产物，一次一批也写不出多少有用信息）。
+            Timber.i(
+                "batch start: source=%s target=%s deleteOriginals=%b items=%d",
+                snapshot.sourceDir, snapshot.targetDir, snapshot.deleteOriginals,
+                plan.jobs.size + plan.unpaired.size,
+            )
             // 回调同步、单线程：每一项在回报那一刻才进 _state.items，所以 finally 里从状态取的
             // 就是"此刻已存在的全部磁盘事实"——包括取消之后跑完的那条尾巴。
             runner.run(plan, options, CancelToken { cancelled }) { item ->
+                if (item.status != ItemStatus.SUCCESS) {
+                    Timber.i("item %s -> %s: %s", item.stem, item.status, item.reason)
+                }
+                if (item.deleteFailures.isNotEmpty()) {
+                    Timber.w("item %s kept sources it could not delete: %s", item.stem, item.deleteFailures)
+                }
                 _state.update { it.copy(done = it.done + 1, bytes = it.bytes + item.bytes, items = it.items + item) }
             }
         } catch (e: Exception) {
@@ -251,6 +310,11 @@ class BatchViewModel internal constructor(
             // 外层协程已取消时，finally 里的 withContext(NonCancellable) 块会完整执行，块后的
             // 语句也会执行；running 落位仍写进块内，只为把"扫描 + 落位"钉成一个不再依赖外层命运的收尾。
             val paths = touchedPathsFor(snapshot.targetDir, _state.value.items)
+            val settled = _state.value
+            Timber.i(
+                "batch end: done=%d/%d bytes=%d touched=%d cancelled=%b",
+                settled.done, settled.total, settled.bytes, paths.size, cancelled,
+            )
             if (paths.isEmpty()) {
                 _state.update { it.copy(running = false) }
             } else {

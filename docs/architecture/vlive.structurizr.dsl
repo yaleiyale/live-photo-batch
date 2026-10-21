@@ -9,6 +9,9 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
             tags "External"
         }
 
+        privateStorage = softwareSystem "应用私有目录" "/data/data/dev.zayn.vlive —— DataStore 设置（vlive.preferences_pb）与滚动日志（filesDir/logs）的落点：不需要任何存储权限，卸载即清，出问题时 adb shell run-as 可以取到。" {
+            tags "External"
+        }
         mediaStore = softwareSystem "MediaStore / 相册" "收尾接收「产物 + 已删原文件」的绝对路径扫描；vivo 相册据此把 x_MP.jpg 当动态照片播放。识别结果就是本项目的验收判据。" {
             tags "External"
         }
@@ -68,7 +71,7 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
             }
 
             # ========== :app ==========
-            app = container ":app (Android application)" "构建单元，不是进程：与 :core 一起打包成单个 app-debug.apk，跑在同一个 Android 进程里。只提供四类适配器 —— 文件、权限、目录浏览、媒体扫描 —— 加上 UI。" "Kotlin / Compose / AGP 9.4.1 / minSdk 30" {
+            app = container ":app (Android application)" "构建单元，不是进程：与 :core 一起打包成单个 app-debug.apk，跑在同一个 Android 进程里。只提供六类适配器 —— 文件、权限、目录浏览、媒体扫描、设置持久化、日志 —— 加上 UI。" "Kotlin / Compose / AGP 9.4.1 / minSdk 30" {
 
                 activity = component "MainActivity" "唯一 Activity。installSplashScreen() 在 super.onCreate 之前，退出动画放完才放行入场闸门；viewModelFactory 造 BatchViewModel；IosTheme 是浅/深唯一判定处；跳授权页失败退化成 Toast 指引（文案取资源）；onResume 回查授权。刻意不开 enableEdgeToEdge()。" "ComponentActivity" {
                     tags "App"
@@ -95,6 +98,15 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
                 {
                     tags "App"
                 }
+                settingsStore = component "settings/BatchSettings" "目录选择的持久化：两方法接口（load/save），生产实现是 Preferences DataStore，写在应用私有目录。删除开关刻意不记；恢复时先过 isSelectable，并且不覆盖用户刚选的那一下。" "DataStore Preferences" {
+                    tags "App"
+                }
+                logTree = component "log/RollingLogTree + planLogCleanup" "Timber 的落点：私有目录里的滚动日志文件。单文件 512 KB / 最多 4 个 / 合计 2 MB / 7 天，当前文件永不删；所有磁盘动作在 vlive-log 守护线程上，日志自己吞 IOException。" "Timber + java.io.File" {
+                    tags "App"
+                }
+                application = component "VliveApp" "唯一的 Application：种两棵日志树（logcat 只在可调试构建 + 文件树）。不在 Activity 里种，因为 Timber 没种树时是静默丢弃。" "Application" {
+                    tags "App"
+                }
                 mediaStoreSync = component "MediaStoreSync" "一次性把全部路径交给 scanFile，最多等 2 秒；绝不抛，但把「未确认」回报给 UI。必须从非主线程调用。" "MediaScannerConnection" {
                     tags "App", "Adapter"
                 }
@@ -119,6 +131,11 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
         lpb.app.viewModel -> lpb.app.dirBrowser "val browser = DirBrowser(root) 暴露给 UI"
         lpb.app.viewModel -> lpb.app.fileStorage "runBatch 里构造 FileStorage(root)"
         lpb.app.viewModel -> lpb.app.mediaStoreSync "finally 里提交 touchedPathsFor(...)"
+        lpb.app.viewModel -> lpb.app.settingsStore "init 里 restore()（先过 isSelectable）；改目录时 save()"
+        lpb.app.viewModel -> lpb.app.logTree "Timber.i/w：批次边界、非成功项、删除失败"
+        lpb.app.application -> lpb.app.logTree "onCreate 里 Timber.plant 两棵树"
+        lpb.app.settingsStore -> privateStorage "vlive.preferences_pb"
+        lpb.app.logTree -> privateStorage "filesDir/logs/log-<ms>.txt"
         lpb.app.viewModel -> lpb.core.batchRunner "plan() 出总数，再把同一份 PlanResult 原样交给 run()"
         lpb.app.dirBrowser -> sharedStorage "listFiles() 列可读子目录" "java.io.File"
         lpb.app.fileStorage -> sharedStorage "open / openWrite / renameTo / delete" "RandomAccessFile"

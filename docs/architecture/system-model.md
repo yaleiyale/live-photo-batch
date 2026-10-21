@@ -74,9 +74,9 @@ APK 之外只有三个东西，全部是设备本地的：
 
 同理，`TrailerClassifier` 与 `TrailerModel` 是两个问题，不许合并（[TrailerModel.kt:20-21](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/TrailerModel.kt#L20)）：一个问身份，一个问声明。
 
-## L3 · `:app` —— 四类适配器 + 一屏 UI
+## L3 · `:app` —— 六类适配器 + 一屏 UI
 
-`:app` 不参与任何字节判断。它提供文件、权限、目录浏览、媒体扫描四类能力，加上一个把状态画出来的界面。
+`:app` 不参与任何字节判断。它提供文件、权限、目录浏览、媒体扫描、设置持久化与日志六类能力，加上一个把状态画出来的界面。
 
 | 组件 | 职责 | 位置 |
 | --- | --- | --- |
@@ -87,10 +87,12 @@ APK 之外只有三个东西，全部是设备本地的：
 | `BatchViewModel` | 批次所有权：开工快照 → 全局前置校验 → `plan()` → `run()` → 逐项 CAS 累积 `UiState` → `NonCancellable` 收尾扫描。面向用户的提示以 [`MessageText`（`@StringRes id` + `List<Any> args`）](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L64) 形式给出，VM 因此不碰 `Context` | [BatchViewModel.kt:122](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L122) |
 | `PermissionGate` | `MANAGE_EXTERNAL_STORAGE` 门面；真值经注入的 `() -> Boolean` **每次现读**，低于 API 30 短路放行 | [PermissionGate.kt:37](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L37) |
 | `DirBrowser` + `mergedRootEntries` + `displayPath` | 真文件系统目录浏览：只列可读、非点开头的子目录；绝不抛，只给空列表。`presets()` **已删除** —— 它同时给别名和"要画出来的条目"，于是列表里会冒出磁盘上不是这么叫的项。现在 [`mergedRootEntries(aliases, children, currentPath)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L106) 只把别名盖到这一层的真实子目录上（`<root>/Pictures → 图片`），[`displayPath(path, root, rootLabel)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L31) 只管**显示**：把存储根换成传进来的别名、往下一级照原样跟着，root 之外的串不重命名（真路径仍旧喂给批次）。别名与标签都由调用方用字符串资源拼（[`folderAliases`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L322)），这个文件才能继续在本地 JVM 上测 | [DirBrowser.kt:71-84](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L71)、[:106](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L106)、[:31](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L31) |
+| `settings/BatchSettings` + `PreferencesBatchSettings` | 目录选择的持久化：两方法接口（`load` / `save`），生产实现是 Preferences DataStore，写在**应用私有目录**。**删除开关刻意不记**（唯一会动原文件的那一项，记住它等于每次冷启动悄悄带着它）；恢复时先过一遍 `isSelectable`，不合法就静默留着默认值 | [BatchSettings.kt:20-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L20)、[:46-72](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L46)、[BatchViewModel.kt:157-186](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L157)；裁定见 [decisions.md §5.17](../decisions.md#517-目录选择持久化只记两个路径采纳前先验一遍2026-10-21-增量) |
+| `log/RollingLogTree` + `planLogCleanup` | 日志的唯一落点：`Timber` 入口，`VliveApp` 种两棵树（logcat 只在可调试构建 + 私有目录文件树）。三条上限同时生效（单文件 512 KB / 4 个 / 合计 2 MB / 7 天），**当前文件永不删**；所有磁盘动作在 `vlive-log` 守护线程上，日志自己吞 `IOException` | [RollingLogTree.kt:37-60](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/RollingLogTree.kt#L37)、[LogRotation.kt:21-56](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/LogRotation.kt#L21)、[VliveApp.kt:21-29](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/VliveApp.kt#L21)；裁定见 [decisions.md §5.18](../decisions.md#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量) |
 | `FileStorage` | 端口的生产实现：`RandomAccessFile` + `FileChannel`、`close` 时 `force(true)` 再关、`move` 走 `rename(2)` 且不先删目标、`exists`/`delete` 一律先判 `isFile` | [FileStorage.kt:78](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L78) |
 | `MediaStoreSync` | 一次性把全部路径交给 `scanFile`，最多等 2 秒；绝不抛，但把"未确认"回报给 UI | [MediaStoreSync.kt:44](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MediaStoreSync.kt#L44) |
 
-`BatchViewModel` 有两个构造器注入的测试接缝（权限供应器、收尾扫描器），生产入口用 `Application` 构造（[BatchViewModel.kt:131-135](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L131)）；因此 `:app` 的 40 条本地单测不需要 Robolectric，也不新增依赖 —— 连面向用户的提示也只带资源 id 与参数（`MessageText`），VM 全程不碰 `Context`。
+`BatchViewModel` 有三个构造器注入的测试接缝（权限供应器、收尾扫描器、目录设置），生产入口用 `Application` 构造（[BatchViewModel.kt:131-135](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L131)）；因此 `:app` 的 51 条本地单测不需要 Robolectric，也不新增依赖 —— 连面向用户的提示也只带资源 id 与参数（`MessageText`），VM 全程不碰 `Context`。
 
 ## 端口契约：`BatchStorage` 的 7 条方法级约定
 
@@ -135,7 +137,7 @@ APK 之外只有三个东西，全部是设备本地的：
 
 | 项 | 现状 | 怎么验 |
 | --- | --- | --- |
-| 相册是否把产物认成动态照片 | 判据来自真机单变量对照与二分（2026-10-18 ~ 2026-10-20，vivo V2419A），**当前 193 条测试没有一条能判它** | 装机跑一批，肉眼 + `adb` 查 MediaStore 条目 |
+| 相册是否把产物认成动态照片 | 判据来自真机单变量对照与二分（2026-10-18 ~ 2026-10-20，vivo V2419A），**当前 204 条测试没有一条能判它** | 装机跑一批，肉眼 + `adb` 查 MediaStore 条目 |
 | 现 XMP 包（1,057 字节那份）在真机上的接受度 | 夹具与断言已就位（[XmpPacketTest.kt:24-26](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/XmpPacketTest.kt#L24)），注释明确要求重新装机验收 | 同上 |
 | 非 vivo 厂商（OPPO/小米/Pixel）的识别 | 只在 `TrailerClassifier` 的 64 位盒反例、`XmpPacket` 的 OPPO 反例里作为**反例**出现过；`VivoLivePhotoTail` 只认 vivo 末盒，其余厂商一律原样追加 | 各厂商真机各跑一批 |
 | 启动入场的逐帧手感（logo 淡出与卡片上浮接不接得上、系统关动画时入场是否归零） | 2026-10-21 已在 V2419A 装机看过一轮：桌面图标（含圆形遮罩与深色）、冷启动色场、交错入场落位均正常；深色 splash 的白标记被 ROM 画成黑，**实测定位后裁定接受**（[decisions.md §5.16](../decisions.md#516-深色-splash-的白标记被-rom-画成黑2026-10-21-装机裁定)）。`ANIMATOR_DURATION_SCALE` 的行为仍未确认（入场刻意不读它，见 [§5.11](../decisions.md#511-图标与启动过渡2026-10-21-增量)） | 再装机看；要收口补 Compose UI 测试 |

@@ -54,6 +54,9 @@ dependencies {
     // 版本走 libs.versions.toml 的 splashScreen。
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    // 目录选择的持久化（源/目标），以及日志文件的自动管理都只走这两个库，见 docs/decisions.md §5.17/§5.18。
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.timber)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
     debugImplementation(libs.compose.ui.tooling)

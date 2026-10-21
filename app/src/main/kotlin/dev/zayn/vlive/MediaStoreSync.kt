@@ -2,7 +2,7 @@ package dev.zayn.vlive
 
 import android.content.Context
 import android.media.MediaScannerConnection
-import android.util.Log
+import timber.log.Timber
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -50,14 +50,14 @@ object MediaStoreSync {
             }
             val confirmed = latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS)
             if (!confirmed) {
-                Log.w(TAG, "媒体扫描 ${TIMEOUT_MS}ms 内未收到确认（${paths.size} 个路径），相册刷新可能滞后")
+                Timber.tag(TAG).w("媒体扫描 ${TIMEOUT_MS}ms 内未收到确认（${paths.size} 个路径），相册刷新可能滞后")
             }
             confirmed
         } catch (e: Exception) {
             // 扫描器不可用（ROM 裁掉了 MediaScanner 服务、无权限、被中断）只影响相册什么时候刷新，
             // 磁盘上的产物和已删除的原文件都是既成事实——但必须可见：记日志并回报 false。
             if (e is InterruptedException) Thread.currentThread().interrupt()
-            Log.w(TAG, "媒体扫描失败（${paths.size} 个路径），相册可能仍显示指向已删文件的旧条目", e)
+            Timber.tag(TAG).w(e, "媒体扫描失败（${paths.size} 个路径），相册可能仍显示指向已删文件的旧条目")
             false
         }
     }
