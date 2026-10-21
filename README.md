@@ -96,6 +96,16 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 [docs/decisions.md §6.5](docs/decisions.md)）。本地等价命令：`./gradlew :app:assembleRelease`，产物在
 `app/build/outputs/apk/release/app-release.apk`。
 
+**Actions 的 artifact 要登录 GitHub 网页才能下载**（手机 App 里没有下载入口，未登录时页面只列产物名、
+不给按钮）。所以要一个**匿名可点的直链**，得走 Release：
+
+- 最新版：https://github.com/yaleiyale/live-photo-batch/releases/tag/2026-10-21
+  （`vlive-debug-2026-10-21.apk` 32,754,465 B / sha256 `3fd9d30f…579696`，
+  `vlive-release-2026-10-21.apk` 25,155,092 B / sha256 `9cace33e…12ef326`，标记为 pre-release）
+
+这个 Release 是**手工用 API 发的**（建 tag + 上传两个 asset），CI 里还没有自动发版的步骤 ——
+要自动化的话，在 `apk` job 后加一步 `softprops/action-gh-release` 就够了，目前没加。
+
 改了 `XmpPacket` / `VivoLivePhotoTail` / 尾巴声明规则之后，**必须重跑真机验收**
 （[清单在 docs/testing.md](docs/testing.md#真机验收清单改了字节层就必须重跑)）—— 没有任何自动化测试能证明相册认这份布局。
 
