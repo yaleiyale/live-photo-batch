@@ -801,10 +801,14 @@ Expected: 拿到 `P_baseline`（janky 百分比）。**同样的循环连做三�
                 // 这一层是主屏窗口里唯一的模糊源，两条 bar 都从它取位图。
                 .hazeSource(haze)
                 // inset 的归属变了：windowInsetsPadding 会把视口本身缩小，内容永远划不到 bar 底下，
-                // 玻璃就糊不出东西；contentPadding 保持满屏视口、只把首尾留白推出来。
-                .verticalScroll(
-                    state = scroll,
-                    contentPadding = PaddingValues(
+                // 玻璃就糊不出东西；满屏视口 + 一圈 padding 才让内容真的从玻璃下面划过。
+                // 实测校正（Task 6）：compose-foundation 1.12.1 的 verticalScroll **没有** contentPadding 形参
+                // （javap 只有 (ScrollState, reverseScrolling, fling…) 与 (ScrollState, overscroll…) 两个重载），
+                // 所以这份 PaddingValues 挂在 verticalScroll **之后**的 Modifier.padding(paddingValues = …) 上：
+                // verticalScroll 之下的链属于"可滚动内容"，视口仍由上面的 fillMaxSize 钉成满屏。
+                .verticalScroll(state = scroll)
+                .padding(
+                    paddingValues = PaddingValues(
                         start = insets.calculateLeftPadding(layoutDirection),
                         top = insets.calculateTopPadding(),
                         end = insets.calculateRightPadding(layoutDirection),
@@ -1046,9 +1050,10 @@ fun IosSheet(
                     Modifier
                         .fillMaxSize()
                         .hazeSource(haze)
-                        .verticalScroll(
-                            state = rememberScrollState(),
-                            contentPadding = PaddingValues(
+                        .verticalScroll(state = rememberScrollState())
+                        // Task 6 实测：verticalScroll 没有 contentPadding 形参，padding 挂在它之后。
+                        .padding(
+                            paddingValues = PaddingValues(
                                 top = topInset + IosMetrics.sheetBarHeight,
                                 bottom = 28.dp,
                             ),
