@@ -58,7 +58,7 @@
 
 这一步**没有 API 可问**。代码对 MediaStore 的唯一调用只提交路径去扫描（[MediaStoreSync.kt:48](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MediaStoreSync.kt#L48)），"认不认"完全由字节布局 + XMP 目录决定，判据来自 vivo V2419A 上的真机单变量对照与二分实验（2026-10-18 ~ 2026-10-20，记录在 [motion-photo-container.md](../motion-photo-container.md)）。
 
-因此这张端到端图的最后一条边是**低置信**的，而且是系统的全部 185 条自动化测试覆盖不到的唯一实质风险面：
+因此这张端到端图的最后一条边是**低置信**的，而且是系统的全部 193 条自动化测试覆盖不到的唯一实质风险面：
 
 - 145 条 `:core` JVM 测试能证明字节布局符合我们自己钉下的规则；
 - 8 条仪器化测试能证明 `FileStorage` 满足端口契约；

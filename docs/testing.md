@@ -3,12 +3,12 @@
 - **回答的问题**：哪些行为已经被钉死、钉在哪个测试里；哪些**只能靠真机**，验收该跑什么命令、看什么现象。
 - **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览 / 英文本地化 + 跟随系统深色），2026-10-21。计数来自 `grep -c "@Test"`（全部是普通 `@Test`，没有 `@ParameterizedTest`/`@TestFactory`）。
 
-## 总览：185 条测试，三个 sourceSet
+## 总览：193 条测试，三个 sourceSet
 
 | sourceSet | 框架 | 条数 | 跑在哪 | CI 是否执行 |
 | --- | --- | --- | --- | --- |
 | `core/src/test` | JUnit 5 Jupiter（BOM 6.1.3），`useJUnitPlatform()` | **145** | 本机 JVM，不需要设备 | ✅ `:core:test` |
-| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **32** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest`（本机 1 条 `assumeTrue` 跳过，见下） |
+| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **40** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest`（本机 1 条 `assumeTrue` 跳过，见下） |
 | `app/src/androidTest` | JUnit 4 + `AndroidJUnit4` / `AndroidJUnitRunner` | **8** | 真机/模拟器 | ❌ **只编译**（`assembleDebugAndroidTest`） |
 
 每个文件的方法数：
@@ -18,7 +18,7 @@ core:  BatchRunnerTest 23 · MotionPhotoComposerTest 21 · TrailerClassifierTest
        PairPlannerTest 13 · JpegXmpPatcherTest 13 · JpegStructureTest 12 · XmpPacketTest 12
        InMemoryStorageTest 10 · VivoLivePhotoTailTest 9 · TrailerModelTest 7
        SourcesTest 3 · MotionDetectorTest 2      （Fixtures / InMemoryStorage 是夹具，0 条）
-app:   BatchViewModelTest 11 · DirBrowserTest 15 · TouchedPathsForTest 4 · PermissionGateTest 2
+app:   BatchViewModelTest 11 · DirBrowserTest 15 · ReportPageTest 8 · TouchedPathsForTest 4 · PermissionGateTest 2
 androidTest: FileStorageTest 8
 ```
 
@@ -28,7 +28,7 @@ androidTest: FileStorageTest 8
 
 ```bash
 ./gradlew :core:test                     # 145 条，最快反馈，纯 JVM
-./gradlew :app:testDebugUnitTest         # 32 条 ViewModel / DirBrowser / PermissionGate
+./gradlew :app:testDebugUnitTest         # 40 条 ViewModel / DirBrowser / ReportPage / PermissionGate
 ./gradlew :app:assembleDebug             # 产出 app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:assembleDebugAndroidTest   # CI 用它保证仪器化测试还能编译
 ./gradlew :app:connectedDebugAndroidTest  # 8 条契约测试，必须插着设备跑
@@ -89,6 +89,7 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | root 选择规则与 `FileStorage` 共享同一个谓词；越界快照静默拒绝 | [:279](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L279)、[:327](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L327) |
 | 目录浏览**只出一列**：别名只替换显示名、当前目录不列自己、没被别名提到的子目录仍然可达、**嵌套别名不得补成快捷方式**（`相机 = DCIM/Camera` 那条机制已撤销）、别的根下的别名一律不掺、顺序稳定 | [DirBrowserTest.kt:103](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L103)、[:124](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L124)、[:138](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L138)、[:150](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L150)、[:166](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L166)、[:182](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L182) |
 | 副标题 `displayPath`：根显示 root 别名、下级保持 `别名/DCIM/Camera`、**root 之外不改名**（那种路径选不了，改名就是骗人）。别名是**入参**而不是常量，所以这两种语言的说法都能在同一条测试里断言 | [DirBrowserTest.kt:200](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L200)、[:210](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L210)、[:221](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L221) |
+| 报告分页与筛选：`All` 保留全部且顺序不变、三个状态档各只收自己的行、**筛选后下标仍旧指向全表**（展开态的键就靠这个）、尾页是短页、页码越界夹回、空结果仍算一页、`size = 0` 不死循环 | [ReportPageTest.kt](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/ReportPageTest.kt)（8 条） |
 | 端口实现分叉点：`exists`/`delete` 对目录必须 false、`list` 排序与缺目录给空、root 不二次拼接、close 后字节完整 | [FileStorageTest.kt:94](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L94)、[:58](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L58)、[:73](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L73)、[:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L162)、[:144](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L144) |
 | 内存实现镜像同样几条契约（两侧对齐才有意义） | [InMemoryStorageTest.kt:48-83](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/InMemoryStorageTest.kt#L48) |
 

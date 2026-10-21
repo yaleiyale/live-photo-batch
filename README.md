@@ -73,7 +73,7 @@ EOI 与视频之间那段尾巴按形状声明成 `GainMap` 项或主图的 `Pad
 
 ```bash
 ./gradlew :core:test                    # 145 条纯 JVM 测试，最快的反馈
-./gradlew :app:testDebugUnitTest        # 32 条 ViewModel / DirBrowser / PermissionGate
+./gradlew :app:testDebugUnitTest        # 40 条 ViewModel / DirBrowser / ReportPage / PermissionGate
 ./gradlew :app:connectedDebugAndroidTest # 8 条端口契约测试，需要插设备（CI 只编译不执行）
 ./gradlew :app:lintDebug                # CI 不跑；当前 12 条 information 级基线：一条被迫保留的 `-v26`、两条刻意撤销的 monochrome、一条 `PluralsCandidate` 误报
 ```

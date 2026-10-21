@@ -24,10 +24,20 @@
     <plurals name="report_summary_warning">
         <item quantity="other"> · 原文件没删掉 %1$d</item>
     </plurals>
+    <string name="filter_all">全部</string>
+    <string name="filter_success">成功</string>
+    <string name="filter_skipped">跳过</string>
+    <string name="filter_failed">失败</string>
+    <string name="page_indicator">第 %1$d/%2$d 页</string>
+    <string name="page_prev">上一页</string>
+    <string name="page_next">下一页</string>
+    <string name="report_empty_filter">这个筛选下没有条目。</string>
     <string name="row_success">成功 %1$s → %2$s</string>
     <string name="row_skipped">跳过 %1$s：%2$s</string>
     <string name="row_failed">失败 %1$s：%2$s</string>
-    <string name="row_delete_warning">（原文件删除失败：%1$s）</string>
+    <string name="detail_bytes">写出 %1$s MB</string>
+    <string name="detail_reason_code">原因代码 %1$s</string>
+    <string name="detail_delete_warning">原文件删除失败：%1$s</string>
 
     <string name="reason_unspecified">未说明</string>
     <string name="reason_not_jpeg">不是 JPEG</string>
@@ -37,7 +47,6 @@
     <string name="reason_not_mp4">不是 MP4</string>
     <string name="reason_io_error">读写故障</string>
     <string name="reason_no_pair">没有配对的文件</string>
-    <string name="reason_code">%1$s（%2$s）</string>
 
     <string name="picker_close">关闭</string>
     <string name="picker_pick">选这里</string>

@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -302,6 +303,127 @@ fun StatusRow(dot: Color, text: String, divider: Boolean = true) {
     }
 }
 
+/**
+ * 报告行：状态点 + 一行摘要，右侧一个展开用的 chevron。
+ *
+ * [detail] 为 null 表示这一行**没有可展开的内容**，于是整行不可点、也不画 chevron ——
+ * "默认收起"不该骗人去点一个什么都没有的东西。展开时明细另起一行，用次级色，与摘要拉开层级。
+ */
+@Composable
+fun ReportRow(
+    dot: Color,
+    head: String,
+    detail: String?,
+    expanded: Boolean,
+    divider: Boolean = true,
+    onToggle: () -> Unit,
+) {
+    val s = LocalIosStyle.current
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .then(if (detail == null) Modifier else Modifier.clickable(onClick = onToggle))
+                .padding(start = IosMetrics.rowPadding, end = IosMetrics.rowPadding, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+            Box(Modifier.width(10.dp))
+            Text(head, style = s.report, modifier = Modifier.weight(1f))
+            if (detail != null) {
+                Box(Modifier.width(10.dp))
+                ExpandChevron(expanded)
+            }
+        }
+        if (detail != null && expanded) {
+            Text(
+                detail,
+                style = s.footnote.copy(color = s.secondaryLabel),
+                modifier = Modifier
+                    .padding(start = IosMetrics.rowPadding + 8.dp + 10.dp)
+                    .padding(end = IosMetrics.rowPadding, bottom = 8.dp),
+            )
+        }
+        if (divider) IosDivider()
+    }
+}
+
+/** 筛选档位那排胶囊：选中的一枚是蓝底白字，其余是卡片底 + 主色字。 */
+@Composable
+fun FilterChipRow(
+    labels: List<String>,
+    selected: Int,
+    modifier: Modifier = Modifier,
+    onSelect: (Int) -> Unit,
+) {
+    val s = LocalIosStyle.current
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        labels.forEachIndexed { index, label ->
+            val on = index == selected
+            Box(
+                Modifier
+                    .clip(CircleShape)
+                    .background(if (on) s.blue else s.card)
+                    .clickable { onSelect(index) }
+                    .padding(horizontal = 13.dp, vertical = 7.dp),
+            ) {
+                Text(
+                    label,
+                    style = s.footnote.copy(color = if (on) Color.White else s.label),
+                )
+            }
+        }
+    }
+}
+
+/** 分页那一行：左右两个文字按钮，中间是"第 x/y 页"。到边的那侧禁用（不是隐藏，位置不能跳）。 */
+@Composable
+fun ReportPager(
+    label: String,
+    prev: String,
+    next: String,
+    canPrev: Boolean,
+    canNext: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val s = LocalIosStyle.current
+    Row(
+        modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PagerAction(prev, canPrev, onPrev)
+        Text(
+            label,
+            style = s.footnote,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f),
+        )
+        PagerAction(next, canNext, onNext)
+    }
+}
+
+@Composable
+private fun PagerAction(text: String, enabled: Boolean, onClick: () -> Unit) {
+    val s = LocalIosStyle.current
+    Text(
+        text,
+        style = s.navAction.copy(color = if (enabled) s.blue else s.tertiaryLabel),
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
+/** 展开指示：收起时朝右，展开时转到朝下，时长复用入场那套令牌。 */
+@Composable
+private fun ExpandChevron(expanded: Boolean) {
+    val angle by animateFloatAsState(if (expanded) 90f else 0f, tween(IosMotion.ENTER_MS), label = "reportChevron")
+    ChevronRight(modifier = Modifier.rotate(angle))
+}
+
 /** 目录行：左侧文件夹图形 + 名字，右侧 chevron。图形用 Canvas 画，不引入矢量资源。 */
 @Composable
 fun FolderRow(title: String, enabled: Boolean = true, divider: Boolean = true, onClick: () -> Unit) {
@@ -338,8 +460,8 @@ fun BackRow(title: String, divider: Boolean = true, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChevronRight(color: Color = iosStyle().tertiaryLabel) {
-    Canvas(Modifier.width(8.dp).height(13.dp)) {
+private fun ChevronRight(modifier: Modifier = Modifier, color: Color = iosStyle().tertiaryLabel) {
+    Canvas(modifier.width(8.dp).height(13.dp)) {
         val stroke = 1.7.dp.toPx()
         val mid = Offset(size.width, size.height / 2f)
         drawLine(color, Offset(0f, 0f), mid, strokeWidth = stroke, cap = StrokeCap.Round)

@@ -29,10 +29,23 @@
         <item quantity="one"> · %1$d original not deleted</item>
         <item quantity="other"> · %1$d originals not deleted</item>
     </plurals>
+    <!-- 筛选与分页。摘要行永远画，明细（原因代码 / 写出字节 / 没删掉的原文件）只在展开时画，
+         所以一屏组合出来的行数由页大小决定，而不是由这批有多少项决定。 -->
+    <string name="filter_all">All</string>
+    <string name="filter_success">Succeeded</string>
+    <string name="filter_skipped">Skipped</string>
+    <string name="filter_failed">Failed</string>
+    <string name="page_indicator">Page %1$d of %2$d</string>
+    <string name="page_prev">Previous</string>
+    <string name="page_next">Next</string>
+    <string name="report_empty_filter">Nothing in this filter.</string>
     <string name="row_success">Succeeded %1$s → %2$s</string>
     <string name="row_skipped">Skipped %1$s: %2$s</string>
     <string name="row_failed">Failed %1$s: %2$s</string>
-    <string name="row_delete_warning"> (originals not deleted: %1$s)</string>
+    <string name="detail_bytes">wrote %1$s MB</string>
+    <!-- 本地化短语之外再留一行机器可读的枚举名（spec §9：给人看懂，同时留一个能贴进 issue 的名字）。 -->
+    <string name="detail_reason_code">reason code %1$s</string>
+    <string name="detail_delete_warning">originals not deleted: %1$s</string>
 
     <string name="reason_unspecified">no reason given</string>
     <string name="reason_not_jpeg">not a JPEG</string>
@@ -42,8 +55,6 @@
     <string name="reason_not_mp4">not an MP4</string>
     <string name="reason_io_error">read/write failure</string>
     <string name="reason_no_pair">no matching pair</string>
-    <!-- 本地化短语 + 机器可读的枚举名（spec §9：给人看懂，同时留一个能贴进 issue 的名字）。 -->
-    <string name="reason_code">%1$s (%2$s)</string>
 
     <string name="picker_close">Close</string>
     <string name="picker_pick">Choose here</string>

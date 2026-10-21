@@ -199,11 +199,19 @@
 
 **为什么**：`isExternalStorageManager()` 是一次 binder 调用，组合期读它会在批次逐项回报时拖慢主线程；`remember` **只是缓存，不是副作用护栏** —— 槽位恢复和被丢弃的重组都会重新执行它的 lambda。
 
-### 5.4 报告列表刻意不用 `LazyColumn`
+### 5.4 报告列表刻意不用 `LazyColumn`，改用分页 + 筛选 + 逐行展开
 
-**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`。
+**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`；一次只画**一页**（[`REPORT_PAGE_SIZE = 20`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L22)，规则在纯函数 [`reportPage`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L55) 里），配四个筛选档位（全部 / 成功 / 跳过 / 失败）与**默认收起**的逐行展开。
 
-**为什么**：在里面再嵌一个纵向 `LazyColumn` 会带无限高度去测量，Compose 直接抛 `"Vertically scrollable component was measured with an infinity maximum height constraints"`。报告最多几百行，够用。
+**为什么不能嵌 `LazyColumn`**：在里面再嵌一个纵向 `LazyColumn` 会带着无限高度去测量，Compose 直接抛 `"Vertically scrollable component was measured with an infinity maximum height constraints"`。所以"少画一点"这件事只能用分页做 —— 也就正好是需求要的那一条（"避免界面数据占用过大内存"）。
+
+**分页省的是组合，不是数据**：`state.items` 每条只有几个字符串，几百条几十 KB，留着它不贵；贵的是把每一行都**组合 + 测量 + 排版**一遍。所以 `UiState` 一个字没改（VM 仍然完整回报每一项），页大小只限制屏幕上同时存在多少个节点。把 items 也裁掉是另一件事，需要时再说 —— 现在裁了就没有"整批汇总计数"和"翻回去看第一项"了。
+
+**展开状态按整份列表的下标记**（[`ReportRow(index, item)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L30)），不按页内序号、也不按 `stem`：换筛选之后第 3 行就不是原来那第 3 行，按序号记会让展开态套到别的行上。明细里放的是**摘要行放不下、但查问题真正要看的三样**：写出多少字节、机器可读的原因代码（原来挤在摘要里，现在摘要只剩一句人话）、以及没删掉的原文件路径。没有明细的行**不画 chevron 也不接受点击** —— "默认收起"不该骗人去点一个什么都没有的东西。
+
+**哪些状态活过旋转**：筛选与页码走 `rememberSaveable`（横过来还在），展开集合走 `remember`（旋转后全部收起）。这是刻意的：展开是一次性的查看动作，不值得为它写可持久化的键。
+
+**代价**：分页与筛选是纯函数，8 条 JVM 用例钉着（空结果也算一页、页码夹回合法区间、筛选后下标仍旧指向全表，见 [ReportPageTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/ReportPageTest.kt)）；但 [FilterChipRow](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L353) / [ReportRow](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L313) / [ReportPager](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L381) 这三个控件本身仍然零自动化测试 —— 与 §5.5 同一件事。
 
 ### 5.5 自绘 iOS 分组列表，而不是 Material3 控件
 
@@ -415,7 +423,7 @@
 | 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L186) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
-| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 177 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
+| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 185 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
 | lint 有 12 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)，两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
 | `:core` 与 `MediaStoreSync` 的异常/日志文案仍是**中文** | `err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子，于是英文提示里嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）；`MediaStoreSync` 的两条 `Log.w` 只进 logcat，不进 UI | 抛出消息属于"给开发者读"的边界：要么把它们也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message`。第 4 片做日志时一起收 |
 | `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:192](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L192)、[:217](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L217) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |

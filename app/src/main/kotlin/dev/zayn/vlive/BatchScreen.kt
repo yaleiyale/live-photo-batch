@@ -27,9 +27,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +47,7 @@ import dev.zayn.vlive.browse.displayPath
 import dev.zayn.vlive.browse.mergedRootEntries
 import dev.zayn.vlive.ui.BackRow
 import dev.zayn.vlive.ui.DetailRow
+import dev.zayn.vlive.ui.FilterChipRow
 import dev.zayn.vlive.ui.FolderRow
 import dev.zayn.vlive.ui.IosButton
 import dev.zayn.vlive.ui.IosButtonStyle
@@ -54,8 +58,9 @@ import dev.zayn.vlive.ui.IosMotion
 import dev.zayn.vlive.ui.IosSheet
 import dev.zayn.vlive.ui.IosStyle
 import dev.zayn.vlive.ui.LocalIosStyle
+import dev.zayn.vlive.ui.ReportPager
+import dev.zayn.vlive.ui.ReportRow
 import dev.zayn.vlive.ui.SectionCard
-import dev.zayn.vlive.ui.StatusRow
 import dev.zayn.vlive.ui.SwitchRow
 import dev.zayn.vlive.ui.ThinProgressBar
 import dev.zayn.vlive.ui.iosEnter
@@ -74,10 +79,11 @@ private enum class Picking { Source, Target }
  *
  * 外观按 iOS「设置」的分组卡片重排（令牌与控件在 [dev.zayn.vlive.ui]），
  * 三个刻意的设计点一条没动：
- * 1. **报告列表不用 `LazyColumn`。** 外层已经是一条 `verticalScroll` 的 `Column`，
+ * 1. **报告列表不用 `LazyColumn`，改用分页。** 外层已经是一条 `verticalScroll` 的 `Column`，
  *    在里面再嵌一个纵向 `LazyColumn` 会让它带着无限高度去测量，Compose 直接抛
  *    `"Vertically scrollable component was measured with an infinity maximum height constraints"`。
- *    报告最多几百行，普通 `Column` + `forEach` 足够，也不需要滚动嵌套。
+ *    于是组合数量由 [reportPage] 的页大小钉住（一次只画一页），而不是由这批有多少项决定 ——
+ *    要限的本来就是"组合 + 测量 + 排版多少行"，`state.items` 那几条字符串不值钱。
  * 2. **权限不在组合过程里读。** 授权状态由 [BatchViewModel] 构造时、`MainActivity.onResume`
  *    和这里的 `LaunchedEffect` 推进；组合期每次重组都调一次
  *    `Environment.isExternalStorageManager()`（一次 binder 调用）会在批次逐项回报时拖慢主线程。
@@ -274,14 +280,63 @@ fun BatchScreen(
                         .padding(horizontal = IosMetrics.screenMargin)
                         .padding(top = 6.dp, bottom = 8.dp),
                 )
-                SectionCard(Modifier.iosEnter(9, entrance)) {
-                    state.items.forEachIndexed { index, item ->
-                        StatusRow(
-                            dot = dotColor(item, s),
-                            text = itemLine(item),
-                            divider = index < state.items.lastIndex,
+                // 筛选与分页是**组合层**的事：state.items 一直完整留着（每条只有几个字符串），
+                // 贵的是把每一行都组合 + 测量一遍，所以一次只画一页。规则在 reportPage() 里，JVM 可测。
+                var filter by rememberSaveable { mutableStateOf(ReportFilter.All) }
+                var page by rememberSaveable { mutableIntStateOf(0) }
+                // 展开态按**整份列表里的下标**记：换筛选或翻页后，页内序号会指向别的行。
+                val expanded = remember { mutableStateMapOf<Int, Boolean>() }
+                FilterChipRow(
+                    labels = listOf(
+                        stringResource(R.string.filter_all),
+                        stringResource(R.string.filter_success),
+                        stringResource(R.string.filter_skipped),
+                        stringResource(R.string.filter_failed),
+                    ),
+                    selected = filter.ordinal,
+                    modifier = Modifier
+                        .iosEnter(9, entrance)
+                        .padding(horizontal = IosMetrics.screenMargin)
+                        .padding(bottom = 8.dp),
+                    onSelect = { index ->
+                        filter = ReportFilter.entries[index]
+                        page = 0
+                    },
+                )
+                val shown = reportPage(state.items, filter, page)
+                SectionCard(Modifier.iosEnter(10, entrance)) {
+                    shown.rows.forEachIndexed { index, row ->
+                        ReportRow(
+                            dot = dotColor(row.item, s),
+                            head = itemHead(row.item),
+                            detail = itemDetail(row.item),
+                            expanded = expanded[row.index] == true,
+                            divider = index < shown.rows.lastIndex,
+                            onToggle = { expanded[row.index] = !(expanded[row.index] ?: false) },
                         )
                     }
+                    if (shown.rows.isEmpty()) {
+                        Text(
+                            stringResource(R.string.report_empty_filter),
+                            style = s.footnote,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
+                if (shown.pages > 1) {
+                    Spacer(Modifier.height(10.dp))
+                    ReportPager(
+                        label = stringResource(R.string.page_indicator, shown.page + 1, shown.pages),
+                        prev = stringResource(R.string.page_prev),
+                        next = stringResource(R.string.page_next),
+                        canPrev = shown.page > 0,
+                        canNext = shown.page < shown.pages - 1,
+                        onPrev = { page = shown.page - 1 },
+                        onNext = { page = shown.page + 1 },
+                        modifier = Modifier
+                            .iosEnter(11, entrance)
+                            .padding(horizontal = IosMetrics.screenMargin),
+                    )
                 }
             }
         }
@@ -486,34 +541,40 @@ private fun dotColor(item: ItemResult, s: IosStyle): Color = when (item.status) 
 }
 
 /**
- * 一行报告文案。`when (item.status)` 的三个分支是穷尽的，核心层加状态时这里会编译不过。
+ * 报告行的**摘要**（永远画）。`when (item.status)` 的三个分支是穷尽的，核心层加状态时这里编译不过。
  *
- * `@Composable` 是因为文案要从资源里取——这个函数在 `state.items.forEach` 里被逐项调用，
+ * 两个助手都是 `@Composable`，因为文案要从资源取——它们在 `shown.rows.forEachIndexed` 里逐项调用，
  * 但 `stringResource` 只是一次查表（`Context` 已在组合里），没有磁盘或 binder 调用。
  */
 @Composable
-private fun itemLine(item: ItemResult): String {
-    val reason = reasonLabel(item.reason)
-    val head = when (item.status) {
+private fun itemHead(item: ItemResult): String {
+    val reason = stringResource(reasonResource(item.reason))
+    return when (item.status) {
         ItemStatus.SUCCESS -> stringResource(R.string.row_success, item.stem, item.outputName)
         ItemStatus.SKIPPED -> stringResource(R.string.row_skipped, item.stem, reason)
         ItemStatus.FAILED -> stringResource(R.string.row_failed, item.stem, reason)
     }
-    // deleteFailures 只会挂在 SUCCESS 上：Task 8 规定改名成功后状态不再被回改写，
-    // 删不掉的源文件是警告。所以警告必须跟着 SUCCESS 一起显示，不能只在失败分支里拼。
-    val warning = if (item.deleteFailures.isEmpty()) ""
-    else stringResource(R.string.row_delete_warning, item.deleteFailures.joinToString())
-    return head + warning
 }
 
 /**
- * 原因的本地化短语，后面跟着机器可读的枚举名（spec §9 要求面向用户给短语，同时留着能贴进
- * issue 的那个名字）。`reason == null` 时只有"未说明"，不拼括号里的代码。
+ * 报告行的**明细**（只在展开时画）；返回 null 表示这行没得多说的东西，UI 于是收起 chevron。
+ *
+ * 为什么值得展开：摘要行只有"成功 IMG_a → IMG_a_MP.jpg"这一句，而真正要查的东西都在下面这三行里 ——
+ * 写出多少字节、机器可读的原因代码（spec §9 要求给人短语、同时留一个能贴进 issue 的名字，
+ * 现在它从摘要行挪到这里，摘要才不会又长又难读）、以及**没删掉的原文件路径**。
+ * `deleteFailures` 只会挂在 SUCCESS 上（Task 8：改名成功后状态不再被回改写），
+ * 所以这条警告必须跟着 SUCCESS 一起显示，不能只出现在失败分支里。
  */
 @Composable
-private fun reasonLabel(reason: FailureReason?): String {
-    val text = stringResource(reasonResource(reason))
-    return if (reason == null) text else stringResource(R.string.reason_code, text, reason.name)
+private fun itemDetail(item: ItemResult): String? {
+    val parts = buildList {
+        if (item.status == ItemStatus.SUCCESS) add(stringResource(R.string.detail_bytes, item.bytes / 1024 / 1024))
+        item.reason?.let { add(stringResource(R.string.detail_reason_code, it.name)) }
+        if (item.deleteFailures.isNotEmpty()) {
+            add(stringResource(R.string.detail_delete_warning, item.deleteFailures.joinToString()))
+        }
+    }
+    return if (parts.isEmpty()) null else parts.joinToString("\n")
 }
 
 /**
