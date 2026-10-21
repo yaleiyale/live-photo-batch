@@ -73,7 +73,7 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
                 activity = component "MainActivity" "唯一 Activity。installSplashScreen() 在 super.onCreate 之前，退出动画放完才放行入场闸门；viewModelFactory 造 BatchViewModel；IosTheme 是浅/深唯一判定处；跳授权页失败退化成 Toast 指引（文案取资源）；onResume 回查授权。刻意不开 enableEdgeToEdge()。" "ComponentActivity" {
                     tags "App"
                 }
-                screen = component "BatchScreen + DirectoryPicker" "单屏 UI：权限提示、两个目录、危险开关、进度、逐项报告、全屏目录浏览弹窗。目录读取在 produceState + Dispatchers.IO，绝不发生在组合期；报告列表刻意不用 LazyColumn，因此一次只画一页（reportPage 那个纯函数定筛选与分页规则），行默认收起、明细在展开时才画。" "Compose（自绘控件）" {
+                screen = component "BatchScreen + DirectoryPicker" "单屏 UI：权限提示、两个目录、危险开关、进度、逐项报告、全屏目录浏览弹窗。目录读取在 produceState + Dispatchers.IO，绝不发生在组合期；报告列表刻意不用 LazyColumn：整张列表默认折叠成一行（ReportCard），展开后一次只画一页（reportPage 那个纯函数定筛选与分页规则）。" "Compose（自绘控件）" {
                     tags "App"
                 }
                 uiKit = component "ui/IosControls + IosStyle + IosEntrance" "按 iOS「设置」分组列表自绘的控件层与令牌层：两份 IosPalette（浅/深）+ IosStyle（颜色与文字样式）+ IosMetrics / IosMotion（几何与时长）。IosTheme 一次判定 isSystemInDarkTheme，把同一套色板同时给 LocalIosStyle 与 MaterialTheme。图形用 Canvas 画，不引入位图资源；状态全部提升，内部无 value 状态。IosEntrance 是冷启动入场闸门。" "Compose" {

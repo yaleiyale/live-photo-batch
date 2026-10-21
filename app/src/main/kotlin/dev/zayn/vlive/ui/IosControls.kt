@@ -304,47 +304,42 @@ fun StatusRow(dot: Color, text: String, divider: Boolean = true) {
 }
 
 /**
- * 报告行：状态点 + 一行摘要，右侧一个展开用的 chevron。
+ * 报告卡片：**整张列表收成一行**。
  *
- * [detail] 为 null 表示这一行**没有可展开的内容**，于是整行不可点、也不画 chevron ——
- * "默认收起"不该骗人去点一个什么都没有的东西。展开时明细另起一行，用次级色，与摘要拉开层级。
+ * 折叠时只有表头那一行（标题 + 汇总 + chevron），`content` 根本不会被组合 —— 这才是这条改动省东西
+ * 的地方（外层是 `verticalScroll` 的 `Column`，嵌不了纵向 `LazyColumn`，所以少画只能靠少组合）。
+ * 展开后才画筛选档、这一页的行与分页。默认折叠由调用方决定。
  */
 @Composable
-fun ReportRow(
-    dot: Color,
-    head: String,
-    detail: String?,
+fun ReportCard(
+    title: String,
+    summary: String,
     expanded: Boolean,
-    divider: Boolean = true,
+    modifier: Modifier = Modifier,
     onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val s = LocalIosStyle.current
-    Column {
+    SectionCard(modifier) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .then(if (detail == null) Modifier else Modifier.clickable(onClick = onToggle))
-                .padding(start = IosMetrics.rowPadding, end = IosMetrics.rowPadding, top = 8.dp, bottom = 8.dp),
+                .clickable(onClick = onToggle)
+                .padding(start = IosMetrics.rowPadding, end = IosMetrics.rowPadding, top = 13.dp, bottom = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
-            Box(Modifier.width(10.dp))
-            Text(head, style = s.report, modifier = Modifier.weight(1f))
-            if (detail != null) {
+            Text(title, style = s.title, modifier = Modifier.weight(1f))
+            if (!expanded) {
+                // 展开之后这些数字由筛选档自己显示，表头再挂一条就成重复。
+                Text(summary, style = s.footnote, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Box(Modifier.width(10.dp))
-                ExpandChevron(expanded)
             }
+            ExpandChevron(expanded)
         }
-        if (detail != null && expanded) {
-            Text(
-                detail,
-                style = s.footnote.copy(color = s.secondaryLabel),
-                modifier = Modifier
-                    .padding(start = IosMetrics.rowPadding + 8.dp + 10.dp)
-                    .padding(end = IosMetrics.rowPadding, bottom = 8.dp),
-            )
+        if (expanded) {
+            IosDivider()
+            content()
         }
-        if (divider) IosDivider()
     }
 }
 

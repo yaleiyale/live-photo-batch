@@ -199,19 +199,19 @@
 
 **为什么**：`isExternalStorageManager()` 是一次 binder 调用，组合期读它会在批次逐项回报时拖慢主线程；`remember` **只是缓存，不是副作用护栏** —— 槽位恢复和被丢弃的重组都会重新执行它的 lambda。
 
-### 5.4 报告列表刻意不用 `LazyColumn`，改用分页 + 筛选 + 逐行展开
+### 5.4 报告列表刻意不用 `LazyColumn`，改用整表折叠 + 分页 + 筛选
 
-**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`；一次只画**一页**（[`REPORT_PAGE_SIZE = 20`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L22)，规则在纯函数 [`reportPage`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L55) 里），配四个筛选档位（全部 / 成功 / 跳过 / 失败）与**默认收起**的逐行展开。
+**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`；**整张列表默认收成一行** —— [`ReportCard`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L305) 折叠时只有表头那一行（标题 + 汇总计数 + chevron），展开之后才有四个筛选档位（全部 / 成功 / 跳过 / 失败）、**一页 20 行**（[`REPORT_PAGE_SIZE`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L20)）与分页行。分页与筛选的规则在纯函数 [`reportPage`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L47) 里。
 
-**为什么不能嵌 `LazyColumn`**：在里面再嵌一个纵向 `LazyColumn` 会带着无限高度去测量，Compose 直接抛 `"Vertically scrollable component was measured with an infinity maximum height constraints"`。所以"少画一点"这件事只能用分页做 —— 也就正好是需求要的那一条（"避免界面数据占用过大内存"）。
+**「收起」收的是整张列表，不是逐行**。需求原话是「报告列表支持展开收起，默认收起」，指的是列表本身收成一行（这一条在第一版实现之后由用户澄清；第一版做成了逐行展开，已改）。所以每一行没有各自的展开态，摘要行回到一行装完：状态 + `stem → 产物名` + 原因短语（后面仍跟着机器可读的枚举名，spec §9）+ 没删掉的原文件警告。
 
-**分页省的是组合，不是数据**：`state.items` 每条只有几个字符串，几百条几十 KB，留着它不贵；贵的是把每一行都**组合 + 测量 + 排版**一遍。所以 `UiState` 一个字没改（VM 仍然完整回报每一项），页大小只限制屏幕上同时存在多少个节点。把 items 也裁掉是另一件事，需要时再说 —— 现在裁了就没有"整批汇总计数"和"翻回去看第一项"了。
+**为什么不能嵌 `LazyColumn`**：在里面再嵌一个纵向 `LazyColumn` 会带着无限高度去测量，Compose 直接抛 `"Vertically scrollable component was measured with an infinity maximum height constraints"`。所以「少画一点」这件事只能靠折叠与分页做 —— 也就正好是需求要的那一条（「避免界面数据占用过大内存」）。
 
-**展开状态按整份列表的下标记**（[`ReportRow(index, item)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L30)），不按页内序号、也不按 `stem`：换筛选之后第 3 行就不是原来那第 3 行，按序号记会让展开态套到别的行上。明细里放的是**摘要行放不下、但查问题真正要看的三样**：写出多少字节、机器可读的原因代码（原来挤在摘要里，现在摘要只剩一句人话）、以及没删掉的原文件路径。没有明细的行**不画 chevron 也不接受点击** —— "默认收起"不该骗人去点一个什么都没有的东西。
+**折叠与分页省的都是组合，不是数据**：`state.items` 每条只有几个字符串，几百条几十 KB，留着它不贵；贵的是把每一行都**组合 + 测量 + 排版**一遍。折叠时 `content` 连组合都不发生，展开后一次也只组合一页。`UiState` 一个字没改，VM 仍旧完整回报每一项 —— 把 items 也裁掉是另一件事，那样就没有「整批汇总计数」和「翻回去看第一项」了。
 
-**哪些状态活过旋转**：筛选与页码走 `rememberSaveable`（横过来还在），展开集合走 `remember`（旋转后全部收起）。这是刻意的：展开是一次性的查看动作，不值得为它写可持久化的键。
+**哪些状态活过旋转**：折叠、筛选、页码都走 `rememberSaveable`（横过来都还在）。页码存的是原始值，越界由 `reportPage` 夹回，所以换筛选把页数变小也不会停在空白页上。
 
-**代价**：分页与筛选是纯函数，8 条 JVM 用例钉着（空结果也算一页、页码夹回合法区间、筛选后下标仍旧指向全表，见 [ReportPageTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/ReportPageTest.kt)）；但 [FilterChipRow](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L353) / [ReportRow](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L313) / [ReportPager](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L381) 这三个控件本身仍然零自动化测试 —— 与 §5.5 同一件事。
+**代价**：`ReportCard` / `FilterChipRow` / `ReportPager` 三个控件仍然零自动化测试（与 §5.5 同一件事）；钉住的是纯函数那一层 —— 8 条用例（空结果也算一页、页码夹回合法区间、**连续页不重也不漏**、顺序就是回报顺序、`size = 0` 不死循环），见 [ReportPageTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/ReportPageTest.kt)。
 
 ### 5.5 自绘 iOS 分组列表，而不是 Material3 控件
 

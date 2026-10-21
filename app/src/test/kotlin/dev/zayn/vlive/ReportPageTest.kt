@@ -26,10 +26,11 @@ class ReportPageTest {
         item("e", ItemStatus.SKIPPED, FailureReason.NOT_JPEG),
     )
 
+    private fun many(n: Int) = (0 until n).map { item("IMG_%02d".format(it), ItemStatus.SUCCESS) }
+
     @Test fun `all keeps every row in report order`() {
         val page = reportPage(mixed(), ReportFilter.All, 0, size = 10)
-        assertEquals(listOf("a", "b", "c", "d", "e"), page.rows.map { it.item.stem })
-        assertEquals(listOf(0, 1, 2, 3, 4), page.rows.map { it.index })
+        assertEquals(listOf("a", "b", "c", "d", "e"), page.rows.map { it.stem })
         assertEquals(5, page.matched)
         assertEquals(1, page.pages)
     }
@@ -43,38 +44,36 @@ class ReportPageTest {
         for ((filter, status) in byFilter) {
             val page = reportPage(mixed(), filter, 0, size = 10)
             assertTrue(filter.name, page.rows.isNotEmpty())
-            assertEquals(filter.name, listOf(status), page.rows.map { it.item.status }.distinct())
+            assertEquals(filter.name, listOf(status), page.rows.map { it.status }.distinct())
             assertEquals(filter.name, page.matched, page.rows.size)
         }
-        assertEquals(listOf("b", "e"), reportPage(mixed(), ReportFilter.Skipped, 0, size = 10).rows.map { it.item.stem })
-    }
-
-    /**
-     * The index is the key the UI stores per-row expansion under. If filtering renumbered rows
-     * within the page, expanding one row would light up a different one after the filter changes.
-     */
-    @Test fun `indices stay pointing at the full list after filtering`() {
-        val page = reportPage(mixed(), ReportFilter.Success, 0, size = 10)
-        assertEquals(listOf(0, 2), page.rows.map { it.index })
-        assertEquals(listOf("a", "c"), page.rows.map { it.item.stem })
+        assertEquals(listOf("b", "e"), reportPage(mixed(), ReportFilter.Skipped, 0, size = 10).rows.map { it.stem })
     }
 
     @Test fun `pages slice in order and the tail page is short`() {
-        val items = (0 until 25).map { item("IMG_%02d".format(it), ItemStatus.SUCCESS) }
+        val items = many(25)
         val first = reportPage(items, ReportFilter.All, 0, size = 10)
         val second = reportPage(items, ReportFilter.All, 1, size = 10)
         val third = reportPage(items, ReportFilter.All, 2, size = 10)
         assertEquals(3, first.pages)
-        assertEquals(listOf("IMG_00", "IMG_09"), listOf(first.rows.first().item.stem, first.rows.last().item.stem))
-        assertEquals(listOf("IMG_10", "IMG_19"), listOf(second.rows.first().item.stem, second.rows.last().item.stem))
+        assertEquals(listOf("IMG_00", "IMG_09"), listOf(first.rows.first().stem, first.rows.last().stem))
+        assertEquals(listOf("IMG_10", "IMG_19"), listOf(second.rows.first().stem, second.rows.last().stem))
         assertEquals(5, third.rows.size)
-        assertEquals("IMG_24", third.rows.last().item.stem)
+        assertEquals("IMG_24", third.rows.last().stem)
         assertEquals(2, third.page)
     }
 
+    /** The pager is the only way to see the rest, so pages must partition the list exactly once. */
+    @Test fun `consecutive pages neither repeat nor drop a row`() {
+        val items = many(25)
+        val walked = (0 until 3).flatMap { reportPage(items, ReportFilter.All, it, size = 10).rows }
+        assertEquals(items.map { it.stem }, walked.map { it.stem })
+    }
+
     @Test fun `an out-of-range page is clamped instead of rendering blank`() {
-        val items = (0 until 25).map { item("IMG_%02d".format(it), ItemStatus.SUCCESS) }
-        // Shrinking the filter (or finishing a batch) can leave the stored page beyond the end.
+        // A batch still appending grows the page count, and dropping a filter shrinks it; either
+        // way the stored page can end up past the end, and a blank page is never the right answer.
+        val items = many(25)
         val over = reportPage(items, ReportFilter.All, 99, size = 10)
         assertEquals(2, over.page)
         assertTrue(over.rows.isNotEmpty())

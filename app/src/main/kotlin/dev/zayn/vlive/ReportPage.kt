@@ -21,17 +21,9 @@ enum class ReportFilter { All, Success, Skipped, Failed;
 /** 一页画多少行。真机（1216×2640）上一行报告约 44dp，20 行足够铺满两屏再多给一点余量。 */
 const val REPORT_PAGE_SIZE = 20
 
-/**
- * 一行报告 + 它在**整份 `state.items` 里的下标**。
- *
- * 下标必须带出去：展开状态是按行记的，如果按"页内序号"或"`stem`"记，翻页 / 换筛选就会把
- * 展开态套到别的行上（同一批里 `stem` 唯一，但筛选一变，第 3 行就不是原来那第 3 行了）。
- */
-data class ReportRow(val index: Int, val item: ItemResult)
-
 /** 一页报告：要画的行、当前页（0 基）、总页数、以及**筛选后**的总行数。 */
 data class ReportPage(
-    val rows: List<ReportRow>,
+    val rows: List<ItemResult>,
     val page: Int,
     val pages: Int,
     val matched: Int,
@@ -59,8 +51,7 @@ fun reportPage(
     size: Int = REPORT_PAGE_SIZE,
 ): ReportPage {
     val width = size.coerceAtLeast(1)
-    val matched = ArrayList<ReportRow>(items.size)
-    items.forEachIndexed { index, item -> if (filter.accepts(item.status)) matched += ReportRow(index, item) }
+    val matched = items.filter { filter.accepts(it.status) }
     val pages = ((matched.size + width - 1) / width).coerceAtLeast(1)
     val current = page.coerceIn(0, pages - 1)
     val from = current * width
