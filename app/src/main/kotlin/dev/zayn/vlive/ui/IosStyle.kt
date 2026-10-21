@@ -1,5 +1,8 @@
 package dev.zayn.vlive.ui
 
+import android.content.Context
+import android.os.Build
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -7,8 +10,10 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +78,19 @@ val IosDarkPalette = IosPalette(
     orange = Color(0xFFFF9F0A),
     noticeBackground = Color(0xFF3A1D1E),
 )
+
+/**
+ * accent 的四个值：浅/深 × 常规/高对比（spec §1.5）。
+ *
+ * 常规两列就是色板里原本的两个值，一个都没改；高对比那两列是本轮定的**起点**，不是苹果公开数值的
+ * 引用，判据是硬指标：Tinted 主按钮上的白字、玻璃 bar 上的 accent 字在各自外观下 ≥ 4.5:1。
+ */
+fun accentFor(dark: Boolean, highContrast: Boolean): Color = when {
+    !dark && !highContrast -> Color(0xFF007AFF)
+    !dark -> Color(0xFF0040DD)
+    !highContrast -> Color(0xFF0A84FF)
+    else -> Color(0xFF66B3FF)
+}
 
 /**
  * 颜色 + 文字样式的合一入口。合成期一次取值（`val s = LocalIosStyle.current`），后面全部走 `s.`。
@@ -196,7 +214,21 @@ private fun darkColorSchemeOf(p: IosPalette) = darkColorScheme(
 @Composable
 fun IosTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    val palette = if (dark) IosDarkPalette else IosLightPalette
+    // 系统"高文字对比度"开关，取法见 spec §1.5。第一次读可能触发一次 IPC（之后 AccessibilityManager
+    // 自己缓存），所以整段包在 remember 里、不在每次重组时读 —— BatchScreen 那条"合成期不碰
+    // binder/磁盘"的约定靠这个 remember 守住，不是靠假设这个 getter 便宜。
+    // `LocalContext.current` 本身是 @ReadOnlyComposable 的取值，只能待在函数体里，所以先取 context
+    // 再把它当 key：Activity 重建前它是同一个对象，key 不会多读一次，读到的仍是"每个主题实例一次"。
+    // 已知限制：开关运行中被翻动不会立刻重组，下一次配置变化/主题重建才生效，内部工具接受这个代价。
+    val context = LocalContext.current
+    val highContrast = remember(context) {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        // 档位判断不是双保险而是必需：isHighContrastTextEnabled 是 API 36 才进 AccessibilityManager 的，
+        // minSdk 31–35 上这个方法根本不存在，直接调不是 lint 抱怨一下而已，是启动第一帧 NoSuchMethodError。
+        // 读不到开关的机型退回常规 accent，这就是高对比那两列只在 36+ 生效的原因。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) am.isHighContrastTextEnabled else false
+    }
+    val palette = (if (dark) IosDarkPalette else IosLightPalette).copy(blue = accentFor(dark, highContrast))
     val scheme = if (dark) darkColorSchemeOf(palette) else colorScheme(palette)
     MaterialTheme(colorScheme = scheme) {
         CompositionLocalProvider(LocalIosStyle provides IosStyle(palette)) {
