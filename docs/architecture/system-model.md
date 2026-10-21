@@ -138,7 +138,7 @@ APK 之外只有三个东西，全部是设备本地的：
 | 相册是否把产物认成动态照片 | 判据来自真机单变量对照与二分（2026-10-18 ~ 2026-10-20，vivo V2419A），**当前 185 条测试没有一条能判它** | 装机跑一批，肉眼 + `adb` 查 MediaStore 条目 |
 | 现 XMP 包（1,057 字节那份）在真机上的接受度 | 夹具与断言已就位（[XmpPacketTest.kt:24-26](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/XmpPacketTest.kt#L24)），注释明确要求重新装机验收 | 同上 |
 | 非 vivo 厂商（OPPO/小米/Pixel）的识别 | 只在 `TrailerClassifier` 的 64 位盒反例、`XmpPacket` 的 OPPO 反例里作为**反例**出现过；`VivoLivePhotoTail` 只认 vivo 末盒，其余厂商一律原样追加 | 各厂商真机各跑一批 |
-| 图标在真机上的观感与入场时序（圆形遮罩会不会啃到图形、主题图标重染后齿孔是否还在、logo 淡出与卡片上浮接不接得上、系统关掉动画时入场是否直接落位） | 验到的是「资源进包 + 编译 + 177 条测试 + lint」，视觉与手感一条都没验 | 装机看一次；`ANIMATOR_DURATION_SCALE` 的行为尤其要确认（入场代码刻意没读它，见 [decisions.md §5.11](../decisions.md#511-图标与启动过渡2026-10-21-增量)） |
+| 启动入场的逐帧手感（logo 淡出与卡片上浮接不接得上、系统关动画时入场是否归零） | 2026-10-21 已在 V2419A 装机看过一轮：桌面图标（含圆形遮罩与深色）、冷启动色场、交错入场落位均正常；深色 splash 的白标记被 ROM 画成黑，**实测定位后裁定接受**（[decisions.md §5.16](../decisions.md#516-深色-splash-的白标记被-rom-画成黑2026-10-21-装机裁定)）。`ANIMATOR_DURATION_SCALE` 的行为仍未确认（入场刻意不读它，见 [§5.11](../decisions.md#511-图标与启动过渡2026-10-21-增量)） | 再装机看；要收口补 Compose UI 测试 |
 | 性能预算（"100 张约 15 秒"） | 只在注释里作为**动机**出现（[JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100)），没有任何计时测试 | 真机计时 |
 | 跨卷 `move` 退化路径 | 代码里有（`copyTo` + `delete`），无测试覆盖 | 仪器化测试构造跨卷场景 |
 | `ByteArraySource` 住在 main sourceSet | 当前只有测试在用（[Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L20)） | 确认是否应移入 test，或留给未来的内存来源 |

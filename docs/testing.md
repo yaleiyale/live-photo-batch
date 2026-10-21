@@ -102,7 +102,9 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | 英文确实是**默认配置**、中文是 `zh` 限定 | `aapt2 dump resources app/build/outputs/apk/debug/app-debug.apk` | `string/action_cancel` → `() "Cancel"` / `(zh) "取消"`；`plurals/report_summary_warning` → 默认两档 `one`/`other`，`(zh)` 只 `other` |
 | 冷启动那一帧在深色下是黑的、图标底色的蓝不跟着翻 | 同上 | `color/grouped_background` → `() #fff2f2f7` / `(night) #ff000000`；`color/icon_background` → **只有 `() #ff007aff`**（没有 night 变体，正是设计要的效果）；`style/Theme.Vlive.Starting` 的 `windowSplashScreenBackground=@color/grouped_background`、`windowSplashScreenIconBackgroundColor=@color/icon_background` |
 
-这三条只证明**资源打进包了、并且配对正确**。渲染出来对不对（深色下 Dialog 与自绘卡片有没有接缝、logo 里的白有没有变黑、系统语言切英文后整屏有没有掉回中文）仍然只有装机能定 —— 见下表最后两行。
+这三条只证明**资源打进包了、并且配对正确**。渲染出来对不对要靠装机，2026-10-21 已经在 vivo V2419A 上看过一轮：浅色与深色的主界面、目录别名、桌面图标（含圆形遮罩）都对；**只有一件事不对并被裁定接受** —— 深色冷启动那一帧里 splash 的白标记被 OriginOS 画成黑色（探针定位过程与三条无效尝试见 [decisions.md §5.16](decisions.md#516-深色-splash-的白标记被-rom-画成黑2026-10-21-装机裁定)）。**英文整屏仍未看过**，见下表倒数第二行。
+
+装机本身在这台机器上有一条固定流程：`adb install -r -t` 会被 vivo 拒（`INSTALL_FAILED_ABORTED: User rejected permissions`），把 APK 推到 `/data/local/tmp` 再 `pm install -r -t` 就能过；屏幕熄灭或锁屏时两条路都会被拒，先 `input keyevent KEYCODE_WAKEUP` + `wm dismiss-keyguard`。录冷启动用 `screenrecord --time-limit 2` 与 `am start` 同时开跑，回来按 12fps 拆帧才抓得到那一帧。
 
 ## 自动化测不到的（别假装测到了）
 
@@ -118,8 +120,8 @@ CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/pi
 | 进程被杀后的索引收敛 | 代码里如实写了"修不了"（[BatchViewModel.kt:113-120](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L113)） | 等 MediaStore 例行收敛 |
 | 性能（"100 张约 15 秒"只是动机） | 无计时测试 | 真机计时 |
 | 三条 gain map 声明串的实际覆盖 | 代码认三种拼法（连字符 / 冒号 / Adobe 旧命名空间，[TrailerModel.kt:46-50](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/TrailerModel.kt#L46)），但**只有冒号形态**被夹具真正走过（`urn:iso:std:iso:ts:21496:-1`，[Fixtures.kt:213](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/Fixtures.kt#L213)）；另两种没有各自的用例 | 各补一条 `TrailerModelTest` |
-| 图标观感、启动入场时序、以及目录弹窗的**返回手势与换层滑动** | 验到的只有「XML 资源打进 APK（`aapt2 dump badging` / `dump resources` 实测）+ 编译 + 177 条 JVM 测试绿 + `:app:lintDebug`」。圆形遮罩下会不会啃到图形、主题图标重染后齿孔还在不对对、logo 淡出与卡片上浮接不接得上、返回键是否真的先回上一级再到 root 才关窗、系统关掉动画时入场是否直接落位 —— 全部**未确认**，这批 UI 代码一条自动化测试都没有 | 装机看一次：桌面（含遮罩与主题图标切换）+ 冷启动 + 逐级进出目录 |
-| **深浅色真的翻过来了没有**（自绘卡片、`Dialog` 表面、冷启动那一帧、状态栏图标明暗） | 只验到 `isSystemInDarkTheme()` 一处判定 + `values-night/{colors,themes}.xml` 打进包。Compose 侧零测试，`IosTheme` 换色板这件事没有任何断言 | 装机：`adb shell cmd uimode night yes` 后**冷启动**截图（logo 内部不许变黑、大背景必须是黑），再回 `no` 对比一次 |
+| 启动入场的**手感**（logo 淡出与卡片上浮接不接得上、系统关掉动画时入场是否归零）与目录弹窗的返回手势 / 换层滑动 | 2026-10-21 装机看过一轮：桌面图标（含圆形遮罩、深色下蓝底白标记）、冷启动 splash 的**存在与配色场**、交错入场落位都正常；**逐帧手感没有量化**，`ANIMATOR_DURATION_SCALE` 归零行为仍未验 | 再装机看；要收口就补 Compose UI 测试 |
+| 深色下的**其它**渲染面：`Dialog`（目录弹窗）表面、进度条、开关轨道、报告行的语义色 | 主界面与冷启动色场已实测（黑底 + `#1C1C1E` 卡片 + 白字，状态栏图标翻亮）；**弹窗与报告行只在浅色下看过**，深色下的 Dialog 接缝还没验 | 装机：深色下开一次目录弹窗、跑一批看报告 |
 | **系统语言切成英文之后**整屏是否全英文（含目录别名、错误提示、Toast） | 只验到资源两份齐全 + lint 无漏 key。`displayPath` 与别名表在中文下是"看着对"的，在英文下别名退化成恒等映射这件事没人看过 | 装机：切英文 → 截图主界面 + 目录弹窗 + 一条失败项的报告行；顺手核对 `Movies` 这类真实目录名在弹窗与路径行里说法一致 |
 | 非 vivo 厂商（OPPO/小米/Pixel）识别 | 只有 OPPO 作为**反例**被分析过 | 各厂商真机各跑一批 |
 
@@ -149,7 +151,7 @@ adb shell content query --uri content://media/external/images/media --projection
 6. 拿一份"上一轮产物"再跑一次：应报 `已是动态照片（ALREADY_MOTION_PHOTO）` 并跳过，而不是二次追加。
 7. 拿一份录屏 mp4（非 `IMG_` 前缀）：应当**完全不出现**在报告里。
 8. 对拍字节：`adb pull` 产物后 `xxd -c 16` 看 `imageEnd` 之后是否只有 XMP 那一段被换掉，末尾视频字节数 == `MicroVideoOffset`。
-9. 深浅色各冷启动一次：深色下 splash 的**大背景必须是黑**、logo 内部图形**仍然是白**（这条就是"白变黑"那次反馈的回归项），进界面后卡片与分组背景分层清楚、Dialog 不漏白底；状态栏图标明暗跟着主题翻。
+9. 深浅色各冷启动一次：深色下 splash 的**大背景必须是黑**，进界面后卡片与分组背景分层清楚、状态栏图标跟着翻亮。logo 的白标记在深色下**会被 OriginOS 画成黑色 —— 这是已实测并接受的行为，不是回归项**（[decisions.md §5.16](decisions.md#516-深色-splash-的白标记被-rom-画成黑2026-10-21-装机裁定)：红 / 绿探针原样通过，白与浅灰全部变黑，`forceDarkAllowed=false` 无效）。
 10. 系统语言切英文走一遍同样的路：主界面、目录弹窗（root 别名读作 `Internal storage`）、一条失败项的报告行（`Skipped …: not a JPEG (NOT_JPEG)`）都不该掉回中文。
 
 如果 ① 失败：先看 [容器规则 §2 的对照表](motion-photo-container.md#为什么尾巴必须留xmp-必须回原位)（尾巴被截了？XMP 插错位置？合并了源包？），再看 [vivo 末盒](motion-photo-container.md#5-vivo-末盒改写)（`livephoto` 值是不是数字开头且没被改写）。这四条里任何一条破了，vivo 相册就不认，而且**不会有任何报错**。
