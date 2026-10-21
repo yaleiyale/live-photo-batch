@@ -80,6 +80,7 @@ import dev.zayn.vlive.ui.ThinProgressBar
 import dev.zayn.vlive.ui.iosEnter
 import dev.zayn.vlive.ui.iosGlass
 import dev.zayn.vlive.ui.iosGlassBar
+import dev.zayn.vlive.ui.iosGlassTray
 import dev.zayn.vlive.ui.titleBarAlpha
 import dev.zayn.vlive.core.FailureReason
 import dev.zayn.vlive.core.ItemResult
@@ -379,7 +380,10 @@ fun BatchScreen(
         )
 
         // 开始 / 取消从滚动流里搬到这条常驻栏：位置不能跟着内容跳，主操作要一直够得着；
-        // 整条 bar 是这一区域唯一的那块玻璃，两颗按钮只加自己的 tint，绝不再各糊一层（spec §1.1）。
+        // 两颗按钮只加自己的 tint，绝不再各糊一层（spec §1.1）。这条栏本身在 2026-10-22 的设备实测
+        // 之后从 iosGlassBar 换成 iosGlassTray —— 同样的着色 + 高光 + 描边，只去掉 hazeBlur 那一层：
+        // 三条 bar 全开模糊时超过 8ms 的帧占 46.7%（基线 12.5%），只砍这一条就回到 30.2%，
+        // 顶栏与弹窗顶栏的模糊保留。三台构建的九个样本与判据见 decisions.md §5.19。
         Row(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -391,8 +395,8 @@ fun BatchScreen(
                 // 这同一个值，两处数字才不会再各算各的、慢慢飘开。
                 .padding(bottom = bottomGutter)
                 .iosEnter(5, entrance)
-                // 圆角必须显式传 glassRadius：贴边的两条 bar 走默认 0dp 直角，底部这条要读作连续圆角。
-                .iosGlassBar(glass = glass, state = haze, radius = IosMetrics.glassRadius)
+                // 圆角必须显式传 glassRadius：贴边的两条玻璃 bar 走默认 0dp 直角，底部这条要读作连续圆角。
+                .iosGlassTray(glass = glass, radius = IosMetrics.glassRadius)
                 // bar 的高度钉在 IosMetrics.barContentHeight 上，不靠「上下各 12dp + 50dp 按钮」三个数
                 // 刚好凑出 74dp：那种等式只活在注释里，改任一数字 bar 上沿就飘出内容层预留的那段。
                 // 现在两侧共用同一个 token，padding 之后剩下的 74-12-12 正好是按钮的 50dp。
