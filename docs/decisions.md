@@ -471,6 +471,39 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 
 证据：[app/build.gradle.kts:31-34](file:///D:/projects/piece/live-photo-batch/app/build.gradle.kts#L31)、[.github/workflows/build.yml:46-55](file:///D:/projects/piece/live-photo-batch/.github/workflows/build.yml#L46)。
 
+### 6.6 发版是一个手动按钮，tag 用日期加时分（2026-10-21 增量）
+
+**决定**：新增 [`.github/workflows/release.yml`](file:///D:/projects/piece/live-photo-batch/.github/workflows/release.yml)，
+只有 `workflow_dispatch` 一个触发器。它自己构建两个 APK，然后建 tag `YYYY-MM-DD-HHMM` 并发布 Release，
+两个 asset 改名成 `vlive-debug-<tag>.apk` / `vlive-release-<tag>.apk`，标成 pre-release，
+说明里带 commit、每个文件的字节数与 sha256、"CI 的 debug key 与本机不同、换装要先卸载"、
+以及深色 splash 那条已知缺陷。
+
+**时间按 `Asia/Shanghai` 算，不是 runner 的 UTC**：tag 是人用来区分两个包的字符串，
+"这是几点出的"必须和用户手表一致，否则下午两点出的包会顶着凌晨的标签。
+
+**为什么不跟 push 自动发**：一条 `feat/*` 分支一天能推十几次，每次 push 都产一个 Release 会把发布页
+变成构建日志的垃圾桶；`build.yml` 的 artifact 本来就是"给人挑版本"的那一层。
+**`concurrency` 刻意不 `cancel-in-progress`** —— 一次被掐在上传一半的 run 会留下半个 release，
+比排队等它跑完更糟。
+
+**为什么不引第三方 action**（`softprops/action-gh-release` 之类）：runner 自带 `gh`，
+一条 `gh release create` 就够；多引一个 action 就多一个要 pin 版本、要盯更新的外部供应链面。
+
+**可选的 `note` 输入走 `env`，不直接插进 shell**：`${{ inputs.note }}` 出现在 `run:` 里就是脚本注入的入口，
+哪怕只有仓库写权限的人能按那个按钮。
+
+**两条实测踩出来的**：
+1. `POST /repos/…/releases` 的 `target_commitish` 给短 SHA 会被 422 拒
+   （`tag_name is not a valid tag` + `target_commitish` invalid）—— 要给**完整 40 位**。
+2. `gh release view --json htmlUrl` 没有这个字段（是 `url`），于是 **release 已经建好、步骤却红**
+   （run 39532833851 实测：`https://github.com/yaleiyale/live-photo-batch/releases/tag/2026-10-21-1028`
+   留下了，但 run 是 failure）。回读那一行现在读 `url`。
+
+**跑通的证据**：run 39533390568 success → tag `2026-10-21-1033`，两个 asset 匿名 GET `HTTP 200`
+且字节数与发布页一致。手工 API 那条路仍然写在 README 里当备用（按钮不可用、或要发一个
+CI 之外的本机构建时）。
+
 ## 7. 已知技术债（下次动这片之前先读）
 
 | 项 | 现状 | 建议 |

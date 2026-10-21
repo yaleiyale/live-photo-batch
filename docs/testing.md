@@ -35,7 +35,8 @@ androidTest: FileStorageTest 8
 ./gradlew :app:connectedDebugAndroidTest  # 8 条契约测试，必须插着设备跑
 ```
 
-CI 只有两个 job（[.github/workflows/build.yml:12-55](file:///D:/projects/piece/live-photo-batch/.github/workflows/build.yml#L12)）：`core-tests` 跑 `:core:test`，`apk` 跑 `:app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest :app:assembleRelease`，并上传两个产物 —— `vlive-debug` 与 `vlive-release`。release 用的是 `signingConfigs.debug`，所以那个包**能侧载、不能上商店**。
+CI 有两个工作流、三个 job。[build.yml](file:///D:/projects/piece/live-photo-batch/.github/workflows/build.yml#L12) 在 push / PR 上跑：`core-tests` 跑 `:core:test`，`apk` 跑 `:app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest :app:assembleRelease`，并上传两个产物 —— `vlive-debug` 与 `vlive-release`。release 用的是 `signingConfigs.debug`，所以那个包**能侧载、不能上商店**。
+[release.yml](file:///D:/projects/piece/live-photo-batch/.github/workflows/release.yml) 只有 `workflow_dispatch`：自己构建两个 APK，然后发一个 tag 为 `YYYY-MM-DD-HHMM`（Asia/Shanghai）的 Release，asset 匿名可下 —— artifact 要登录网页才拿得到，这条路才是给人发版的。理由与两条实测教训见 [decisions.md §6.6](decisions.md#66-发版是一个手动按钮tag-用日期加时分2026-10-21-增量)。
 
 ## 六个测试接缝（为什么不需要设备）
 
