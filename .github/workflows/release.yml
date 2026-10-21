@@ -95,5 +95,7 @@ jobs:
             --target "$GITHUB_SHA" \
             --notes-file out/body.md \
             --prerelease
-          gh release view "$TAG" --json tagName,htmlUrl,assets \
-            --jq '{tag: .tagName, url: .htmlUrl, assets: [.assets[].name]}'
+          # 只回读确认，不参与成败判断。字段名是 url —— gh release view 没有 htmlUrl，
+          # 写错会让这一步红掉（run 39532833851 实测：release 已经建好，红的只有这一行）。
+          gh release view "$TAG" --json tagName,url,assets \
+            --jq '{tag: .tagName, url: .url, assets: [.assets[].name]}'
