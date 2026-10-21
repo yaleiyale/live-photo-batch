@@ -261,7 +261,7 @@
 
 **代价**：
 - 排序按显示名，别名参与排序 → 中文别名与 ASCII 名混排时按码元序（`DCIM · Documents · Music · 下载 · 图片 · 视频`），常用项不再固定在顶部。英文那一份别名与磁盘真实名相同（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)），所以英文下这一列就是纯 ASCII 自然序。
-- `presets()` **已整个删除**：它既给别名又给"要画出来的条目"，还自己探 `/storage/emulated/0`。别名表现在由 UI 侧用字符串资源拼（[`folderAliases`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L322)），`DirBrowser` 只回答"这一层到底有什么"。
+- `presets()` **已整个删除**：它既给别名又给"要画出来的条目"，还自己探 `/storage/emulated/0`。别名表现在由 UI 侧用字符串资源拼（[`folderAliases`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L511)），`DirBrowser` 只回答"这一层到底有什么"。
 - 路径比较必须与主机分隔符无关：`canonical()` 用 `File.absoluteFile`，**不许**改回手写 `"$currentPath/"` 拼接，否则 Windows 上注入临时目录的用例会静默失真。代价是它**大小写敏感**，而共享存储挂载大小写不敏感：磁盘上叫 `download` 而别名写 `Download` 时别名不命中，会露出真实名。
 - UI 本身仍无自动化测试，钉住的是纯函数那一层（6 条用例，见 [testing.md](testing.md)）。
 
@@ -322,7 +322,7 @@
 
 **为什么 `UiState.globalError` 不是 `String`**（[:50](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L50)）：拼好的串会把语言焊死在状态里 —— 系统语言切换后重建的组合读到的还是上一条语言的旧文案；而且 VM 要摸 `Context` 才能拼串，`app/src/test` 那条"不引 Robolectric"的前提就没了。`args` 用 `List<Any>` 而不是 `vararg`：`data class` 的 `equals` 要能整条比较，`Array` 是引用相等。
 
-**为什么目录别名由调用方注入**：`DirBrowser` 原来的 `presets()` 既给别名又给"要画出来的条目"，而且自己探 `/storage/emulated/0`。现在只剩 [`mergedRootEntries(aliases, children, currentPath)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L106) 与 [`displayPath(path, root, rootLabel)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L31) 两条**纯函数**，别名表由 [`folderAliases(root)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L322) 用资源拼出来。理由和 §5.10 是同一条：这个文件要能在本地 JVM 上直接测，一旦去摸 `R.string` 就得把资源系统一起拖进来。
+**为什么目录别名由调用方注入**：`DirBrowser` 原来的 `presets()` 既给别名又给"要画出来的条目"，而且自己探 `/storage/emulated/0`。现在只剩 [`mergedRootEntries(aliases, children, currentPath)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L106) 与 [`displayPath(path, root, rootLabel)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L31) 两条**纯函数**，别名表由 [`folderAliases(root)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L511) 用资源拼出来。理由和 §5.10 是同一条：这个文件要能在本地 JVM 上直接测，一旦去摸 `R.string` 就得把资源系统一起拖进来。
 
 **英文那份别名 `Movies → Movies` 是恒等映射，不是偷懒**：主界面的路径行画的永远是真名（`Internal storage/Movies`），弹窗里若把同一目录在英文中叫成 `Videos`，就会出现"一个目录两种说法"。中文跟着系统文件管理器的叫法（视频 / 图片 / 下载），换语言时别名自然退化。`folder_internal_storage` 是另一回事：`/storage/emulated/0` 不是给人读的名字，两种语言都需要一个别名。
 
@@ -429,6 +429,61 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 （一个要跑起来才会写文件，一个要 `Context`），本地测的是它们的决策逻辑。见
 [testing.md](testing.md) 的缺口表。
 
+### 5.19 玻璃只给三条浮动 bar，卡片与按钮不各自糊一层（2026-10-21 增量）
+
+**决定**：真模糊（Haze 2.0.1 → `RenderEffect`）只出现在**三个浮动面**上：主屏顶栏、主屏底部操作栏、
+目录弹窗顶栏（[GlassBar.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt)
+的 `Modifier.iosGlassBar`）。卡片回到实心面（浅 `#FFFFFF` / 深 `#1C1C1E`，[IosStyle.kt 的两份 IosPalette](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L48)）；
+条内的按钮**不再各糊一层**，`IosButton` 只加自己的 tint / 高光 / hairline 描边。accent 一次给四个值
+（浅/深 × 常规/高对比，[accentFor](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L93)），
+一个构件都不多引。全项目**每扇窗口恰好一个 `HazeState` + 一个 `hazeSource`**：主屏那个内容层是源，
+弹窗的列表是第二个源（`Dialog` 是独立窗口，跨窗口取不到位图）。
+
+**为什么**：苹果自己的采纳建议就是"自定义玻璃留给一两个关键浮动控件"，实心面上的卡片读起来更原生，
+玻璃不许叠玻璃。工程侧的理由更硬：需要实时模糊的绘制面从"每张卡片"降到三块，帧开销是可测的差别；
+而"一层玻璃只模糊一次"是被这样满足的，不是靠把按钮改成实心（spec §1.1）。
+
+**顺序是这条决定的全部内容**（[GlassBar.kt:27-37](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L27)）：
+`shadow` 必须在 `clip` 之前（`clip` 设 `clipToOutline`，2.dp 阴影整个落在轮廓之外，反过来写等于把阴影裁没），
+`hazeBlur` 在 `clip` 之内，高光与描边叠在糊好的背景之上、不参与模糊本身。两套预设的 `radius` 都是 `0.dp`
+是刻意的 —— 贴边的两条 bar 本来不带圆角，**唯一要圆角的消费方是底部那条**，它必须显式传
+`IosMetrics.glassRadius`，走默认值只会得到一条方角 bar，编译器、测试和 lint 都不会吱声。
+
+**对比度这一条按实测改写，不许掰数字**：spec §1.5 原文要求"Tinted 主按钮上的白字在各自外观下 ≥ 4.5:1"，
+整枝评审把这个判据拿去对 spec 自己的色板算了一遍，量出来两个数**不可能同时成立** ——
+按相对亮度在合成色上算（`accent.copy(alpha = 0.85f)` over 该外观的玻璃底，浅 `≈#F9F9FB`、深 `≈#111113`）：
+
+| 组合 | 白字在 Tinted 底上 | 同一个 accent 不透明时 | accent 当文字压在该外观玻璃上 |
+| --- | --- | --- | --- |
+| 浅色 · 常规 `#007AFF` | **3.3:1** | 4.0:1 | 3.8:1 |
+| 浅色 · 高对比 `#0040DD` | **5.7:1** ✅ | 7.6:1 | 7.2:1 |
+| 深色 · 常规 `#0A84FF` | **4.7:1** | 3.7:1 | 5.2:1 |
+| 深色 · 高对比 `#66B3FF` | **2.9:1** ❌ | 2.2:1 | 8.5:1 |
+
+**裁定**：常规那一列**不追 4.5:1**，改为"量出来、记录在案"，并接受它是 WCAG 1.4.3 的一条**有记录的偏离**，
+理由不是"内部工具所以可以不管"，而是**苹果自己的系统按钮同样做不到** —— 不透明 `#007AFF` 配白字只有 4.0:1，
+把它压到 4.5:1 需要的深色正好毁掉用户点名要的那份 iOS 身份。过硬指标的只有高对比那一列：浅色 `#0040DD`
+（合成后 5.7:1）过了。
+**没过的这一条不许悄悄收下，也不许盲调**：深色高对比 `#66B3FF` 作白字底只有 2.9:1，是本表里**唯一**
+达不到本条自定硬指标（高对比那一列 ≥ 4.5:1）的一格。它不是改个数值就能了事的疏漏：`s.blue` 这一个 token
+同时兼两个角色 —— accent 当文字压在深色表面上要**亮**（同一格 8.5:1），白字压在 accent 填充上又要**暗**
+（2.9:1 正是"亮"这一面带来的），一个值不可能两头都赢。所以它**记成未决**，本轮不动任何 preset / accent 值；
+两条出路留给能看到它的人拍板：把这个 token 拆成 accent + accent-fill（各满足各的角色），或对"白字在深色
+高对比填充上"这一格单独放宽判据。今天也验不动：高对比信号是 `since="36"`（见 §5.20），31–35 只会渲染常规
+accent，而测试硬件只有 V2419A 一台、此刻还连不上（`adb devices` 为空），连它的 `ro.build.version.sdk`
+都读不到 —— 没有任何测量能在这一轮把这一格钉死，装机记录里也不许留成"看起来还行"。
+
+**代价**：三块实时模糊层 + 每帧一次滚动驱动的 alpha。两个代价的形状已经被代码钉住：滚动折叠区间内
+只有那条顶栏会被无效化（`alpha` 以 `State` 传进 `BatchScreen` 的私有 `GlassTitleBar`，
+不在顶层委托，见 [BatchScreen.kt:445-497](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L445)），
+弹窗的四条 inset 在它自己的窗口里现算（[IosControls.kt:543-554](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L543)）。
+
+**帧预算：未测量**。`adb connect 192.168.1.18:36031` 自 Task 4 起一直 `WSAETIMEDOUT`（`adb devices` 为空），
+改造前的 janky 基线与改造后的读数都还没有取到 —— 这一行**故意不给百分比**。判据与流程在 spec §3.4 第 4 条
+（基线 +3 个百分点以内且绝对值 ≤ 10%，各三次采样取中位数），基线由 Task 9 重新构建 `739b388`（最后一个
+没有任何模糊消费方的构建）来取，两个数字一起进本节；不达标时走 spec §3.4 那条约定回退（底部栏去模糊、
+保留 tint + 高光 + 描边），回退也要把两个数字写在这里而不是静默改完。
+
 ### 5.20 minSdk 抬到 31：真模糊的门槛，也是它带走了分支（2026-10-21 增量）
 
 **决定**：`minSdk 30 → 31`，且**不为 API 30 保留任何降级路径**。
@@ -446,9 +501,11 @@ lint 基线 12 → 9、`ObsoleteSdkInt` 3 → 1 —— 总数掉三条而不只�
 `platforms/android-37.0/data/api-versions.xml` 里标 `since="36"`，高于 `minSdk 31`，于是四个值照发、`accentFor`
 也照常在四者里选，但高对比那一**对**只可能在 36+ 被选中，31–35 上永远渲染常规 accent —— 这就是 spec §1.5 要求记录、
 不许静默把四个值退化成两个当作完成的那条缺口，它与最终跑在哪台机器上做验收无关；判据是本地 `api-versions.xml`
-与 `javap` 的读数，不是文档转述；依赖侧同一条决定也锁定了构件形状 —— 2.0.1 把模糊
-那一半（`dev.chrisbanes.haze:haze-blur` = `hazeBlur` / `HazeBlurStyle` / `HazeColorEffect`）从 source 那一半
-（`dev.chrisbanes.haze:haze` = `hazeSource` / `HazeState` / `HazeInput`）拆了出去，`:app` 因此要同时声明两个构件，而两者
+与 `javap` 的读数，不是文档转述；依赖侧同一条决定也锁定了构件形状 —— **本项目固定的 2.0.1** 里，模糊
+那一半（`dev.chrisbanes.haze:haze-blur` = `hazeBlur` / `HazeBlurStyle` / `HazeColorEffect`）与 source 那一半
+（`dev.chrisbanes.haze:haze` = `hazeSource` / `HazeState` / `HazeInput`）是两个构件，`:app` 因此要同时声明两个；
+这条 source/consumer 的拆分**不是 2.0.1 才有的**（Maven Central 上 2.0.0 那条线就有 `haze-blur`），
+下面这些读数只对本地缓存里这一版成立，别把它读成"版本史实"。两者
 AAR 都只要求 `minSdkVersion="23"`（`haze-blur-android` 的 POM 反向带上 `haze-android:2.0.1` 与 compose `ui 1.12.1`，
 `haze-utils` 由它传递进来），抬地板不与 `:app:checkDebugAarMetadata` 冲突。
 设备侧：Android 11 的原装机器从此装不上，当前 V2419A 满足。
@@ -535,12 +592,12 @@ CI 之外的本机构建时）。
 | 代码里 **49 处 `spec §…` / `增补 …` 引用**指向已删除的设计稿 | 悬空引用（见下面的索引） | 要么把设计稿作为历史归档恢复并标"已废弃"，要么把 KDoc 引用改指本文档 |
 | `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
 | `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
-| `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:43-44](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L43) | 真需要按包名查询时再展开 |
-| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:125](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L125) | 收拢间距或删令牌 |
+| `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
+| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:195](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L195) | 收拢间距或删令牌 |
 | 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L186) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
-| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 196 条 JVM 测试绿 + lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
+| 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 205 条 JVM 测试绿（145 `:core` + 60 `:app`）+ lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
 | `RollingLogTree` 与 `PreferencesBatchSettings` 没有自动化测试 | 测到的只有决策函数（`planLogCleanup`、`restore`/`save` 走的是内存假实现）；真的写文件与真的 DataStore 都要 `Context` | 要么补 `:app` 的仪器化测试（`androidTest` 里已经有一条 `FileStorageTest` 的先例），要么把「装机看 `run-as` 目录」固定成验收步骤 —— 现在选的是后者，见 testing.md 的缺口表 |
 | lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)（也是 `ObsoleteSdkInt` 唯一剩下的一条），两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
 | `:core` 的异常文案仍是**中文**，`err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子 | 英文提示里会嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）。`MediaStoreSync` 那两条已经随日志层收敛到 `Timber`（[§5.18](#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量)），它们只进日志文件、不进 UI，所以不再是本地化缺陷 | 抛出消息属于「给开发者读」的边界：要么也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message` |

@@ -101,7 +101,21 @@ fun accentFor(dark: Boolean, highContrast: Boolean): Color
 | 浅色 | `#007AFF`（现状） | `#0040DD` |
 | 深色 | `#0A84FF`（现状） | `#66B3FF` |
 
-**高对比那两列的数值不是苹果公开数值的引用**，是本轮定的起点，验收规则是硬指标而不是出处：Tinted 主按钮上的白字、玻璃 bar 上的 accent 文字，在各自外观下都要 **≥ 4.5:1**。
+**高对比那两列的数值不是苹果公开数值的引用**，是本轮定的起点。验收规则是硬指标而不是出处，但这条指标
+**只约束高对比那一列**（2026-10-21 整枝评审后改写，裁定与全部读数见
+[decisions.md §5.19](../../decisions.md#519-玻璃只给三条浮动-bar卡片与按钮不各自糊一层2026-10-21-增量)）：
+
+- **高对比档**：Tinted 主按钮上的白字必须 **≥ 4.5:1**。浅色 `#0040DD` 合成后实测 **5.7:1**（不透明 7.6:1）过了；
+  深色 `#66B3FF` 合成后 **2.9:1**，**没过** —— 这一条记在 §5.19 的待办里，不许当成已结案。
+- **常规档**：白字在 Tinted 底上是**量出来记录在案**的分数，不是要冲 4.5 的目标值 —— 浅色常规
+  `#007AFF @ 0.85` 压在近白玻璃上 **3.3:1**，深色常规 `#0A84FF @ 0.85` 压在深色玻璃上 **4.7:1**。
+  前者是 WCAG 1.4.3 的一条**已接受、已记录的偏离**，判据是它与 iOS 自己的系统按钮同形：不透明
+  `#007AFF` 配白字也只有 **4.0:1**，苹果的系统按钮本身就不满足 4.5:1。**不许为了让这条线过 4.5 去调深
+  常规 accent** —— 那等于抹掉本轮改造要的 iOS 身份，而身份才是这份色板存在的理由。
+
+数都是按相对亮度在**合成色**上算的（`accent.copy(alpha = 0.85f)` over 该外观的玻璃底），不是设备上取的屏幕色；
+玻璃底取 `tint` 压在该外观 `groupedBackground` 上的合成值（浅 `≈#F9F9FB`、深 `≈#111113`）。设备上的实测
+仍归 §3.4 第 2 条。
 
 选值信号读系统的"高对比度文字"开关。**实测校正（本机 `javap` + `platforms/android-37.0/data/api-versions.xml`）：真名是 `android.view.accessibility.AccessibilityManager.isHighContrastTextEnabled()`，标 `since="36"`**；本节初稿写的 `AccessibilityManager.isHighTextContrastEnabled` 在整个 API 37 表面里一条都搜不到，而 `android.accessibilityservice.AccessibilityManager` 这个类根本不存在。因为 36 高于 `minSdk 31`，判定**必须留着**（不判就是 API 31–35 启动即 `NoSuchMethodError`，lint 报 `NewApi`），31–35 一律走常规 accent。取不到信号或不生效时的处理不变：**只留常规两列**，并把缺口写进 decisions.md —— 不许静默地把四个值退化成两个而当作完成。
 
@@ -119,12 +133,19 @@ fun accentFor(dark: Boolean, highContrast: Boolean): Color
 
 ```
 Box(fillMaxSize, background = groupedBackground)
-├─ 内容层  Column(Modifier.hazeSource(hazeState).verticalScroll(scrollState, contentPadding = …))
+├─ 内容层  Column(Modifier.hazeSource(hazeState)
+│              .verticalScroll(state = scrollState)                    ← 没有 contentPadding 这个形参
+│              .padding(paddingValues = PaddingValues(top = 状态栏 inset, bottom = §2.3 那个值)))
 │          实心卡片照旧；大标题与应用名留在这一层里
 ├─ 顶部栏  玻璃，通栏、radius = 0，alpha = titleBarAlpha(scrollState.value, collapseRangePx)
 │          只在 alpha > 0 时进入组合（不可见时不画，也就不付模糊的代价）
 └─ 底部栏  玻璃，圆角，固定浮在内容之上，装 开始合成 / 取消
 ```
+
+（实测校正：compose-foundation 1.12.1 的 `verticalScroll` **没有** `contentPadding` 形参（javap 只有
+`enabled` / `flingBehavior` / `reverseScrolling` / `overscrollEffect`），所以那份 `PaddingValues` 由挂在
+`verticalScroll` **之后**的 `Modifier.padding(paddingValues = …)` 来吃。链上它之前的 modifier 缩的是视口，
+之后的才是滚动内容自己的首尾留白 —— 本节初稿把这段留白写成 `verticalScroll` 的 `contentPadding` 形参，会让人去加一个不存在的参数。）
 
 内容层是**主屏这个窗口里唯一的 haze source**，两条 bar 是它的两个消费者；弹窗自己还要一个（§2.5），全项目一共两个。
 
@@ -152,21 +173,33 @@ fun titleBarAlpha(scrollY: Int, collapseRange: Int): Float =
 - 底部留白 = `IosMetrics.barBottomGap`（8.dp）+ 导航栏 inset；
 - 入场动效：bar 的容器**沿用腾出来的序号 5**。搬出去之后不需要给后面的 6/7/8 重编号——序号只是延迟倍数，保留原值等于保留现有节奏，[BatchScreen.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt) 里其余调用点一个都不动。
 
-内容层的 `contentPadding.bottom` = `74.dp + 8.dp + 导航栏 inset + 16.dp`，让最后一张卡片能被推到底部栏上沿之上。
+内容层那段下沿留白（`verticalScroll` 之后那个 `padding(paddingValues = …)` 的 `bottom`）= `74.dp + 8.dp + 导航栏 inset + 16.dp`，让最后一张卡片能被推到底部栏上沿之上。实现里这两处共用同一个 `insets.calculateBottomPadding() + IosMetrics.barBottomGap`，等式只在代码里声明一次。
 
 ### 2.4 inset 归属必须重新分工（这是最容易改坏的一处）
 
 | 层 | 现在 | 改成 |
 | --- | --- | --- |
-| 内容层 | `windowInsetsPadding(safeDrawing)`（整层内缩，视口被压小） | **去掉**，改为 `verticalScroll(contentPadding = PaddingValues(top = 状态栏 inset, bottom = §2.3 那个值))` |
+| 内容层 | `windowInsetsPadding(safeDrawing)`（整层内缩，视口被压小） | **去掉**，改为 `verticalScroll(state = …)` 之后那句 `.padding(paddingValues = PaddingValues(top = 状态栏 inset, bottom = §2.3 那个值))`（`verticalScroll` 没有 `contentPadding` 形参，见 §2.1 的实测校正） |
 | 顶部栏 | 不存在 | 上边吃状态栏 inset，再画 `IosMetrics.topBarHeight`（44.dp）高的内容 |
 | 底部栏 | 不存在 | 自己吃导航栏 inset |
 
-区别不是风格而是几何：`windowInsetsPadding` 把视口本身缩小，内容永远到不了 bar 底下，玻璃就糊不出东西；`contentPadding` 保持满屏视口、只把首尾留白推出来，内容才真的会从玻璃下面划过。
+区别不是风格而是几何：`windowInsetsPadding` 把视口本身缩小，内容永远到不了 bar 底下，玻璃就糊不出东西；挂在 `verticalScroll` 之后的那段 `padding` 保持满屏视口、只把首尾留白推出来，内容才真的会从玻璃下面划过。
 
-inset 一律现算，不许写死 dp，取值只用 `WindowInsets` 的正经切口：`WindowInsets.safeDrawing.only(InsetsSides.Top).asPaddingValues().calculateTopPadding()`（顶栏）、`WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()`（内容层下沿与底部栏）。**这两个 `only(InsetsSides.*)` / `asPaddingValues()` 的写法在切片 ③ 动手时按真实签名核对一次**——本项目的 Compose BOM 是 2026.09.00，切口名如果变了，改的是这一句而不是临场发明一个 dp。
+inset 一律现算，不许写死 dp。**实测校正（Task 6/7/8）**：落地代码不再用本节初稿那两个切口
+（`safeDrawing.only(InsetsSides.Top).asPaddingValues()` 与 `navigationBars.asPaddingValues()`），
+而是**每扇窗口一个 `WindowInsets.safeDrawing.asPaddingValues()`**，四条边都从它算：
+`calculateTopPadding()` / `calculateBottomPadding()` / `calculateLeftPadding(layoutDirection)` /
+`calculateRightPadding(layoutDirection)`。这两个 `calculate*Padding` 是 `PaddingValues` 的**成员方法**，
+不是顶层扩展函数（import 它们直接编译不过）。顶栏、底部栏、内容层读的是同一个 `insets` 对象，两处数字
+才不会各算各的。用 `safeDrawing` 而不是 `navigationBars` 的代价是它也把 IME 折了进来 —— 这一屏
+没有任何输入框（`app/src/main` 里 grep 不到 `TextField` / `BasicTextField`），所以今天这条边恒为 0，
+真要加文本字段时得重新分工。
 
-**只有上下两条边的归属变了，左右不变**：内容层与两条 bar 仍要吃横向 inset（刘海/打孔屏靠的就是现在 [BatchScreen.kt:129](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L129) 那一句 `safeDrawing`，它同时管四条边；换成 `contentPadding` 时最容易把左右一起丢掉）。用 `InsetsSides.Horizontal` 那一份继续挂在内容层的 `windowInsetsPadding` 上即可——它缩的是视口宽度，不影响竖直方向的划过效果。
+**只有上下两条边的归属变了，左右不变**：内容层与两条 bar 仍要吃横向 inset（刘海/打孔屏靠的就是原来
+`safeDrawing` 那一句，它同时管四条边；换形态时最容易把左右一起丢掉）。落地做法是横向 inset 留在同一个
+`PaddingValues` 里（内容层那份只吃裸 inset，两条 bar 吃"裸 inset + `screenMargin`"的同一份 `sideGutter`），
+**没有**再挂 `windowInsetsPadding(InsetsSides.Horizontal)` —— 它缩的是视口宽度，虽然不影响竖直划过，
+但会把"bar 与卡片同宽"变成两条不同来源的算式。
 
 ### 2.5 目录弹窗：第二个 haze source，玻璃不许叠玻璃
 
@@ -177,7 +210,9 @@ inset 一律现算，不许写死 dp，取值只用 `WindowInsets` 的正经切�
 1. 弹窗整体仍然是实心 `groupedBackground` 表面（[IosControls.kt:522](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L522) 不变）——**主屏的玻璃不铺到弹窗里**，弹窗顶栏也不叠在另一块玻璃上；
 2. 两个 `HazeState` 必须是两个实例（各自 `remember`），共用一个会把主屏的位图当成弹窗的模糊源，跨窗口只会得到空白或错位。
 
-还有一条是几何，不补就会做出一个"糊空气"的顶栏：现在弹窗里顶栏和列表是**竖着排**的（顶栏占 52.dp，列表从它下面开始），所以顶栏底下没有任何可糊的东西。要做成 §2.1 那种叠层——列表从弹窗顶部铺满、顶栏压在它上面、列表用 `contentPadding(top = 顶栏高)` 把第一行让出来。`IosSheet` 的签名与 `rowsFor`/换层动画都不受这件事影响。
+还有一条是几何，不补就会做出一个"糊空气"的顶栏：现在弹窗里顶栏和列表是**竖着排**的（顶栏占 52.dp，列表从它下面开始），所以顶栏底下没有任何可糊的东西。要做成 §2.1 那种叠层——列表从弹窗顶部铺满、顶栏压在它上面、列表在同一条 `verticalScroll` 之后用 `padding(paddingValues = PaddingValues(top = 状态栏 inset + 顶栏高))` 把第一行让出来（同样没有 `contentPadding` 形参可用）。`IosSheet` 的签名与 `rowsFor`/换层动画都不受这件事影响。
+
+弹窗是**独立窗口**，四条 inset 必须在 `Dialog { }` 里面现算（`asPaddingValues()` 抓的是求值那一刻所在窗口的 density 与 layoutDirection）；在外面算好传进来，只有两个窗口都全屏时才碰巧相同。
 
 `IosSheet` 的签名不变（`title/subtitle/cancelText/confirmText/…`），改动全在实现里；`BackHandler` 仍在 `content` 内那层（[BatchScreen.kt:470-472](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L470)，原因注释已经写在那里）。
 
@@ -219,7 +254,7 @@ haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 | # | 位置 | 动作 |
 | --- | --- | --- |
 | 1 | [app/build.gradle.kts:23](file:///D:/projects/piece/live-photo-batch/app/build.gradle.kts#L23) | `minSdk = 30` → `31` |
-| 2 | [app/build.gradle.kts:53-55](file:///D:/projects/piece/live-photo-batch/app/build.gradle.kts#L53) | splashscreen 依赖的注释说"API 30 上也能覆盖"，改成 31 的说法 |
+| 2 | [app/build.gradle.kts:53-55](file:///D:/projects/piece/live-photo-batch/app/build.gradle.kts#L53) | splashscreen 依赖的注释说"API 30 上也能覆盖"，改成 31 的说法。**（整枝评审后连"31 的说法"也作废：地板就是 31，"31 上也能覆盖"不再是卖点 —— 注释现在写它真正买到的东西：那套 `windowSplashScreen*` 主题属性与退出动画回调，见 decisions.md §5.20）** |
 | 3 | [PermissionGate.kt:46](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L46) | 删 `Build.VERSION.SDK_INT < Build.VERSION_CODES.R \|\|` —— minSdk 31 下恒假，`isExternalStorageManager()` 直接调用 |
 | 4 | [PermissionGate.kt:51-61](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L51) | `if (>= R)` 恒真 → 只留 `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` 分支，删 `ACTION_APPLICATION_DETAILS_SETTINGS` 兜底；`Build` 随之可能不再需要 import |
 | 5 | [PermissionGate.kt:29-33](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L29) + `:41` | KDoc 整节"短路与 API 30 / minSdk 30 只是双保险"要重写：这段理由在新 minSdk 下已经不存在（现有 JVM 单测只测注入的 lambda，[PermissionGateTest.kt:13-24](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/perm/PermissionGateTest.kt#L13)，删分支不破测） |
@@ -249,7 +284,7 @@ haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 装机与录屏流程按 [docs/testing.md](file:///D:/projects/piece/live-photo-batch/docs/testing.md) 里已记录的那套（`push` + `pm install -r -t`，屏幕要醒；`appops` 授权）。**两轮外观 × 两种语言**都要过：
 
 1. 浅色 + 中文，深色 + 英文各截一遍：主界面静止、滚动到大标题折叠完成、底部栏下还有一张卡片划过；
-2. **玻璃上的文字可读性**：紧凑标题、`开始合成` 上的白字、`取消` 上的 accent 字——在两种外观下逐条截图核对；不满意只改 §1.3 那张表；
+2. **玻璃上的文字可读性**：紧凑标题、`开始合成` 上的白字、`取消` 上的 accent 字——在两种外观下逐条截图核对；不满意只改 §1.3 那张表。判据按 §1.5 改写后的那条走：**白字在 Tinted 底上是把实测分数记进 decisions.md §5.19**（那里已有按相对亮度算出的一组数：浅常规 3.3:1、深常规 4.7:1、浅高对比 5.7:1、深高对比 2.9:1 未过），设备读数与该组对照；**高对比那一列才必须 ≥ 4.5:1**。这一项据此能诚实地过或诚实地不过，不需要把任何一个数字掰弯 —— 也别靠调深常规 accent 让它"过"。**深色高对比那一格是 §5.19 记下的未决项，不是这条的通过项**：`s.blue` 一个 token 兼「accent 当文字」与「accent 当填充」两个角色，两头判据相反，所以本轮不盲调；而高对比信号是 `since="36"`（§5.20），V2419A 又是唯一的测试硬件且当前离线 —— 今天没有任何读数能把这一格判掉，验收时只能照原样记成未决。
 3. **弹窗**：打开目录弹窗，确认顶栏糊的是弹窗自己的列表（不是空白/错位），且没有玻璃叠玻璃；在 root 层与 `DCIM → Camera` 各截一张；
 4. **帧率**：让分页报告（36 项那批，删除开关关掉）在底部栏下面连续滚动，读 `adb shell dumpsys gfxinfo dev.zayn.vlive` 的 janky frames 百分比。**先量改造前的基线再量改造后**，两个数字一起记进 decisions.md。预算：改造后 **不超过基线 +3 个百分点，且绝对值 ≤ 10%**；每个数字取三次采样的中位数，单次读数不算数；
 5. 权限缺失那一屏（红色提示卡 + 授予按钮）与批次运行中（进度 + 取消可用）两种状态各截一张——这两处的按钮画法在 §1.4 里被改了，不能只验主路径；

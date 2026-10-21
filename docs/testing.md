@@ -1,14 +1,14 @@
 # 测试与验证
 
 - **回答的问题**：哪些行为已经被钉死、钉在哪个测试里；哪些**只能靠真机**，验收该跑什么命令、看什么现象。
-- **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览 / 英文本地化 + 跟随系统深色），2026-10-21。计数来自 `grep -c "@Test"`（全部是普通 `@Test`，没有 `@ParameterizedTest`/`@TestFactory`）。
+- **范围**：as-built @ `ff9ad98` + 工作区增量（图标 / SplashScreen / 入场动画 / 单列目录浏览 / 英文本地化 + 跟随系统深色 / 玻璃 bar 改造），2026-10-21。计数来自 `grep -c "@Test"`（全部是普通 `@Test`，没有 `@ParameterizedTest`/`@TestFactory`），并与 `:app:testDebugUnitTest` 的 JUnit XML 对过一遍。
 
-## 总览：204 条测试，三个 sourceSet
+## 总览：213 条测试，三个 sourceSet
 
 | sourceSet | 框架 | 条数 | 跑在哪 | CI 是否执行 |
 | --- | --- | --- | --- | --- |
 | `core/src/test` | JUnit 5 Jupiter（BOM 6.1.3），`useJUnitPlatform()` | **145** | 本机 JVM，不需要设备 | ✅ `:core:test` |
-| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **51** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest`（本机 1 条 `assumeTrue` 跳过，见下） |
+| `app/src/test` | JUnit 4.13.2，**不引 Robolectric** | **60** | 本机 JVM（真协程） | ✅ `:app:testDebugUnitTest`（本机 1 条 `assumeTrue` 跳过，见下） |
 | `app/src/androidTest` | JUnit 4 + `AndroidJUnit4` / `AndroidJUnitRunner` | **8** | 真机/模拟器 | ❌ **只编译**（`assembleDebugAndroidTest`） |
 
 每个文件的方法数：
@@ -19,17 +19,17 @@ core:  BatchRunnerTest 23 · MotionPhotoComposerTest 21 · TrailerClassifierTest
        InMemoryStorageTest 10 · VivoLivePhotoTailTest 9 · TrailerModelTest 7
        SourcesTest 3 · MotionDetectorTest 2      （Fixtures / InMemoryStorage 是夹具，0 条）
 app:   BatchViewModelTest 14 · DirBrowserTest 15 · ReportPageTest 8 · LogRotationTest 8
-       TouchedPathsForTest 4 · PermissionGateTest 2
+       TouchedPathsForTest 4 · PermissionGateTest 2 · ui/TitleBarAlphaTest 6 · ui/AccentForTest 3
 androidTest: FileStorageTest 8
 ```
 
-`DirBrowserTest` 的 `absolute path is used as-is and ignores the root` 用 `assumeTrue(File.separator == "/")` 守 POSIX 专属规则，所以在 Windows 构建主机上是**跑过但跳过**（JUnit XML 报 `tests=32 skipped=1`），不是没编译进去。
+`DirBrowserTest` 的 `absolute path is used as-is and ignores the root` 用 `assumeTrue(File.separator == "/")` 守 POSIX 专属规则，所以在 Windows 构建主机上是**跑过但跳过**（`DirBrowserTest` 那份 JUnit XML 报 `tests=15 skipped=1`；整个 `:app` 模块 60 条里跳的就是这一条），不是没编译进去。
 
 ## 命令
 
 ```bash
 ./gradlew :core:test                     # 145 条，最快反馈，纯 JVM
-./gradlew :app:testDebugUnitTest         # 51 条 ViewModel / DirBrowser / ReportPage / LogRotation / PermissionGate
+./gradlew :app:testDebugUnitTest         # 60 条 ViewModel / DirBrowser / ReportPage / LogRotation / PermissionGate / accent 四值 / titleBarAlpha
 ./gradlew :app:assembleDebug             # 产出 app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:assembleDebugAndroidTest   # CI 用它保证仪器化测试还能编译
 ./gradlew :app:connectedDebugAndroidTest  # 8 条契约测试，必须插着设备跑

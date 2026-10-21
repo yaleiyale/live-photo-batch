@@ -4,7 +4,7 @@
 
 **Goal:** 把 vlive 的三条浮动控件改成真玻璃（Haze 背景模糊 + 着色 + 高光 + 描边），卡片保持实心面，并为此把 `minSdk` 抬到 31。
 
-**Architecture:** 表现层新增一个 `GlassMaterial` 令牌层（与 `IosPalette` 并列、由 `IosTheme` 同一次深浅判定发出）和一条 `Modifier.iosGlassBar()`；`BatchScreen` 从"一层滚动 Column"改成"内容层（haze source）+ 顶部玻璃栏 + 底部玻璃栏"三层，inset 归属由 `windowInsetsPadding` 改为 `contentPadding`。目录弹窗在 `Dialog` 这个独立窗口里注册**第二个** haze source。
+**Architecture:** 表现层新增一个 `GlassMaterial` 令牌层（与 `IosPalette` 并列、由 `IosTheme` 同一次深浅判定发出）和一条 `Modifier.iosGlassBar()`；`BatchScreen` 从"一层滚动 Column"改成"内容层（haze source）+ 顶部玻璃栏 + 底部玻璃栏"三层，inset 归属由 `windowInsetsPadding` 改为挂在 `verticalScroll` **之后**的那段 `padding(paddingValues = …)`（`verticalScroll` 没有 `contentPadding` 形参）。目录弹窗在 `Dialog` 这个独立窗口里注册**第二个** haze source，四条 inset 也在那个窗口里现算。
 
 **Tech Stack:** Kotlin 2.4.21、AGP 9.4.1、Compose BOM 2026.09.00（= compose 1.12.1）、`dev.chrisbanes.haze:haze` / `:haze-blur` 2.0.1、JUnit 4（`:app` 的 JVM 单测用的就是 junit4，见 `app/build.gradle.kts:63`）。
 
@@ -388,22 +388,27 @@ fun accentFor(dark: Boolean, highContrast: Boolean): Color = when {
 ```kotlin
     val dark = isSystemInDarkTheme()
     // 系统"高文字对比度"开关，取法见 spec §1.5。第一次读可能触发一次 IPC（之后 AccessibilityManager
-    // 自己缓存），所以整段包在 remember 里、每个进程一次，不在每次重组时读 —— BatchScreen 那条
+    // 自己缓存），所以整段包在 remember 里、不在每次重组时读 —— BatchScreen 那条
     // "合成期不碰 binder/磁盘"的约定靠这个 remember 守住，不是靠假设这个 getter 便宜。
     // 已知限制：开关运行中被翻动不会立刻重组，下一次配置变化/主题重建才生效，内部工具接受这个代价。
     val context = LocalContext.current
-    // 每个主题实例一次（不是每个进程一次：keying 在 context 上，Activity 重建时会重新求值，
-    // 那正好也是 dark 该重新判定的时刻）。
     val highContrast = remember(context) {
-        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) am.isHighContrastTextEnabled else false
+        // 档位判断是必需的，而且它决定要不要付那次 binder 调用：这个 getter 是 API 36 才进
+        // AccessibilityManager 的，minSdk 31–35 上方法根本不存在，直接调不是 lint 抱怨一下而已，
+        // 是启动第一帧 NoSuchMethodError。所以判断在 remember 里面、服务只在用得上它的机型上取。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            val am = context.getSystemService(AccessibilityManager::class.java)
+            am?.isHighContrastTextEnabled == true
+        } else {
+            false
+        }
     }
     val palette = (if (dark) IosDarkPalette else IosLightPalette).copy(blue = accentFor(dark, highContrast))
 ```
 
-新增 import：`android.content.Context`、`android.os.Build`、`android.view.accessibility.AccessibilityManager`、`androidx.compose.ui.platform.LocalContext`、`androidx.compose.runtime.remember`。
+新增 import：`android.os.Build`、`android.view.accessibility.AccessibilityManager`、`androidx.compose.ui.platform.LocalContext`、`androidx.compose.runtime.remember`。**不要**加 `android.content.Context` —— 取服务用的是 `getSystemService(AccessibilityManager::class.java)` 那个重载，不需要常量字符串，多 import 一个类只会在 Task 3 的评审里被当成残留。
 
-**计划原文在这一步错过两次，以下是实测校正（本机 `javap` + `platforms/android-37.0/data/api-versions.xml`）：**类名是 `android.view.accessibility.AccessibilityManager`，不存在 `android.accessibilityservice.AccessibilityManager`；方法名是 `isHighContrastTextEnabled()`，`api-versions.xml` 标它 `since="36"`，而计划原本写的 `isHighTextContrastEnabled` 在整个 API 37 表面里**一条都搜不到**。所以 `minSdk 31` 不能免掉判定 —— 不判就是 API 31–35 启动即 `NoSuchMethodError`，lint 也会报 `NewApi`。上面那段代码要按 `Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && am.isHighContrastTextEnabled` 求值，31–35 一律走常规 accent。另有一条 Compose 硬规则：`CompositionLocal.current` 是 `@ReadOnlyComposable`，**不能写在 `remember { }` 里**（`COMPOSABLE_INVOCATION`），要先 `val context = LocalContext.current` 再 `remember(context)`。`darkColorSchemeOf(palette)` 那一行不动 —— 它现在收到的是已经换过 accent 的色板，Material 兜底色与自绘层不会分叉（`IosStyle.kt:192-194` 的注释正是为了这件事）。
+**计划原文在这一步错过两次，以下是实测校正（本机 `javap` + `platforms/android-37.0/data/api-versions.xml`）：**类名是 `android.view.accessibility.AccessibilityManager`，不存在 `android.accessibilityservice.AccessibilityManager`；方法名是 `isHighContrastTextEnabled()`，`api-versions.xml` 标它 `since="36"`，而计划原本写的 `isHighTextContrastEnabled` 在整个 API 37 表面里**一条都搜不到**。所以 `minSdk 31` 不能免掉判定 —— 不判就是 API 31–35 启动即 `NoSuchMethodError`，lint 也会报 `NewApi`。取服务与读开关的**落地形状**就是上面那段：`context.getSystemService(AccessibilityManager::class.java)` 拿到可空的服务对象，再用 `am?.isHighContrastTextEnabled == true` 求值 —— 不是 `as AccessibilityManager` 强转（服务取不到时直接 ClassCastException/NPE），也不是把 `am.isHighContrastTextEnabled` 当非空表达式用。另有一条 Compose 硬规则：`CompositionLocal.current` 是 `@ReadOnlyComposable`，**不能写在 `remember { }` 里**（`COMPOSABLE_INVOCATION`），要先 `val context = LocalContext.current` 再 `remember(context)`（keying 在 context 上：Activity 重建时重新求值，那正好也是 `dark` 该重新判定的时刻）。`darkColorSchemeOf(palette)` 那一行不动 —— 它现在收到的是已经换过 accent 的色板，Material 兜底色与自绘层不会分叉（`IosStyle.kt:192-194` 的注释正是为了这件事）。
 
 `IosPalette.blue` 字段与 `IosStyle.blue` getter 保持原样，所以 12 处 `s.blue` 调用点一个都不改，`green/orange/red` 也不参与本轮扩列。
 
@@ -501,7 +506,7 @@ fun iosGlass(): GlassMaterial = LocalIosGlass.current
     /** 底部操作栏的连续圆角：刻意小于半高（74/2），读作苹果的连续圆角而不是胶囊。 */
     val glassRadius: Dp = 30.dp
     val topBarHeight: Dp = 44.dp
-    /** 50.dp 按钮 + 上下各 12.dp。内容层的 contentPadding.bottom 要用它。 */
+    /** 50.dp 按钮 + 上下各 12.dp。内容层末尾那段留白（verticalScroll 之后的 padding）要用它。 */
     val barContentHeight: Dp = 74.dp
     val barBottomGap: Dp = 8.dp
     /** 大标题划过多远算"折叠完成"：topBarAlpha 的分母。 */
@@ -784,7 +789,19 @@ Expected: 拿到 `P_baseline`（janky 百分比）。**同样的循环连做三�
     val insets = WindowInsets.safeDrawing.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
     val collapsePx = with(LocalDensity.current) { IosMetrics.collapseRange.toPx() }.toInt()
-    val titleAlpha = titleBarAlpha(scroll.value, collapsePx)
+    // 两条 bar 与卡片边缘共用的横向留白，和底部栏抬的那段竖向落点，各命名一次（整枝评审补的）。
+    val sideGutter = PaddingValues(
+        start = insets.calculateLeftPadding(layoutDirection) + IosMetrics.screenMargin,
+        end = insets.calculateRightPadding(layoutDirection) + IosMetrics.screenMargin,
+    )
+    val bottomGutter = insets.calculateBottomPadding() + IosMetrics.barBottomGap
+    // 实测校正（Task 6 撞过 lint，整枝评审又撞过重组范围）：
+    // 1) 直接写 `val titleAlpha = titleBarAlpha(scroll.value, collapsePx)` 会吃一条 FrequentlyChangingValue
+    //    lint（第 10 条），解法就是它自己推荐的 derivedStateOf；
+    // 2) 但**不要用 `by` 委托**把它接到这个 composable 的顶层 —— 那一层装着整个内容层与底部栏，
+    //    折叠区间内每翻一次值就重跑一遍报告的逐项加工。把 State 原样传进同文件的私有
+    //    `GlassTitleBar(alpha = …)`，让 `.value` 只在那个子组合里读。
+    val titleAlpha = remember { derivedStateOf { titleBarAlpha(scroll.value, collapsePx) } }
 
     Box(
         // targetSdk 35+ 起窗口强制 edge-to-edge，底色必须铺到状态栏底下，否则顶部是一条系统给的接缝。
@@ -796,7 +813,7 @@ Expected: 拿到 `P_baseline`（janky 百分比）。**同样的循环连做三�
         Column(
             Modifier
                 // 折叠屏内屏约 780dp 宽：内容封顶后居中，卡片不会被拉成一条横杠。
-                .widthIn(max = 640.dp)
+                .widthIn(max = IosMetrics.contentMaxWidth)
                 .fillMaxSize()
                 // 这一层是主屏窗口里唯一的模糊源，两条 bar 都从它取位图。
                 .hazeSource(haze)
@@ -812,9 +829,9 @@ Expected: 拿到 `P_baseline`（janky 百分比）。**同样的循环连做三�
                         start = insets.calculateLeftPadding(layoutDirection),
                         top = insets.calculateTopPadding(),
                         end = insets.calculateRightPadding(layoutDirection),
-                        // 底部栏的总占位 = 导航栏 inset + 8dp 间距 + 74dp 内容 + 16dp 余量。
-                        bottom = insets.calculateBottomPadding() +
-                            IosMetrics.barBottomGap + IosMetrics.barContentHeight + 16.dp,
+                        // 底部栏的总占位 = bottomGutter（导航栏 inset + 8dp 间距）+ 74dp 内容 + 16dp 余量。
+                        // 底部栏自己抬的就是同一个 bottomGutter（Task 7 的整枝评审把它命名成一个值）。
+                        bottom = bottomGutter + IosMetrics.barContentHeight + 16.dp,
                     ),
                 ),
         ) {
@@ -862,6 +879,14 @@ Expected: 拿到 `P_baseline`（janky 百分比）。**同样的循环连做三�
 ```
 
 新增 import：`androidx.compose.ui.text.style.TextOverflow`。`insets.calculateTopPadding()` 不收参数（只有左右两个要 `LayoutDirection`），Step 1 里已经这么写；这里保持一致。
+
+**整枝评审后的两处取代（照这段写会退回已修掉的缺陷）**：
+1. 标题内缩那句 `Modifier.padding(horizontal = 76.dp)` 已经作废 —— 那是把弹窗的 action reserve 当页边距用，
+   既不躲横向缺口也不与卡片边缘对齐。落地是 `Modifier.padding(paddingValues = sideGutter)`，
+   `sideGutter` = `insets.calculate*Padding(layoutDirection) + IosMetrics.screenMargin`，与底部栏同一个值。
+2. 这整块（连同 `if (titleAlpha > 0f)` 那道门）搬进了**同文件**的私有 `BoxScope.GlassTitleBar(alpha: State<Float>, …)`，
+   里面读 `alpha.value` —— 门、"不做动画"、"先 iosGlassBar 再 padding(top = inset)" 三条语义一个都没变，
+   变的只是无效化范围。理由见 Step 2 那段校正的第 2 条。
 
 - [ ] **Step 4: 构建 + 测试**
 
@@ -922,16 +947,15 @@ git commit -m "feat(app): make the content layer a haze source under a glass tit
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .widthIn(max = 640.dp)
-                .padding(
-                    start = insets.calculateLeftPadding(layoutDirection) + IosMetrics.screenMargin,
-                    end = insets.calculateRightPadding(layoutDirection) + IosMetrics.screenMargin,
-                )
-                .padding(bottom = insets.calculateBottomPadding() + IosMetrics.barBottomGap)
+                .widthIn(max = IosMetrics.contentMaxWidth)
+                .padding(paddingValues = sideGutter)
+                .padding(bottom = bottomGutter)
                 .iosEnter(5, entrance)
                 .iosGlassBar(glass = glass, state = haze, radius = IosMetrics.glassRadius)
-                // 50dp 按钮 + 上下各 12dp = IosMetrics.barContentHeight(74dp)，
-                // 与内容层 contentPadding.bottom 预留的那段必须同一个数，否则最后一张卡片被压住。
+                // 50dp 按钮 + 上下各 12dp = IosMetrics.barContentHeight(74dp)，高度要**钉**在这一行上，
+                // 不能靠三个数刚好凑出来：它与内容层那句 `bottom = bottomGutter + barContentHeight + 16.dp`
+                // 必须同一个数，否则最后一张卡片被压住（Task 7 评审后补的 .height()）。
+                .height(IosMetrics.barContentHeight)
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1002,7 +1026,7 @@ git commit -m "feat(app): float the start/cancel actions on a glass bottom bar"
 
 - [ ] **Step 1: 把弹窗顶栏改成压在列表之上的玻璃**
 
-`IosSheet` 里 `Dialog { … }` 的内容整体换成下面这版。三处关键变化：弹窗自己 `rememberHazeState()`（不能复用主屏那个，跨窗口取不到位图）；列表变成 `hazeSource` 且**从弹窗顶部铺满**、用 `contentPadding(top = 状态栏 + 顶栏高)` 让出第一行；顶栏是这块 source 的唯一消费者。
+`IosSheet` 里 `Dialog { … }` 的内容整体换成下面这版。三处关键变化：弹窗自己 `rememberHazeState()`（不能复用主屏那个，跨窗口取不到位图）；列表变成 `hazeSource` 且**从弹窗顶部铺满**、在同一条 `verticalScroll` **之后**用 `padding(paddingValues = PaddingValues(top = 状态栏 + 顶栏高))` 让出第一行（`verticalScroll` 没有 `contentPadding` 形参，Task 6 实测）；顶栏是这块 source 的唯一消费者。第四条是**评审补上的**：insets 必须在 `Dialog { }` 里面算 —— Dialog 是独立窗口，`asPaddingValues()` 抓的是求值那一刻所在窗口的 density 与 layoutDirection，在主屏那一层算好传进来只有两个窗口都全屏时才碰巧相同。
 
 ```kotlin
 @Composable
@@ -1020,14 +1044,18 @@ fun IosSheet(
     val glass = iosGlass()
     // 独立窗口：主屏那个 HazeState 在这里取不到位图，必须自己注册第二个（spec §2.5）。
     val haze = rememberHazeState()
-    val insets = WindowInsets.safeDrawing.asPaddingValues()
-    val layoutDirection = LocalLayoutDirection.current
-    val topInset = insets.calculateTopPadding()
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        // 四条 inset 全部在这个窗口里现算（理由见上面第四条）。
+        val insets = WindowInsets.safeDrawing.asPaddingValues()
+        val layoutDirection = LocalLayoutDirection.current
+        val topInset = insets.calculateTopPadding()
+        // 顶栏实高与列表的顶部留白用同一个值绑定起来，两处不再各拼各的。
+        val barHeight = topInset + IosMetrics.sheetBarHeight
+
         // 弹窗整体仍然是实心分组底色：玻璃只出现在顶栏这一条，绝不玻璃叠玻璃。
         Column(
             Modifier
@@ -1040,10 +1068,11 @@ fun IosSheet(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // 折叠屏内屏约 780dp 宽，内容封顶后居中，否则卡片和行会被拉成一条横杠。
+            // 这个 Box 同时是顶栏那条覆盖物的坐标空间。
             Box(
                 Modifier
                     .fillMaxHeight()
-                    .widthIn(max = 640.dp)
+                    .widthIn(max = IosMetrics.contentMaxWidth)
                     .fillMaxWidth(),
             ) {
                 Column(
@@ -1052,17 +1081,21 @@ fun IosSheet(
                         .hazeSource(haze)
                         .verticalScroll(state = rememberScrollState())
                         // Task 6 实测：verticalScroll 没有 contentPadding 形参，padding 挂在它之后。
+                        // Task 8 装机前修掉的一处：弹窗 decorFitsSystemWindows = false，整窗铺到导航条
+                        // 底下，bottom 只写 28.dp 的话最后一行会压在导航条下面，必须再吃进下边 inset。
                         .padding(
                             paddingValues = PaddingValues(
-                                top = topInset + IosMetrics.sheetBarHeight,
-                                bottom = 28.dp,
+                                top = barHeight,
+                                bottom = 28.dp + insets.calculateBottomPadding(),
                             ),
                         ),
                     content = content,
                 )
+                // 这里原来那条 IosDivider 已经删掉：iosGlassBar 自己画了 hairline 描边，别加回来。
                 Box(
                     Modifier
                         .fillMaxWidth()
+                        .height(barHeight)
                         .iosGlassBar(glass = glass, state = haze),
                 ) {
                     // 同主屏顶栏：玻璃盖到状态栏底下，inset 只在里面把内容推下去。
@@ -1117,7 +1150,7 @@ fun IosSheet(
 
 两条必须一起做的删除，否则顶栏糊不到东西：
 
-- 原来那句整层 `windowInsetsPadding(WindowInsets.safeDrawing)`（旧 `:523`）删掉 —— 它把列表整个压到顶栏下面，顶栏底下就没有可糊的内容了；改成只吃横向 inset，竖直方向交给 `contentPadding`。
+- 原来那句整层 `windowInsetsPadding(WindowInsets.safeDrawing)`（旧 `:523`）删掉 —— 它把列表整个压到顶栏下面，顶栏底下就没有可糊的内容了；改成容器只吃横向 inset，竖直方向交给滚动内容自己在 `verticalScroll` **之后**那段 `padding(paddingValues = …)` 的首尾留白。
 - 原来紧跟着顶栏那句 `IosDivider(indent = false)`（旧 `:566`）删掉 —— `iosGlassBar` 自带 hairline 描边，再画一条是重复。
 
 - [ ] **Step 2: 构建 + 测试 + lint**
