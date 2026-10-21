@@ -12,13 +12,15 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -37,10 +40,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import dev.zayn.vlive.browse.DirBrowser
 import dev.zayn.vlive.browse.DirItem
 import dev.zayn.vlive.browse.displayPath
@@ -65,6 +73,9 @@ import dev.zayn.vlive.ui.StatusRow
 import dev.zayn.vlive.ui.SwitchRow
 import dev.zayn.vlive.ui.ThinProgressBar
 import dev.zayn.vlive.ui.iosEnter
+import dev.zayn.vlive.ui.iosGlass
+import dev.zayn.vlive.ui.iosGlassBar
+import dev.zayn.vlive.ui.titleBarAlpha
 import dev.zayn.vlive.core.FailureReason
 import dev.zayn.vlive.core.ItemResult
 import dev.zayn.vlive.core.ItemStatus
@@ -114,6 +125,18 @@ fun BatchScreen(
     LaunchedEffect(Unit) { vm.refreshPermission() }
     IosEntranceFallback(entrance)
 
+    val scroll = rememberScrollState()
+    val haze = rememberHazeState()
+    val glass = iosGlass()
+    val insets = WindowInsets.safeDrawing.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val collapsePx = with(LocalDensity.current) { IosMetrics.collapseRange.toPx() }.toInt()
+    // `scroll.value` 带 @FrequentlyChangingValue，组合期直接读 = 整屏每帧重组一次；lint 给的解法
+    // 就是 derivedStateOf，而且语义正好对上：alpha 只在 0..collapseRange 这一段里变，顶到 1f 或回到
+    // 0f 之后再多滚都不发布新值，所以下面那道 `if (titleAlpha > 0f)` 的门只在"越过 0"那一刻翻一次。
+    // 不套 animateFloatAsState —— spec 要求 bar 跟着手指走，加动画等于让它落后于滚动。
+    val titleAlpha by remember { derivedStateOf { titleBarAlpha(scroll.value, collapsePx) } }
+
     Box(
         // targetSdk 35+ 起窗口强制 edge-to-edge，底色必须铺到状态栏底下，否则顶部是一条系统给的接缝。
         Modifier
@@ -126,9 +149,25 @@ fun BatchScreen(
                 // 折叠屏内屏约 780dp 宽：内容封顶后居中，卡片不会被拉成一条横杠。
                 .widthIn(max = 640.dp)
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 28.dp),
+                // 这一层是主屏窗口里唯一的模糊源，两条 bar 都从它取位图。
+                .hazeSource(haze)
+                // inset 的归属变了：windowInsetsPadding 会把视口本身缩小，内容永远划不到 bar 底下，
+                // 玻璃就糊不出东西；留白必须挂在 verticalScroll **之后** —— 那条链上 verticalScroll
+                // 之后的是滚动内容自己的 padding（首尾留白、视口满屏），之前的仍然是缩视口。
+                // compose-foundation 1.12.1 的 verticalScroll 没有 contentPadding 形参（javap 实测只有
+                // enabled / flingBehavior / reverseScrolling / overscrollEffect），所以这份 PaddingValues
+                // 由 Modifier.padding(paddingValues = …) 来吃，效果与计划的 contentPadding 同形。
+                .verticalScroll(state = scroll)
+                .padding(
+                    paddingValues = PaddingValues(
+                        start = insets.calculateLeftPadding(layoutDirection),
+                        top = insets.calculateTopPadding(),
+                        end = insets.calculateRightPadding(layoutDirection),
+                        // 底部栏的总占位 = 导航栏 inset + 8dp 间距 + 74dp 内容 + 16dp 余量。
+                        bottom = insets.calculateBottomPadding() +
+                            IosMetrics.barBottomGap + IosMetrics.barContentHeight + 16.dp,
+                    ),
+                ),
         ) {
             Column(Modifier.iosEnter(0, entrance)) {
                 Text(
@@ -325,6 +364,35 @@ fun BatchScreen(
                                 .padding(top = 6.dp, bottom = 10.dp),
                         )
                     }
+                }
+            }
+        }
+
+        // 大标题留在滚动流里，玻璃栏画的是折叠后的紧凑标题；alpha 由滚动位置直接决定，
+        // 不做动画（惯性滚动时 animateFloatAsState 只会让 bar 落后于手指）。
+        if (titleAlpha > 0f) {
+            // 玻璃必须盖到状态栏底下（顺序：先 iosGlassBar 再 padding(top = inset)，反过来会在
+            // 状态栏那一条和玻璃之间留一条接缝 —— 与冷启动时已经被投诉过的那条是同一类）。
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .iosGlassBar(glass = glass, state = haze, barAlpha = titleAlpha),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = insets.calculateTopPadding())
+                        .height(IosMetrics.topBarHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(R.string.app_name),
+                        style = s.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 76.dp),
+                    )
                 }
             }
         }
