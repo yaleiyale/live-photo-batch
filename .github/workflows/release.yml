@@ -1,0 +1,99 @@
+name: Release
+
+# 发版是**手动**的：Actions 页面 → Run workflow → 绿色按钮。
+# 为什么不跟着 push 自动发：这个仓库一条 feat/* 分支一天能推十几次，每次 push 都产一个
+# Release 会把发布页变成构建日志的垃圾桶；而 artifact 那条路（build.yml）本来就是给人挑版本的。
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 附加到发布说明里的一句话（可留空）
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  # gh release create 要建 tag + 建 release + 传 asset，这三个都写 contents。
+  contents: write
+
+# 同一时刻只允许一个发版：两个并发跑会撞同一个分钟级 tag（gh 会红，但红得很难看）。
+# 这里刻意不 cancel-in-progress —— 已经传到一半的 asset 被掐掉会留下半个 release。
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish a release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      # SDK 那段与 build.yml 是同一条决定（不要碰 android-actions/setup-android@v3，
+      # 它默认要装的 `tools` 包已被 Google 从 SDK 仓库删掉），理由写在那边，这里只复制不解释。
+      - name: Install SDK platform 37
+        run: |
+          SDKM="$(command -v sdkmanager || echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKM" --licenses > /dev/null
+          "$SDKM" "build-tools;36.0.0"
+          "$SDKM" "platforms;android-37.0"
+      - run: ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon
+
+      - name: Stage the APKs under a dated tag
+        run: |
+          set -euo pipefail
+          # 时区按手机上看的时间（Asia/Shanghai），不是 runner 的 UTC：
+          # tag 是给人认的，"这是几点出的包"必须和用户手表一致。
+          STAMP="$(TZ=Asia/Shanghai date +%Y-%m-%d-%H%M)"
+          echo "TAG=$STAMP" >> "$GITHUB_ENV"
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk      "out/vlive-debug-$STAMP.apk"
+          cp app/build/outputs/apk/release/app-release.apk  "out/vlive-release-$STAMP.apk"
+          sha256sum "out/vlive-debug-$STAMP.apk" "out/vlive-release-$STAMP.apk" > out/sha256.txt
+          cat out/sha256.txt
+
+      - name: Write the release notes
+        env:
+          # 输入必须走 env，不能直接 ${{ inputs.note }} 插进 shell —— 那是脚本注入的入口，
+          # 哪怕只有仓库写权限的人能填。
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          {
+            echo "构建自 \`${GITHUB_SHA}\`（分支 \`${GITHUB_REF_NAME}\`）。"
+            echo
+            echo "| 文件 | 大小 | sha256 |"
+            echo "| --- | --- | --- |"
+            while read -r sum name; do
+              base="$(basename "$name")"
+              size="$(stat -c %s "$name")"
+              echo "| \`$base\` | $size B | \`$sum\` |"
+            done < out/sha256.txt
+            echo
+            echo "两个包都是 **debug 签名**（\`signingConfigs.debug\`）：能侧载、不能上商店。"
+            echo "CI 的 debug key 与开发者本机的不是同一把，所以**从别的来源装过的要先卸载**，"
+            echo "否则会 \`INSTALL_FAILED_UPDATE_INCOMPATIBLE\`。"
+            echo
+            echo "装之前：Android 11+（minSdk 30），首次打开要授予「所有文件访问」。"
+            echo "已知：深色模式下冷启动那一帧的 logo 白标记会被 vivo OriginOS 画成黑色"
+            echo "（实测是系统绘制 splash 窗口时的颜色替换，\`forceDarkAllowed=false\` 无效，已裁定接受）。"
+            if [ -n "$NOTE" ]; then
+              echo
+              echo "> $NOTE"
+            fi
+          } > out/body.md
+          cat out/body.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" out/vlive-debug-"$TAG".apk out/vlive-release-"$TAG".apk \
+            --title "vlive $TAG" \
+            --target "$GITHUB_SHA" \
+            --notes-file out/body.md \
+            --prerelease
+          gh release view "$TAG" --json tagName,htmlUrl,assets \
+            --jq '{tag: .tagName, url: .htmlUrl, assets: [.assets[].name]}'
