@@ -391,14 +391,19 @@ fun accentFor(dark: Boolean, highContrast: Boolean): Color = when {
     // 自己缓存），所以整段包在 remember 里、每个进程一次，不在每次重组时读 —— BatchScreen 那条
     // "合成期不碰 binder/磁盘"的约定靠这个 remember 守住，不是靠假设这个 getter 便宜。
     // 已知限制：开关运行中被翻动不会立刻重组，下一次配置变化/主题重建才生效，内部工具接受这个代价。
-    val highContrast = remember {
-        val am = LocalContext.current.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-        am.isHighTextContrastEnabled
+    val context = LocalContext.current
+    // 每个主题实例一次（不是每个进程一次：keying 在 context 上，Activity 重建时会重新求值，
+    // 那正好也是 dark 该重新判定的时刻）。
+    val highContrast = remember(context) {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) am.isHighContrastTextEnabled else false
     }
     val palette = (if (dark) IosDarkPalette else IosLightPalette).copy(blue = accentFor(dark, highContrast))
 ```
 
-新增 import：`android.accessibilityservice.AccessibilityManager`、`android.content.Context`、`androidx.compose.ui.platform.LocalContext`、`androidx.compose.runtime.remember`。`darkColorSchemeOf(palette)` 那一行不动 —— 它现在收到的是已经换过 accent 的色板，Material 兜底色与自绘层不会分叉（`IosStyle.kt:192-194` 的注释正是为了这件事）。
+新增 import：`android.content.Context`、`android.os.Build`、`android.view.accessibility.AccessibilityManager`、`androidx.compose.ui.platform.LocalContext`、`androidx.compose.runtime.remember`。
+
+**计划原文在这一步错过两次，以下是实测校正（本机 `javap` + `platforms/android-37.0/data/api-versions.xml`）：**类名是 `android.view.accessibility.AccessibilityManager`，不存在 `android.accessibilityservice.AccessibilityManager`；方法名是 `isHighContrastTextEnabled()`，`api-versions.xml` 标它 `since="36"`，而计划原本写的 `isHighTextContrastEnabled` 在整个 API 37 表面里**一条都搜不到**。所以 `minSdk 31` 不能免掉判定 —— 不判就是 API 31–35 启动即 `NoSuchMethodError`，lint 也会报 `NewApi`。上面那段代码要按 `Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && am.isHighContrastTextEnabled` 求值，31–35 一律走常规 accent。另有一条 Compose 硬规则：`CompositionLocal.current` 是 `@ReadOnlyComposable`，**不能写在 `remember { }` 里**（`COMPOSABLE_INVOCATION`），要先 `val context = LocalContext.current` 再 `remember(context)`。`darkColorSchemeOf(palette)` 那一行不动 —— 它现在收到的是已经换过 accent 的色板，Material 兜底色与自绘层不会分叉（`IosStyle.kt:192-194` 的注释正是为了这件事）。
 
 `IosPalette.blue` 字段与 `IosStyle.blue` getter 保持原样，所以 12 处 `s.blue` 调用点一个都不改，`green/orange/red` 也不参与本轮扩列。
 

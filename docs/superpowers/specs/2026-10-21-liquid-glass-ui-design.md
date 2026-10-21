@@ -103,7 +103,7 @@ fun accentFor(dark: Boolean, highContrast: Boolean): Color
 
 **高对比那两列的数值不是苹果公开数值的引用**，是本轮定的起点，验收规则是硬指标而不是出处：Tinted 主按钮上的白字、玻璃 bar 上的 accent 文字，在各自外观下都要 **≥ 4.5:1**。
 
-选值信号读系统的"高文字对比度"开关：`AccessibilityManager.isHighTextContrastEnabled`（API 26 起有，`minSdk 31` 下无需判版本）。**实现第一步必须核实这个 API 在本项目依赖图上真能取到并能在设备上翻转生效**；如果取不到或 vivo 上不生效，就**只留常规两列**并把这件事作为已记录的缺口写进 decisions.md——不许静默地把四个值退化成两个而当作完成。
+选值信号读系统的"高对比度文字"开关。**实测校正（本机 `javap` + `platforms/android-37.0/data/api-versions.xml`）：真名是 `android.view.accessibility.AccessibilityManager.isHighContrastTextEnabled()`，标 `since="36"`**；本节初稿写的 `AccessibilityManager.isHighTextContrastEnabled` 在整个 API 37 表面里一条都搜不到，而 `android.accessibilityservice.AccessibilityManager` 这个类根本不存在。因为 36 高于 `minSdk 31`，判定**必须留着**（不判就是 API 31–35 启动即 `NoSuchMethodError`，lint 报 `NewApi`），31–35 一律走常规 accent。取不到信号或不生效时的处理不变：**只留常规两列**，并把缺口写进 decisions.md —— 不许静默地把四个值退化成两个而当作完成。
 
 `LocalIosStyle` 的 `blue` getter 保留（现有 12 处 `s.blue` 全部在 [IosControls.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt) 里，`BatchScreen.kt` 一处都不用），改为返回 `accentFor` 的结果；`green/orange/red` 不动。
 
