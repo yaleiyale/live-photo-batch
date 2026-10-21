@@ -256,8 +256,10 @@ fun IosButton(
             .fillMaxWidth()
             .height(IosMetrics.buttonHeight)
             .alpha(if (pressed && enabled) 0.7f else 1f)
-            .clip(edge)
+            // shadow 必须在 clip 之前：clip 设 clipToOutline，2.dp 的阴影整个落在药丸轮廓之外，
+            // 反过来写就被裁掉 —— 与 GlassBar 里那条同一条规则。
             .shadow(elevation = if (style == IosButtonStyle.Destructive) 0.dp else 2.dp, shape = edge)
+            .clip(edge)
             .background(surface)
             .background(Brush.verticalGradient(0f to glass.highlight.copy(alpha = 0.25f), 0.5f to Color.Transparent))
             .border(IosMetrics.hairline, glass.stroke, edge)

@@ -20,19 +20,26 @@ import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
 
 /**
- * 一条 modifier 把一块玻璃画完，画法只在这一个地方定义。
+ * 一条 modifier 把一块**带模糊的玻璃面**画完 —— "参与模糊的层怎么叠"这一份画法只在这一个地方定义。
+ * 高光渐变与 hairline 描边不在这条"独享"之列：[IosButton] 刻意把它们内联重画了一遍，
+ * 因为按钮不许走模糊那条路（spec §1.1"一层玻璃只模糊一次"）。
  *
  * 顺序就是这条的全部内容，不能随意调整：
- * 1. `shadow` 必须落在 `clip` 之前——先有形状（shape）才打得出贴着轮廓的阴影，裁完再打就糊成方块；
+ * 1. `shadow` 必须落在 `clip` 之前——`clip` 设的是 `clipToOutline`，而阴影整个画在轮廓之外，
+ *    反过来写的后果不是"糊成方块"，是阴影**被裁掉、彻底看不见**（[IosButton] 用的是同一条规则）；
  * 2. `hazeBlur` 落在 `clip` 之内——背景糊完再按 shape 裁，才有那条干净的玻璃边缘；
  * 3. 高光、描边是在糊好的背景**之上**叠出来的内容，不参与模糊本身。
  *
  * 阴影、裁剪、描边共用同一个 `shape` 变量：三处各算一次会让高光/描边漏在圆角之外。
- * `radius = 0.dp`（当前两套预设）时取 [RectangleShape]，此时 barAlpha/阴影仍在，只是不带圆角。
+ *
+ * 两套预设的 `GlassMaterial.radius` 都是 `0.dp`（→ [RectangleShape]），这是刻意的：主屏顶栏和弹窗顶栏
+ * 是贴到边的 full-bleed 条，本来就不带圆角。**唯一需要圆角的消费方是底部操作栏**，它必须显式传
+ * [IosMetrics.glassRadius] —— 走默认值只会得到一条方角 bar，编译器、测试和 lint 都不会吱声。
  */
 fun Modifier.iosGlassBar(
     glass: GlassMaterial,
     state: HazeState,
+    // 默认 0.dp 是给两条贴边条的；底部操作栏这类要圆角的必须显式传 IosMetrics.glassRadius（见上）。
     radius: Dp = glass.radius,
     barAlpha: Float = 1f,
 ): Modifier {

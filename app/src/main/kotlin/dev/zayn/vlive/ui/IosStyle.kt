@@ -117,7 +117,12 @@ val LightGlass = GlassMaterial(
     radius = 0.dp,
 )
 
-/** 深色走"着色"档：着色层比初稿轻，因为卡片已经不是玻璃，只剩 bar 上的文字要保证读得清。 */
+/**
+ * 深色走"着色"档：着色层比初稿轻，因为卡片已经不是玻璃，只剩 bar 上的文字要保证读得清。
+ *
+ * `blurRadius` 两套预设取同一个 `24.dp`，这是 spec §1.3 定的、**不是复制粘贴漏改**：深浅两档只差着色，
+ * 模糊半径不跟着变，整机就只有一种性能画像。把它"修"成两个值等于给深色单独做一条模糊开销曲线。
+ */
 val DarkGlass = GlassMaterial(
     tint = Color(0xFF1C1C1E).copy(alpha = 0.62f),
     blurRadius = 24.dp,
