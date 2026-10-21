@@ -457,7 +457,7 @@ fun BatchScreen(
  * - 顺序仍是**先 `iosGlassBar` 再 `padding(top = inset)`**，反过来会在状态栏那一条和玻璃之间留一条
  *   接缝 —— 与冷启动时已经被投诉过的那条是同一类。
  *
- * `glass` / `haze` / `insets` 这些共享值仍由调用方传进来，底部栏与内容层读的是同一份，不会分叉。
+ * 传进来的是 `alpha`/`haze`/`insets`/`sideGutter`，底部栏与内容层读的是同一份；`glass` 不在其中，它出自 `LocalIosGlass`，子组合 `iosGlass()` 现取。
  */
 @Composable
 private fun BoxScope.GlassTitleBar(

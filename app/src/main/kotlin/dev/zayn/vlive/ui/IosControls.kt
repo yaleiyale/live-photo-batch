@@ -565,7 +565,7 @@ fun IosSheet(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // 折叠屏内屏约 780dp 宽，内容封顶后居中，否则卡片和行会被拉成一条横杠。
-            // 这个 Box 同时是顶栏那两条覆盖物的坐标空间，所以它铺满高度。
+            // 这个 Box 同时是顶栏那一条覆盖物的坐标空间，所以它铺满高度。
             Box(
                 Modifier
                     .fillMaxHeight()
