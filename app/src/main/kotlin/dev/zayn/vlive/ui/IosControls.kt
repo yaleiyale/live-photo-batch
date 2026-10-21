@@ -518,6 +518,10 @@ private fun FolderIcon() {
  * 顶栏下面，顶栏底下就永远没有可糊的内容，玻璃只会糊出一块实心底色。现在容器只吃横向 inset
  * （刘海/挖孔跟着窗口边），竖直方向交给滚动内容自己的首尾留白，于是列表从弹窗顶边铺起、
  * 首行停在顶栏之下，但整条列表仍划得过玻璃底下。
+ *
+ * insets 一律在 `Dialog { }` **里面**求值：Dialog 是独立窗口，`asPaddingValues()` 抓的是求值那一刻
+ * 所在窗口的 density 与 layoutDirection。在主屏那一层算好再传进来，今天两个窗口都是全屏所以数字
+ * 碰巧相同；多窗口、折叠屏姿态、或有人把 `usePlatformDefaultWidth` 改回 true，四条边就会各自飘开。
  */
 @Composable
 fun IosSheet(
@@ -535,14 +539,20 @@ fun IosSheet(
     // Dialog 是独立窗口，hazeBlur 采的是**同窗口内**的绘制层，主屏那个 HazeState 在这里取不到
     // 任何位图（spec §2.5）。所以弹窗必须自己注册第二个源，而不是把外面那个传进来复用。
     val haze = rememberHazeState()
-    val insets = WindowInsets.safeDrawing.asPaddingValues()
-    val layoutDirection = LocalLayoutDirection.current
-    val topInset = insets.calculateTopPadding()
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        // 四条 inset 全部在**这个窗口**里现算（见函数 KDoc 那条窗口归属的理由）。
+        val insets = WindowInsets.safeDrawing.asPaddingValues()
+        val layoutDirection = LocalLayoutDirection.current
+        val topInset = insets.calculateTopPadding()
+        // 顶栏整条的实高 = 状态栏 inset + 那条 52.dp 的内容。列表的顶部留白和顶栏自己的
+        // padding+height 用的是同一个值：让第一行正好停在顶栏之下这件事靠的就是这个等式，
+        // 两处各拼各的话它只活在注释里，改任一侧都会把首行推进玻璃底下或者留出一道空缝。
+        val barHeight = topInset + IosMetrics.sheetBarHeight
+
         // 弹窗其余部分仍然是实心分组底色：玻璃只有顶栏这一条，bar 里再垫一层玻璃等于同一层糊两次。
         Column(
             Modifier
@@ -555,10 +565,11 @@ fun IosSheet(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // 折叠屏内屏约 780dp 宽，内容封顶后居中，否则卡片和行会被拉成一条横杠。
+            // 这个 Box 同时是顶栏那两条覆盖物的坐标空间，所以它铺满高度。
             Box(
                 Modifier
                     .fillMaxHeight()
-                    .widthIn(max = 640.dp)
+                    .widthIn(max = IosMetrics.contentMaxWidth)
                     .fillMaxWidth(),
             ) {
                 // Box 按声明顺序绘制：列表在前、顶栏在后，顶栏才压得住列表。hazeSource 挂在被采样
@@ -575,15 +586,20 @@ fun IosSheet(
                         // 铺到导航条底下，不加这一段最后一行就压在导航条下面（与主屏内容层同一做法）。
                         .padding(
                             paddingValues = PaddingValues(
-                                top = topInset + IosMetrics.sheetBarHeight,
+                                top = barHeight,
                                 bottom = 28.dp + insets.calculateBottomPadding(),
                             ),
                         ),
                     content = content,
                 )
+                // 这里原来是一条 IosDivider(indent = false)：它已经删掉，**不要加回来** ——
+                // iosGlassBar 自己就画了那条 hairline 描边（glass.stroke），再来一条等于同一条线上画两遍。
                 Box(
                     Modifier
                         .fillMaxWidth()
+                        // 顶栏整条的实高直接钉在 barHeight 上（列表那段留白用的是同一个值）；
+                        // 里面那一层照样是「先让出状态栏 inset，再画 52.dp 内容」，两处相加正好等于它。
+                        .height(barHeight)
                         .iosGlassBar(glass = glass, state = haze),
                 ) {
                     // 同主屏顶栏：先糊、再让 inset 把内容推下去（玻璃自己盖到状态栏底下）。
@@ -606,7 +622,8 @@ fun IosSheet(
                             Modifier
                                 .align(Alignment.Center)
                                 .fillMaxWidth()
-                                // 标题两侧让位给「关闭 / 选择」两颗文字按钮，被压住的是标题不是按钮。
+                                // 标题两侧让位给「关闭 / 选这里」（`picker_close` / `picker_pick`）两颗文字
+                                // 按钮，被压住的是标题不是按钮。
                                 .padding(horizontal = IosMetrics.sheetBarActionReserve),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,

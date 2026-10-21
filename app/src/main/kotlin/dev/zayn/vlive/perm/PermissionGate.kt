@@ -10,8 +10,9 @@ import android.provider.Settings
  * 全部文件访问权限（`MANAGE_EXTERNAL_STORAGE`）的门面。
  *
  * ## 为什么必须从注入的 `() -> Boolean` 构造
- * 真实状态来自 `Environment.isExternalStorageManager()`——一个只能在 API 30+ 的 Android
- * 运行时里读到真值的静态调用。把它做成构造参数，`granted()` 就退化成一次纯 Kotlin 委托，
+ * 真实状态来自 `Environment.isExternalStorageManager()`。障碍不是 API 档位（`minSdk = 31`，
+ * 这个方法无条件可用），而是**本地 JVM 测试里没有 Android 运行时**：那是一个要问系统服务的静态调用，
+ * 脱离设备它压根不存在。把它做成构造参数，`granted()` 就退化成一次纯 Kotlin 委托，
  * `app/src/test` 里的本地 JVM 单测（不引 Robolectric、不引新依赖）能直接测出行为，Task 11
  * 的 ViewModel 也能用假 lambda 测。`of(context)` 只是那层薄适配器。
  *

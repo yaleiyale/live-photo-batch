@@ -21,7 +21,12 @@ class TitleBarAlphaTest {
     fun `fully visible once past the collapse range`() = assertAlpha(1f, scrollY = 56, range = 56)
 
     @Test
-    fun `linear in between`() = assertAlpha(0.5f, scrollY = 28, range = 56)
+    fun `linear in between`() {
+        assertAlpha(0.5f, scrollY = 28, range = 56)
+        // 中点那条钉不住"线性"这两个字：任何关于 t=0.5 对称的曲线（smoothstep 给 0.5）都能过。
+        // 14/56 这个非对称点位才是"就是 scrollY / range"的证据。
+        assertAlpha(0.25f, scrollY = 14, range = 56)
+    }
 
     @Test
     fun `clamped past the range`() = assertAlpha(1f, scrollY = 4000, range = 56)
@@ -33,5 +38,8 @@ class TitleBarAlphaTest {
     fun `a non-positive range never hides the bar forever`() {
         assertAlpha(1f, scrollY = 0, range = 0)
         assertAlpha(1f, scrollY = 12, range = -5)
+        // 同一条边界判据的最小合法档：spec §3.3 的 `range = 1`。算得出 1px 折叠距离的窗口本来就在
+        // 边缘上，第一帧就得是满 alpha，不许出现"要滚过半像素才露出标题"。
+        assertAlpha(1f, scrollY = 1, range = 1)
     }
 }

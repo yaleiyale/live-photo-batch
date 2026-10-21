@@ -81,8 +81,14 @@ val IosDarkPalette = IosPalette(
 /**
  * accent 的四个值：浅/深 × 常规/高对比（spec §1.5）。
  *
- * 常规两列就是色板里原本的两个值，一个都没改；高对比那两列是本轮定的**起点**，不是苹果公开数值的
- * 引用，判据是硬指标：Tinted 主按钮上的白字、玻璃 bar 上的 accent 字在各自外观下 ≥ 4.5:1。
+ * 常规两列就是色板里原本的两个值，一个都没改；高对比那两列是本轮定的**起点**，不是苹果公开数值的引用。
+ *
+ * 判据不是"四个值全都 ≥ 4.5:1"，而是 docs/decisions.md §5.19 那条裁定：常规档白字在 Tinted 底上是
+ * **量出来并记录在案**的分数（浅色合成后 3.3:1、深色 4.7:1；前者与苹果自己的系统按钮同形 —— 不透明
+ * `#007AFF` 也只有 4.0:1），是已接受的偏离；**高对比那一列才必须过硬指标**，浅色 `#0040DD` 合成后
+ * 5.7:1（不透明 7.6:1）过了，深色 `#66B3FF` 合成后只有 2.9:1，没过，§5.19 把它记成待办而不是已结案。
+ * 数都是按相对亮度在合成色（accent @ 0.85 压在该外观的玻璃上）上算的，不在设备上量 —— 别为了让某条
+ * 线过 4.5 去调深那个常规蓝，那等于把这轮改造的意义抹掉。
  */
 fun accentFor(dark: Boolean, highContrast: Boolean): Color = when {
     !dark && !highContrast -> Color(0xFF007AFF)
@@ -188,6 +194,14 @@ object IosMetrics {
     val rowPadding: Dp = 16.dp
     val sectionGap: Dp = 22.dp
 
+    /**
+     * 内容封顶宽度：折叠屏内屏约 780dp，不封顶的话卡片会被拉成一条横杠。
+     *
+     * 三处必须用同一个数（主屏内容层、主屏底部操作栏、弹窗那层 Box）。这个值一旦各写各的，
+     * "玻璃 bar 与卡片同宽"就只是今天恰好成立，而不是被声明出来的。
+     */
+    val contentMaxWidth: Dp = 640.dp
+
     /** 小于 1dp：分隔线靠抗锯齿画成若隐若现的细线，比整数 1dp 更接近 iOS 的 0.5pt hairline。 */
     val hairline: Dp = 0.6.dp
     val buttonHeight: Dp = 50.dp
@@ -195,7 +209,12 @@ object IosMetrics {
     /** 底部操作栏的连续圆角：刻意小于半高（74/2），读作苹果的连续圆角而不是胶囊。 */
     val glassRadius: Dp = 30.dp
     val topBarHeight: Dp = 44.dp
-    /** 50.dp 按钮 + 上下各 12.dp。内容层的 contentPadding.bottom 要用它。 */
+    /**
+     * 50.dp 按钮 + 上下各 12.dp。
+     *
+     * 内容层末尾那段留白要用它（那段挂在 `verticalScroll` **之后**的 `padding(paddingValues = …)` 里 ——
+     * `verticalScroll` 没有 `contentPadding` 形参，旧注释这么写会让人去加一个不存在的参数）。
+     */
     val barContentHeight: Dp = 74.dp
     val barBottomGap: Dp = 8.dp
     /** 大标题划过多远算"折叠完成"：topBarAlpha 的分母。 */
@@ -203,7 +222,8 @@ object IosMetrics {
     /** 弹窗顶栏比主屏高一点：它要同时装下标题与整条路径的副标题（原本是 52.dp 的 Box）。 */
     val sheetBarHeight: Dp = 52.dp
     /**
-     * 弹窗顶栏左右各留这么多净空：标题要让位给「关闭 / 选择」两颗文字按钮，否则会被压在下面。
+     * 弹窗顶栏左右各留这么多净空：标题要让位给「关闭 / 选这里」（`picker_close` / `picker_pick`）
+     * 两颗文字按钮，否则会被压在下面。
      * 这是弹窗专属——主屏顶栏两侧没有按钮，拿它当页边距只会把标题挤窄，还躲不开横向缺口。
      */
     val sheetBarActionReserve: Dp = 76.dp

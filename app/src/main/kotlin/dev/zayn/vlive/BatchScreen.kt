@@ -11,6 +11,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -49,6 +51,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import dev.zayn.vlive.browse.DirBrowser
@@ -133,11 +136,24 @@ fun BatchScreen(
     val insets = WindowInsets.safeDrawing.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
     val collapsePx = with(LocalDensity.current) { IosMetrics.collapseRange.toPx() }.toInt()
+    // 「玻璃边缘 == 卡片边缘」这条不变量只在这一处算：内容层吃的是裸 inset（那一段视口留白），
+    // 卡片自己再补 screenMargin，两条 bar 用的就是这份已经加好 screenMargin 的横向留白 ——
+    // 三处相加必须落到同一条线上，所以它得是一个值，而不是各算各的、慢慢飘开。
+    val sideGutter = PaddingValues(
+        start = insets.calculateLeftPadding(layoutDirection) + IosMetrics.screenMargin,
+        end = insets.calculateRightPadding(layoutDirection) + IosMetrics.screenMargin,
+    )
+    // 底部栏的落点 = 导航栏 inset + 8dp 间距。内容层下沿那段是在这半段之上再加
+    // barContentHeight + 16dp；两处共用同一个表达式，这个等式就是最后一张卡片不被玻璃压住的原因。
+    val bottomGutter = insets.calculateBottomPadding() + IosMetrics.barBottomGap
     // `scroll.value` 带 @FrequentlyChangingValue，组合期直接读 = 整屏每帧重组一次；lint 给的解法
     // 就是 derivedStateOf，而且语义正好对上：alpha 只在 0..collapseRange 这一段里变，顶到 1f 或回到
-    // 0f 之后再多滚都不发布新值，所以下面那道 `if (titleAlpha > 0f)` 的门只在"越过 0"那一刻翻一次。
+    // 0f 之后再多滚都不发布新值，所以 [GlassTitleBar] 里那道门只在"越过 0"那一刻翻一次。
     // 不套 animateFloatAsState —— spec 要求 bar 跟着手指走，加动画等于让它落后于滚动。
-    val titleAlpha by remember { derivedStateOf { titleBarAlpha(scroll.value, collapsePx) } }
+    // 这里刻意**不**用 `by` 委托：委托点就是这个 composable 的顶层，读一次就把装着整个内容层与
+    // 底部栏的那个 Box lambda 拖进重组（每帧重跑报告的 groupingBy/count/reportPage）。传 State 下去，
+    // 让 [GlassTitleBar] 自己读，无效化范围就只有那一小块玻璃。
+    val titleAlpha = remember { derivedStateOf { titleBarAlpha(scroll.value, collapsePx) } }
 
     Box(
         // targetSdk 35+ 起窗口强制 edge-to-edge，底色必须铺到状态栏底下，否则顶部是一条系统给的接缝。
@@ -149,7 +165,7 @@ fun BatchScreen(
         Column(
             Modifier
                 // 折叠屏内屏约 780dp 宽：内容封顶后居中，卡片不会被拉成一条横杠。
-                .widthIn(max = 640.dp)
+                .widthIn(max = IosMetrics.contentMaxWidth)
                 .fillMaxSize()
                 // 这一层是主屏窗口里唯一的模糊源，两条 bar 都从它取位图。
                 .hazeSource(haze)
@@ -166,8 +182,7 @@ fun BatchScreen(
                         top = insets.calculateTopPadding(),
                         end = insets.calculateRightPadding(layoutDirection),
                         // 底部栏的总占位 = 导航栏 inset + 8dp 间距 + 74dp 内容 + 16dp 余量。
-                        bottom = insets.calculateBottomPadding() +
-                            IosMetrics.barBottomGap + IosMetrics.barContentHeight + 16.dp,
+                        bottom = bottomGutter + IosMetrics.barContentHeight + 16.dp,
                     ),
                 ),
         ) {
@@ -354,37 +369,14 @@ fun BatchScreen(
 
         // 大标题留在滚动流里，玻璃栏画的是折叠后的紧凑标题；alpha 由滚动位置直接决定，
         // 不做动画（惯性滚动时 animateFloatAsState 只会让 bar 落后于手指）。
-        if (titleAlpha > 0f) {
-            // 玻璃必须盖到状态栏底下（顺序：先 iosGlassBar 再 padding(top = inset)，反过来会在
-            // 状态栏那一条和玻璃之间留一条接缝 —— 与冷启动时已经被投诉过的那条是同一类）。
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .iosGlassBar(glass = glass, state = haze, barAlpha = titleAlpha),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = insets.calculateTopPadding())
-                        .height(IosMetrics.topBarHeight),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        stringResource(R.string.app_name),
-                        style = s.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        // 主屏顶栏两侧没有按钮，不需要弹窗那种 action reserve；标题只按「横向缺口 +
-                        // 页边距」内缩，这样既躲得开刘海/挖孔，又不把标题凭空挤窄。
-                        modifier = Modifier.padding(
-                            start = insets.calculateLeftPadding(layoutDirection) + IosMetrics.screenMargin,
-                            end = insets.calculateRightPadding(layoutDirection) + IosMetrics.screenMargin,
-                        ),
-                    )
-                }
-            }
-        }
+        // 这一整块（含 `alpha > 0` 那道门）都在 [GlassTitleBar] 里，只因为它读 alpha 的那一层
+        // 必须尽可能小 —— 见那个函数的 KDoc。
+        GlassTitleBar(
+            alpha = titleAlpha,
+            haze = haze,
+            insets = insets,
+            sideGutter = sideGutter,
+        )
 
         // 开始 / 取消从滚动流里搬到这条常驻栏：位置不能跟着内容跳，主操作要一直够得着；
         // 整条 bar 是这一区域唯一的那块玻璃，两颗按钮只加自己的 tint，绝不再各糊一层（spec §1.1）。
@@ -392,15 +384,12 @@ fun BatchScreen(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                // 与内容层同一道 640dp 封顶：折叠屏上 bar 不会比卡片宽出一截。
-                .widthIn(max = 640.dp)
-                .padding(
-                    start = insets.calculateLeftPadding(layoutDirection) + IosMetrics.screenMargin,
-                    end = insets.calculateRightPadding(layoutDirection) + IosMetrics.screenMargin,
-                )
-                // bar 自己的落点：只抬「导航 inset + 8dp 间距」。这半段和内容层用的是同一个 insets
-                // 对象，两处数字才不会再各算各的、慢慢飘开。
-                .padding(bottom = insets.calculateBottomPadding() + IosMetrics.barBottomGap)
+                // 与内容层同一道封顶：折叠屏上 bar 不会比卡片宽出一截。
+                .widthIn(max = IosMetrics.contentMaxWidth)
+                .padding(paddingValues = sideGutter)
+                // bar 自己的落点：只抬「导航 inset + 8dp 间距」，与内容层预留的下沿共用 bottomGutter
+                // 这同一个值，两处数字才不会再各算各的、慢慢飘开。
+                .padding(bottom = bottomGutter)
                 .iosEnter(5, entrance)
                 // 圆角必须显式传 glassRadius：贴边的两条 bar 走默认 0dp 直角，底部这条要读作连续圆角。
                 .iosGlassBar(glass = glass, state = haze, radius = IosMetrics.glassRadius)
@@ -450,6 +439,60 @@ fun BatchScreen(
                 picking = null
             },
         )
+    }
+}
+
+/**
+ * 主屏顶部那条玻璃标题栏：画的是折叠后的紧凑标题，大标题本身留在滚动流里。
+ *
+ * 单独成一个 `BoxScope` 私有函数只为一件事 —— **`alpha` 以 [State] 传进来、只在这里读 `.value`**。
+ * 委托点如果放在 [BatchScreen] 顶层，折叠区间内每翻一次值都会去无效化那个装着整个内容层与底部栏的
+ * `Box(content = …)` lambda（它是捕获型的），于是每帧重跑报告那段逐项加工（`groupingBy{}.eachCount()`
+ * / `count{}` / `reportPage(…)`）并把每个 `iosEnter` 的入参重建一遍。无效化范围收到这一小块玻璃上，
+ * 代价就只有这条 bar。
+ *
+ * 三条约束原样保留：
+ * - `alpha > 0f` 才进组合（不可见时不画，也就不付模糊的代价，同时不会有"读得到一个看不见的标题"）；
+ * - **不做动画**：值直接来自滚动位置，`animateFloatAsState` 只会让 bar 落后于手指（spec §2.2）；
+ * - 顺序仍是**先 `iosGlassBar` 再 `padding(top = inset)`**，反过来会在状态栏那一条和玻璃之间留一条
+ *   接缝 —— 与冷启动时已经被投诉过的那条是同一类。
+ *
+ * `glass` / `haze` / `insets` 这些共享值仍由调用方传进来，底部栏与内容层读的是同一份，不会分叉。
+ */
+@Composable
+private fun BoxScope.GlassTitleBar(
+    alpha: State<Float>,
+    haze: HazeState,
+    insets: PaddingValues,
+    sideGutter: PaddingValues,
+) {
+    val titleAlpha = alpha.value
+    if (titleAlpha <= 0f) return
+    val s = LocalIosStyle.current
+    val glass = iosGlass()
+    // 主屏顶栏两侧没有按钮，不需要弹窗那种 action reserve；标题只按「横向缺口 + 页边距」内缩，
+    // 这样既躲得开刘海/挖孔，又不把标题凭空挤窄。这道留白与底部栏、卡片边缘是同一个 [sideGutter]。
+    Box(
+        Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth()
+            .iosGlassBar(glass = glass, state = haze, barAlpha = titleAlpha),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = insets.calculateTopPadding())
+                .height(IosMetrics.topBarHeight),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                stringResource(R.string.app_name),
+                style = s.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(paddingValues = sideGutter),
+            )
+        }
     }
 }
 

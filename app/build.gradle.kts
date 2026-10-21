@@ -50,7 +50,10 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.androidx.activity.compose)
     // 冷启动那一帧的 SplashScreen（Theme.SplashScreen + installSplashScreen）。
-    // 这是 :app 唯一的"多一个依赖"决定，换来的是 API 31 上也能覆盖进程启动到首帧那段真空；
+    // 这是 :app 唯一的"多一个依赖"决定，买的是两件事：清单/主题里那一套 `windowSplashScreen*` 属性，
+    // 和 `setOnExitAnimationListener` 这个退出时机 —— 入场闸门（IosEntrance）就是挂在那次回调上放行的。
+    // 这句原来写的是"API 31 上也能覆盖"：那是它相对平台原生 splash 的卖点（30 及以下走 compat 分支），
+    // minSdk 抬到 31 之后那条分支永不上号，卖点跟着作废（见 docs/decisions.md §5.20）。
     // 版本走 libs.versions.toml 的 splashScreen。
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
