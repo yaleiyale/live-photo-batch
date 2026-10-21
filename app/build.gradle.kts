@@ -57,6 +57,9 @@ dependencies {
     // 目录选择的持久化（源/目标），以及日志文件的自动管理都只走这两个库，见 docs/decisions.md §5.17/§5.18。
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.timber)
+    // 真背景模糊（RenderEffect，API 31+）。source 侧与 consumer 侧是两个构件，见 docs/decisions.md §5.20。
+    implementation(libs.haze.core)
+    implementation(libs.haze.blur)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
     debugImplementation(libs.compose.ui.tooling)
