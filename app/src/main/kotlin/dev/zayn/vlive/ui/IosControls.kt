@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -44,6 +45,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.Role
@@ -231,6 +233,7 @@ fun IosButton(
     onClick: () -> Unit,
 ) {
     val s = LocalIosStyle.current
+    val glass = iosGlass()
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val label = when (style) {
@@ -238,19 +241,26 @@ fun IosButton(
         IosButtonStyle.Destructive -> s.red
         IosButtonStyle.Secondary -> s.blue
     }
-    // 禁用态只淡文字、主按钮换成淡蓝底：整块 alpha 下去，白底次按钮会直接融进分组背景里。
-    val surface = if (style == IosButtonStyle.Primary) {
-        if (enabled) s.blue else s.blue.copy(alpha = 0.35f)
-    } else {
-        s.card
+    // Tinted：accent 按固定 alpha 着色。同一份画法压在实心白卡上读作柔和色块，压在玻璃上读作
+    // tinted glass —— 因此不为"在不在 bar 里"加分支。禁用态只淡填充与文字，不动结构。
+    val surface = when {
+        style == IosButtonStyle.Primary && enabled -> s.blue.copy(alpha = 0.85f)
+        style == IosButtonStyle.Primary -> s.blue.copy(alpha = 0.35f)
+        style == IosButtonStyle.Secondary && enabled -> glass.tint.copy(alpha = glass.tint.alpha * 0.6f)
+        style == IosButtonStyle.Secondary -> Color.Transparent
+        else -> s.card
     }
+    val edge = RoundedCornerShape(percent = 50)
     Box(
         modifier
             .fillMaxWidth()
             .height(IosMetrics.buttonHeight)
             .alpha(if (pressed && enabled) 0.7f else 1f)
-            .clip(RoundedCornerShape(percent = 50))
+            .clip(edge)
+            .shadow(elevation = if (style == IosButtonStyle.Destructive) 0.dp else 2.dp, shape = edge)
             .background(surface)
+            .background(Brush.verticalGradient(0f to glass.highlight.copy(alpha = 0.25f), 0.5f to Color.Transparent))
+            .border(IosMetrics.hairline, glass.stroke, edge)
             .clickable(
                 interactionSource = interaction,
                 enabled = enabled,

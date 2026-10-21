@@ -92,6 +92,48 @@ fun accentFor(dark: Boolean, highContrast: Boolean): Color = when {
 }
 
 /**
+ * 一块玻璃的全部参数。**只服务三个浮动 bar 区**（主屏顶栏、主屏底部操作栏、弹窗顶栏）：
+ * 卡片不许用它，条内按钮也不许用它再糊一层（spec §1.1"一层玻璃只模糊一次"）。
+ *
+ * 两套预设按外观自动选，刻意不做用户可见的强度开关：这一屏没有承载它的设置面。
+ * alpha 只许改这张表，调用点不许写散装 alpha。
+ */
+@Immutable
+data class GlassMaterial(
+    val tint: Color,
+    val blurRadius: Dp,
+    val highlight: Color,
+    val stroke: Color,
+    val shadowElevation: Dp,
+    val radius: Dp,
+)
+
+val LightGlass = GlassMaterial(
+    tint = Color.White.copy(alpha = 0.55f),
+    blurRadius = 24.dp,
+    highlight = Color.White.copy(alpha = 0.70f),
+    stroke = Color.Black.copy(alpha = 0.10f),
+    shadowElevation = 8.dp,
+    radius = 0.dp,
+)
+
+/** 深色走"着色"档：着色层比初稿轻，因为卡片已经不是玻璃，只剩 bar 上的文字要保证读得清。 */
+val DarkGlass = GlassMaterial(
+    tint = Color(0xFF1C1C1E).copy(alpha = 0.62f),
+    blurRadius = 24.dp,
+    highlight = Color.White.copy(alpha = 0.18f),
+    stroke = Color.White.copy(alpha = 0.14f),
+    shadowElevation = 6.dp,
+    radius = 0.dp,
+)
+
+val LocalIosGlass = staticCompositionLocalOf { LightGlass }
+
+/** 与 [iosStyle] 对称：合成期一次取好玻璃参数。 */
+@Composable
+fun iosGlass(): GlassMaterial = LocalIosGlass.current
+
+/**
  * 颜色 + 文字样式的合一入口。合成期一次取值（`val s = LocalIosStyle.current`），后面全部走 `s.`。
  *
  * 字号对齐 iOS 文本样式（pt≈sp）：大标题 32 / 行标题 17 / 值与脚注 13–14。颜色由色板决定，
@@ -144,6 +186,17 @@ object IosMetrics {
     /** 小于 1dp：分隔线靠抗锯齿画成若隐若现的细线，比整数 1dp 更接近 iOS 的 0.5pt hairline。 */
     val hairline: Dp = 0.6.dp
     val buttonHeight: Dp = 50.dp
+
+    /** 底部操作栏的连续圆角：刻意小于半高（74/2），读作苹果的连续圆角而不是胶囊。 */
+    val glassRadius: Dp = 30.dp
+    val topBarHeight: Dp = 44.dp
+    /** 50.dp 按钮 + 上下各 12.dp。内容层的 contentPadding.bottom 要用它。 */
+    val barContentHeight: Dp = 74.dp
+    val barBottomGap: Dp = 8.dp
+    /** 大标题划过多远算"折叠完成"：topBarAlpha 的分母。 */
+    val collapseRange: Dp = 56.dp
+    /** 弹窗顶栏比主屏高一点：它要同时装下标题与整条路径的副标题（原本是 52.dp 的 Box）。 */
+    val sheetBarHeight: Dp = 52.dp
 }
 
 /**
@@ -236,7 +289,10 @@ fun IosTheme(content: @Composable () -> Unit) {
     val palette = (if (dark) IosDarkPalette else IosLightPalette).copy(blue = accentFor(dark, highContrast))
     val scheme = if (dark) darkColorSchemeOf(palette) else colorScheme(palette)
     MaterialTheme(colorScheme = scheme) {
-        CompositionLocalProvider(LocalIosStyle provides IosStyle(palette)) {
+        CompositionLocalProvider(
+            LocalIosStyle provides IosStyle(palette),
+            LocalIosGlass provides if (dark) DarkGlass else LightGlass,
+        ) {
             content()
         }
     }
