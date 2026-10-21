@@ -571,10 +571,12 @@ fun IosSheet(
                         // verticalScroll 没有 contentPadding 形参（Task 6 javap 实测），padding 只能
                         // 挂在它之后 —— 链上它之前的 modifier 缩的是视口，之后的才是滚动内容自己的
                         // 首尾留白。这段顶边距就是「首行不被顶栏永久盖住」和「内容划得到顶栏底下」的分工点。
+                        // 底部留白要额外吃进 insets 的下边距：弹窗 decorFitsSystemWindows = false，整窗
+                        // 铺到导航条底下，不加这一段最后一行就压在导航条下面（与主屏内容层同一做法）。
                         .padding(
                             paddingValues = PaddingValues(
                                 top = topInset + IosMetrics.sheetBarHeight,
-                                bottom = 28.dp,
+                                bottom = 28.dp + insets.calculateBottomPadding(),
                             ),
                         ),
                     content = content,
