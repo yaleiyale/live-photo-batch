@@ -26,7 +26,7 @@ digraph batch_end_to_end {
         style=dashed;
         color="#2a5d9f";
         fontname="Segoe UI";
-        perm [label="PermissionGate.granted()\n每次现读 Environment.isExternalStorageManager()\n低于 API 30 短路放行 —— 不缓存"];
+        perm [label="PermissionGate.granted()\n每次现读 Environment.isExternalStorageManager()\nminSdk 31，无条件读、不做 API 判定 —— 不缓存"];
         pick [label="选路径：DirBrowser + DirectoryPicker\nsubdirs() 在 Dispatchers.IO 上读，绝不发生在组合期；显示名是资源里的别名\nroot 之外能看不能选（isSelectable 与 FileStorage.resolve 同一条判定）"];
         startGate [label="开始合成的前置：permissionGranted && !running\n运行中禁改目录与删除开关（批次用的是开工快照）"];
         vm [label="BatchViewModel.runBatch（单个协程，Dispatchers.IO）\n快照 → 全局前置 → plan → run → 收尾扫描"];

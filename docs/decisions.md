@@ -441,7 +441,11 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 **代价**：`PermissionGate` 的两条 below-API-30 分支变成死代码并删除（连带 §5.12 那句"双保险"作废，
 lint 基线 12 → 9、`ObsoleteSdkInt` 3 → 1 —— 总数掉三条而不只是那两条 `ObsoleteSdkInt`：被删的 `else`
 分支里那句 `Uri.parse` 自己还挂着一条 `UseKtx`，它跟着分支一起没了）；`WRITE_EXTERNAL_STORAGE maxSdkVersion="29"` 变成永不上号的
-死声明，删；`READ_EXTERNAL_STORAGE maxSdkVersion="32"` 保留（31–32 仍归它管）。
+死声明，删；`READ_EXTERNAL_STORAGE maxSdkVersion="32"` 保留（31–32 仍归它管）；依赖侧同一条决定也锁定了构件形状 —— 2.0.1 把模糊
+那一半（`dev.chrisbanes.haze:haze-blur` = `hazeBlur` / `HazeBlurStyle` / `HazeColorEffect`）从 source 那一半
+（`dev.chrisbanes.haze:haze` = `hazeSource` / `HazeState` / `HazeInput`）拆了出去，`:app` 因此要同时声明两个构件，而两者
+AAR 都只要求 `minSdkVersion="23"`（`haze-blur-android` 的 POM 反向带上 `haze-android:2.0.1` 与 compose `ui 1.12.1`，
+`haze-utils` 由它传递进来），抬地板不与 `:app:checkDebugAarMetadata` 冲突。
 设备侧：Android 11 的原装机器从此装不上，当前 V2419A 满足。
 
 ## 6. 构建与 CI
