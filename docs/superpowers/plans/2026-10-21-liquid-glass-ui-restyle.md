@@ -23,7 +23,7 @@
 - 深浅判定只有 `IosTheme` 一处，不许出现第二个 `isSystemInDarkTheme()`。
 - 这一轮**不许碰窗口级主题**（`values*/themes.xml` 里 `Theme.Vlive.Starting` 的颜色项），冷启动 splash 的 OEM 换色问题已结案（decisions.md §5.16）。
 - `:core` 的 145 条测试与 8 条 instrumented 测试不许动；改到了就是越界。
-- 每个任务结束时：`:app` JVM 测试全绿、`:app:lintDebug` 除 spec §3.2 那条 12→10 之外零新增、能 `assembleDebug`。
+- 每个任务结束时：`:app` JVM 测试全绿、`:app:lintDebug` 除 spec §3.2 那条 12→9 之外零新增、能 `assembleDebug`。
 - 提交只在任务边界做，消息用仓库现有风格（`feat(app): …` / `chore(deps): …` / `docs: …`）。**推送要单独问过用户。**
 
 ## 已核实的事实（Task 1 之外不必再查）
@@ -179,7 +179,7 @@ git commit -m "chore(deps): add Haze for real backdrop blur"
 - Modify: `app/src/main/res/values/themes.xml:16`、`:20`
 - Modify: `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml:3`
 - Modify: `.github/workflows/release.yml:78`、`docs/testing.md:141`
-- Modify: `docs/architecture/system-model.md:44`、`:88`、`docs/architecture/system-model.evidence.md:103`、`docs/architecture/vlive.structurizr.dsl:74`、`:88`
+- Modify: `docs/architecture/system-model.md:44`、`:88`、`docs/architecture/system-model.evidence.md:103`、`docs/architecture/vlive.structurizr.dsl:74`、`:88`、`docs/architecture/batch-flow.dot:29`（+ 用 `/tmp/viz` 里的 `@viz-js/viz` 重渲染 `batch-flow.svg`：把 `.dot` 与 `render-svg.mjs` 拷进 `/tmp/viz`，`cd /tmp/viz && node render-svg.mjs batch-flow.dot`，再把生成的 `.svg` 拷回 `docs/architecture/`）
 - Modify: `docs/decisions.md:291`、`:297`、`:302`，并新增 §5.20
 
 **Interfaces:**
@@ -257,7 +257,7 @@ Expected: `total 12 ObsoleteSdkInt 3`（本轮已实读确认：位置是 `Permi
 - [ ] **Step 7: 构建 + 测试 + lint**
 
 Run: `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug`
-Expected: 51 条全绿（`PermissionGateTest` 那 2 条只测注入的 lambda，删分支不破测）；lint 变成 **`total 10 ObsoleteSdkInt 1`** —— 这两个数字就是本任务的完成证据，没达到不要往下走。
+Expected: 51 条全绿（`PermissionGateTest` 那 2 条只测注入的 lambda，删分支不破测）；lint 变成 **`total 9 ObsoleteSdkInt 1`** —— 这两个数字就是本任务的完成证据，没达到不要往下走。（写在计划里时预测的是 10；Task 2 实测 9 —— 被删的 `else` 分支还带走一条 `UseKtx`。数字以实测为准。）
 
 - [ ] **Step 8: 文档连带（#10–#12）**
 
@@ -285,7 +285,7 @@ Expected: 51 条全绿（`PermissionGateTest` 那 2 条只测注入的 lambda，
 判据来自构件源码，不是文档转述。
 
 **代价**：`PermissionGate` 的两条 below-API-30 分支变成死代码并删除（连带 §5.12 那句"双保险"作废，
-lint 基线 12 → 10、`ObsoleteSdkInt` 3 → 1）；`WRITE_EXTERNAL_STORAGE maxSdkVersion="29"` 变成永不上号的
+lint 基线 12 → 9、`ObsoleteSdkInt` 3 → 1）；`WRITE_EXTERNAL_STORAGE maxSdkVersion="29"` 变成永不上号的
 死声明，删；`READ_EXTERNAL_STORAGE maxSdkVersion="32"` 保留（31–32 仍归它管）。
 设备侧：Android 11 的原装机器从此装不上，当前 V2419A 满足。
 ```
@@ -615,7 +615,7 @@ fun IosButton(
 - [ ] **Step 4: 构建 + 测试 + lint**
 
 Run: `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug && node -e "const r=JSON.parse(require('fs').readFileSync('app/build/reports/lint-results-debug.sarif','utf8')).runs[0].results;console.log('total',r.length)"`
-Expected: 54 条全绿；`BUILD SUCCESSFUL`；lint `total 10`（比 Task 2 结束时不许增加）。
+Expected: 54 条全绿；`BUILD SUCCESSFUL`；lint `total 9`（比 Task 2 结束时不许增加）。
 
 - [ ] **Step 5: 装机看一处不破版（此时还没有 bar，卡片里那颗按钮是唯一可见变化）**
 
@@ -950,7 +950,7 @@ git commit -m "feat(app): make the content layer a haze source under a glass tit
 - [ ] **Step 3: 构建 + lint**
 
 Run: `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug && node -e "const r=JSON.parse(require('fs').readFileSync('app/build/reports/lint-results-debug.sarif','utf8')).runs[0].results;console.log('total',r.length)"`
-Expected: 构建成功、测试全绿、lint 仍是 `total 10`。
+Expected: 构建成功、测试全绿、lint 仍是 `total 9`。
 
 - [ ] **Step 4: 装机验四种状态**
 
@@ -1109,7 +1109,7 @@ fun IosSheet(
 - [ ] **Step 2: 构建 + 测试 + lint**
 
 Run: `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`
-Expected: 全绿，lint `total 10`。
+Expected: 全绿，lint `total 9`。
 
 - [ ] **Step 3: 装机验"糊的是自己的列表"与"没有叠玻璃"**
 
@@ -1261,7 +1261,7 @@ adb -s $SER shell appops set dev.zayn.vlive MANAGE_EXTERNAL_STORAGE allow   # �
 - [ ] **Step 6: testing.md 更新**
 
 - 总览那一行的条目数改成实际值（204 → 204 + `AccentForTest` 3 + `TitleBarAlphaTest` 6 = 213，以 `:app:testDebugUnitTest` 报告里的数为准），`:32` 那行注释同步；
-- `:108` 那条 lint 行的基线数改成 10、`ObsoleteSdkInt` 改成 ×1，并把"两条分支的 ObsoleteSdkInt 已随 minSdk 31 删除"写进同一格；
+- `:108` 那条 lint 行的基线数改成 9、`ObsoleteSdkInt` 改成 ×1，并把"两条分支的 ObsoleteSdkInt 与 `else` 分支里那条 `UseKtx` 已随 minSdk 31 一起消失"写进同一格；
 - 设备判据一节（`:141` 附近）加两行：**玻璃上的文字可读性**与 **janky frames 百分比**，并写明采样方法（三次取中位数、`dumpsys gfxinfo … reset` 先行）。
 
 - [ ] **Step 7: spec 回填**

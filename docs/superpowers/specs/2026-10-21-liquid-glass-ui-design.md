@@ -229,17 +229,19 @@ haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 | 9 | [mipmap-anydpi-v26/ic_launcher.xml:3](file:///D:/projects/piece/live-photo-batch/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml#L3) | 注释"minSdk 30 ≥ 26"改成 31；`-v26` 这个限定符本身**照旧不删**（decisions.md §5.12 的构建破坏结论与 minSdk 无关） |
 | 10 | [.github/workflows/release.yml:78](file:///D:/projects/piece/live-photo-batch/.github/workflows/release.yml#L78) | 发版说明"Android 11+（minSdk 30）" → "Android 12+（minSdk 31）" |
 | 11 | [docs/testing.md:141](file:///D:/projects/piece/live-photo-batch/docs/testing.md#L141) | "Android 11+ 设备" → "Android 12+" |
-| 12 | [docs/architecture/system-model.md:44](file:///D:/projects/piece/live-photo-batch/docs/architecture/system-model.md#L44)、[:88](file:///D:/projects/piece/live-photo-batch/docs/architecture/system-model.md#L88)、[system-model.evidence.md:103](file:///D:/projects/piece/live-photo-batch/docs/architecture/system-model.evidence.md#L103)、[vlive.structurizr.dsl:74](file:///D:/projects/piece/live-photo-batch/docs/architecture/vlive.structurizr.dsl#L74)、`:88` | 设备要求写 `minSdk 30` 的地方与"低于 API 30 短路放行"这句描述，全部随之更新；DSL 改完跑 `node docs/architecture/dsl-check.mjs` |
+| 12 | `docs/architecture/batch-flow.dot:29` 的 "低于 API 30 短路放行" + 由它重渲染的 `batch-flow.svg`（本轮补进清单：架构图里的这句会随分支删除变成假话）；以及 [docs/architecture/system-model.md:44](file:///D:/projects/piece/live-photo-batch/docs/architecture/system-model.md#L44)、[:88](file:///D:/projects/piece/live-photo-batch/docs/architecture/system-model.md#L88)、[system-model.evidence.md:103](file:///D:/projects/piece/live-photo-batch/docs/architecture/system-model.evidence.md#L103)、[vlive.structurizr.dsl:74](file:///D:/projects/piece/live-photo-batch/docs/architecture/vlive.structurizr.dsl#L74)、`:88` | 设备要求写 `minSdk 30` 的地方与"低于 API 30 短路放行"这句描述，全部随之更新；DSL 改完跑 `node docs/architecture/dsl-check.mjs` |
 | 13 | [docs/decisions.md:291](file:///D:/projects/piece/live-photo-batch/docs/decisions.md#L291)（§5.11 图标与启动过渡）、[:297](file:///D:/projects/piece/live-photo-batch/docs/decisions.md#L297) + [:302](file:///D:/projects/piece/live-photo-batch/docs/decisions.md#L302)（§5.12） | §5.11 那句"API 30 走 compat、31+ 走系统两条分支"在 minSdk 31 下只剩一条分支，理由要跟着改（配合 #7）；§5.12 把 `PermissionGate.kt:46/51` 那两条 `ObsoleteSdkInt` 描述成"有意保留的双保险"——分支删掉后这个说法变成假的，必须改写而不是删了了事（它"`-v26` 不能删"的结论本身不受影响）。`minSdk` 在 decisions.md 里只出现在这两节（全文 grep 过），§6.2 讲的是 compileSdk/targetSdk、**不受影响**；本轮决定另起两节：**§5.19 玻璃只给浮动控件**、**§5.20 minSdk 抬到 31 与它带走的分支** |
 
-**lint 的可验证后果**：[docs/testing.md:108](file:///D:/projects/piece/live-photo-batch/docs/testing.md#L108) 记录的基线是 12 条信息级。**本轮从磁盘上那份 SARIF 实读了一遍**（`app/build/reports/lint-results-debug.sarif`，2026-10-21 09:37 生成）：`results` 共 12 条，其中 `ObsoleteSdkInt` 恰好 3 条，位置是 `PermissionGate.kt:46`、`PermissionGate.kt:51`、`mipmap-anydpi-v26`（目录级）。删掉 #3/#4 那两个分支后应为 1 条（只剩不能删的 `-v26`），基线 **12 → 10**。这一条是切片 ① 的客观完成证据，不是"看起来没问题"——判据就是重新跑 `:app:lintDebug` 后这两个数字。
+**lint 的可验证后果**：[docs/testing.md:108](file:///D:/projects/piece/live-photo-batch/docs/testing.md#L108) 记录的基线是 12 条信息级。**本轮从磁盘上那份 SARIF 实读了一遍**（`app/build/reports/lint-results-debug.sarif`，2026-10-21 09:37 生成）：`results` 共 12 条，其中 `ObsoleteSdkInt` 恰好 3 条，位置是 `PermissionGate.kt:46`、`PermissionGate.kt:51`、`mipmap-anydpi-v26`（目录级）。删掉 #3/#4 那两个分支后 `ObsoleteSdkInt` 应为 1 条（只剩不能删的 `-v26`），基线 **12 → 9**。这一条是切片 ① 的客观完成证据，不是"看起来没问题"——判据就是重新跑 `:app:lintDebug` 后这两个数字。
+
+> **实测修正（Task 2，2026-10-21）**：预测过 12 → 10，实际是 12 → 9 —— 被删的 `requestIntent` `else` 分支里那条 `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` 还带走一条 `UseKtx`（原基线里 `UseKtx` 有 2 条，其一就在这条死分支上）。`ObsoleteSdkInt` 3 → 1 的判据不变。
 
 ### 3.3 测试
 
 - **新增纯函数单测** `titleBarAlpha`，放 `app/src/test/kotlin/dev/zayn/vlive/ui/TitleBarAlphaTest.kt`（与被测函数同包——现有 `log/`、`browse/`、`perm/` 三个测试目录就是这个照法）：`0 → 0f`、`>= range → 1f`、`range 内线性`、`负 scrollY → 0f`（overscroll 时不能让 bar 变负 alpha）、`range <= 0 → 1f`、`range = 1`。约 6 条。
 - **现有 51 条 app JVM 测试必须全绿**（[docs/testing.md:32](file:///D:/projects/piece/live-photo-batch/docs/testing.md#L32)）：`BatchViewModelTest` 14 条不碰 Compose，`DirBrowserTest` 15、`ReportPageTest` 8、`LogRotationTest` 8、`TouchedPathsForTest` 4 不受表现层影响，`PermissionGateTest` 2 条只测注入的 lambda（所以 §3.2 的 #3/#4 不破测，但必须确认它仍是 2 条全绿）。总数 204 → 约 210（core 145 + app 57 + androidTest 8）。
 - **`:core` 145 条与 8 条端口契约 instrumented 测试一个字节都不该动**；改了就是越界。
-- `./gradlew :app:lintDebug` 除 §3.2 那条 12→10 之外不许新增任何条目（`HardcodedText` / `MissingTranslation` 等门槛项继续为 0）。
+- `./gradlew :app:lintDebug` 除 §3.2 那条 12→9 之外不许新增任何条目（`HardcodedText` / `MissingTranslation` 等门槛项继续为 0）。
 - 玻璃本身**不写 UI 单测**：`RenderEffect` 的行为在 JVM 单测里取不到，写出来只能测"modifier 挂上了"，属于自欺。它的证据全在 §3.4 的设备验收。
 
 ### 3.4 设备验收（V2419A，无线 adb，判据是数字不是眼睛）
@@ -259,7 +261,7 @@ haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 
 | 切片 | 内容 | 判据 |
 | --- | --- | --- |
-| ① | Haze 依赖核实 + 集成；`minSdk 31` 与 §3.2 全部 13 项连带 | 编译过；lint `ObsoleteSdkInt` 3→1、基线 12→10；51 条 app 测试全绿 |
+| ① | Haze 依赖核实 + 集成；`minSdk 31` 与 §3.2 全部 13 项连带 | 编译过；lint `ObsoleteSdkInt` 3→1、基线 12→9；51 条 app 测试全绿 |
 | ② | 材料层：`GlassMaterial` + 两套预设 + accent 四值 + `accentFor` + 按钮 Tinted/清澈玻璃改法 | `IosButton` 三种样式在实心卡与 bar 内都不破版（设备截图）；测试数不变 |
 | ③ | 结构层：内容层 haze source、顶部栏 + `titleBarAlpha`、底部栏、§2.4 的 inset 重新分工 | `titleBarAlpha` 单测落地；滚动不被 bar 吃掉（设备实测） |
 | ④ | 弹窗的第二个 haze source | 弹窗顶栏糊的是自己的列表；两个 `HazeState` 实例 |
