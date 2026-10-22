@@ -64,6 +64,17 @@ class BatchViewModelTest {
         override suspend fun save(paths: StoredPaths) { stored = paths }
     }
 
+    /**
+     * `load()` 挂住不放，模拟 DataStore 第一次读还没回来的那段时间——冷启动立刻点 Start
+     * 撞上的就是这段。测试用 `gate.complete(Unit)` 决定它什么时候落地。
+     */
+    private class GatedSettings(initial: StoredPaths = StoredPaths()) : BatchSettings {
+        val gate = CompletableDeferred<Unit>()
+        var stored: StoredPaths = initial
+        override suspend fun load(): StoredPaths { gate.await(); return stored }
+        override suspend fun save(paths: StoredPaths) { stored = paths }
+    }
+
     // scanner 放在最后一位：现有用例都写成 `viewModel(root) { paths -> ... }`，尾随 lambda 必须
     // 继续绑到扫描器上，而不是新加的 settings。
     private fun viewModel(
@@ -249,6 +260,46 @@ class BatchViewModelTest {
         assertTrue(File(t.srcPath + "/IMG_a.jpg").isFile)
         assertTrue(File(t.srcPath + "/IMG_a.mp4").isFile)
         assertNull(vm.state.value.globalError)
+        t.root.deleteRecursively()
+    }
+
+    /**
+     * 冷启动立刻点 Start 会撞上什么：`restore()` 还挂在 DataStore 的第一次读上，此刻状态里
+     * 是**默认目录**。批次拿默认目录开工，是在用户没有选过的地方合成——开关打开时还包括删原文件。
+     *
+     * 判据不靠读实现：默认目录 `/storage/emulated/0/DCIM/Camera` 在测试宿主上不存在，
+     * 所以"跑了默认目录"必然表现为 0 个任务、没有产物；"等了恢复再跑"才看得到那一张。
+     */
+    @Test
+    fun `start does not plan against the default directories while the remembered ones are loading`() {
+        val t = tree(pairs = listOf("IMG_a"))
+        val settings = GatedSettings(StoredPaths(sourceDir = t.srcPath, targetDir = t.outPath))
+        val vm = viewModel(t.rootPath, settings = settings)
+        vm.setDeleteOriginals(true)
+
+        vm.start()
+        settings.gate.complete(Unit)
+
+        assertTrue("批次必须等目录读回来再开工", vm.awaitIdle())
+        assertEquals("开工的必须是记住的那一批，不是默认目录", 1, vm.state.value.total)
+        assertTrue(File(t.outPath, "IMG_a_MP.jpg").isFile)
+        t.root.deleteRecursively()
+    }
+
+    /**
+     * 恢复只该覆盖用户**没碰过**的那一格。旧实现用一个 `userPickedDir` 同时管两个字段，
+     * 于是"只改目标目录"会把记住的源一起丢掉——下一次批次就从默认相机目录里挑图合成。
+     */
+    @Test
+    fun `picking only the target keeps the remembered source`() {
+        val t = tree(pairs = listOf("IMG_a"))
+        val settings = GatedSettings(StoredPaths(sourceDir = t.srcPath, targetDir = t.outPath))
+        val vm = viewModel(t.rootPath, settings = settings)
+
+        vm.setTarget(t.outPath)
+        settings.gate.complete(Unit)
+
+        assertTrue(awaitUntil(3_000) { vm.state.value.sourceDir == t.srcPath })
         t.root.deleteRecursively()
     }
 

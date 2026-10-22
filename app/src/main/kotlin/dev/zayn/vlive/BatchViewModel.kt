@@ -17,6 +17,7 @@ import dev.zayn.vlive.core.ItemResult
 import dev.zayn.vlive.core.ItemStatus
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -150,19 +151,32 @@ class BatchViewModel internal constructor(
     private var cancelled = false
 
     /**
-     * 用户是否已经自己选过目录。`restore()` 是异步的（DataStore 第一次读要开文件），
-     * 没有这条守卫时，一次慢速恢复可以把用户刚点下去的选择**覆盖回去**。
+     * 用户是否已经自己选过**那一格**。`restore()` 是异步的（DataStore 第一次读要开文件），
+     * 没有这两条守卫时，一次慢速恢复可以把用户刚点下去的选择**覆盖回去**。
+     *
+     * 分源/目标两格而不是一个总开关：合成用的源目录是"上次从哪儿合的"，改目标目录是常事，
+     * 用一个标志位等于"只改了目标"就把记住的源一起丢回默认相机目录——下一批就从那儿挑图，
+     * 开关打开时还包括删原文件。
      */
     @Volatile
-    private var userPickedDir = false
+    private var userPickedSource = false
+
+    @Volatile
+    private var userPickedTarget = false
+
+    /**
+     * 冷启动那一次目录恢复。[start] 必须等它，见那里——不等的话批次会拿 [UiState] 的默认值
+     * 开工，也就是在用户没有选过的目录上合成、还可能删原文件。
+     *
+     * 后台读而不是同步读：DataStore 第一次访问要开文件，不该压在冷启动的同步路径上。
+     * 显式给 Dispatchers.IO，理由和 runBatch 那条协程一样 —— viewModelScope 默认落在
+     * Dispatchers.Main.immediate 上，纯 JVM 单测里没有主线程，那条 launch 会直接抛
+     * "Module with the Main dispatcher had failed to initialize"（实测）。
+     */
+    private val restoreJob: Job = viewModelScope.launch(Dispatchers.IO) { restore() }
 
     init {
         refreshPermission()
-        // 上次的目录在后台读回来：DataStore 第一次访问要开文件，不该压在冷启动的同步路径上。
-        // 显式给 Dispatchers.IO，理由和 runBatch 那条协程一样 —— viewModelScope 默认落在
-        // Dispatchers.Main.immediate 上，纯 JVM 单测里没有主线程，那条 launch 会直接抛
-        // "Module with the Main dispatcher had failed to initialize"（实测）。
-        viewModelScope.launch(Dispatchers.IO) { restore() }
     }
 
     /**
@@ -170,24 +184,40 @@ class BatchViewModel internal constructor(
      * 不再合法（换了 root 注入、或者上一次存的是 root 之外的串），那种情况静默回到默认值 ——
      * 让批次悄悄指向另一个目录，比丢掉一次记忆严重得多。
      *
-     * 已经在这一轮里被用户改过的（[userPickedDir]）或批次正在跑的，一律不覆盖。
+     * 用户在这一轮里已经选过的那一格不被覆盖（[userPickedSource] / [userPickedTarget]），
+     * 另一格照旧恢复。批次正在跑这一条**不是**放弃恢复的理由：[start] 会先等 [restoreJob]，
+     * 所以"恢复还没落地就开始合成"这个窗口已经不存在了，用 `running` 抢在这里 return 反而
+     * 只会让等完的批次拿到默认目录。
      *
      * `internal` 是为了让 JVM 测试能直接驱动它（不需要走 [viewModelScope] 的调度）。
      */
     internal suspend fun restore() {
         val stored = settings.load()
-        if (_state.value.running || userPickedDir) return
         val source = stored.sourceDir?.takeIf { isSelectable(it) }
         val target = stored.targetDir?.takeIf { isSelectable(it) }
         if (source == null && target == null) return
-        _state.update { it.copy(sourceDir = source ?: it.sourceDir, targetDir = target ?: it.targetDir) }
+        _state.update {
+            it.copy(
+                sourceDir = if (userPickedSource) it.sourceDir else source ?: it.sourceDir,
+                targetDir = if (userPickedTarget) it.targetDir else target ?: it.targetDir,
+            )
+        }
         Timber.i("restored directories: source=%s target=%s", source ?: "-", target ?: "-")
     }
 
-    /** 当前状态写回设置。失败由 [BatchSettings.save] 自己吞掉，这里不额外处理。 */
+    /**
+     * 当前状态写回设置。失败由 [BatchSettings.save] 自己吞掉，这里不额外处理。
+     *
+     * 必须先等 [restoreJob]：`StoredPaths` 是**整份**写回的，恢复还没落地时状态里那一格仍是默认值，
+     * 这时候 save 会把磁盘上记着的那一格覆盖掉——用户只是改了目标目录，下次冷启动却发现源目录
+     * 回到了默认相机目录。join 之后重读状态，写的才是"恢复的结果 + 用户这次的改动"的并集。
+     */
     private fun persist() {
-        val snapshot = _state.value
-        viewModelScope.launch(Dispatchers.IO) { settings.save(StoredPaths(snapshot.sourceDir, snapshot.targetDir)) }
+        viewModelScope.launch(Dispatchers.IO) {
+            restoreJob.join()
+            val snapshot = _state.value
+            settings.save(StoredPaths(snapshot.sourceDir, snapshot.targetDir))
+        }
     }
 
     fun refreshPermission() {
@@ -198,22 +228,29 @@ class BatchViewModel internal constructor(
     /** root 之内（含 root 本身）的路径才能原样喂给 [FileStorage]；判定规则与 `resolve()` 一致。 */
     fun isSelectable(path: String): Boolean = path == root || path.startsWith("$root/")
 
-    fun setSource(path: String) = selectPath(path) { it.copy(sourceDir = path) }
-
-    fun setTarget(path: String) = selectPath(path) { it.copy(targetDir = path) }
-
-    /**
-     * 路径选择的唯一入口：批次跑着的时候不许改（正在写的这批用的是开工快照，改了只会让界面说谎），
-     * root 之外的路径也不许改——[DirBrowser] 的绝对路径判定比存储层宽，能点到 `/sdcard`、
-     * `/storage/emulated` 这种喂给 [FileStorage] 会被二次拼接的串（见 [isSelectable] 与 `DirItem` KDoc）。
-     * 这两种拒绝都是静默的：UI 侧已经把浏览按钮和"选这里"禁掉了，这里只是把不变量钉死。
-     */
-    private fun selectPath(path: String, mutate: (UiState) -> UiState) {
-        if (_state.value.running || !isSelectable(path)) return
-        userPickedDir = true
-        _state.update(mutate)
+    fun setSource(path: String) {
+        if (!pathAccepted(path)) return
+        userPickedSource = true
+        _state.update { it.copy(sourceDir = path) }
         persist()
     }
+
+    fun setTarget(path: String) {
+        if (!pathAccepted(path)) return
+        userPickedTarget = true
+        _state.update { it.copy(targetDir = path) }
+        persist()
+    }
+
+    /**
+     * 路径选择的共同守卫：批次跑着的时候不许改（正在写的这批用的是开工快照，改了只会让界面说谎），
+     * root 之外的路径也不许改——[DirBrowser] 的绝对路径判定比存储层宽，能点到 `/sdcard`、
+     * `/storage/emulated` 这种喂给 [FileStorage] 会被二次拼接的串（见 [isSelectable] 与 `DirItem` KDoc）。
+     * 两种拒绝都是静默的：UI 侧已经把浏览按钮和"选这里"禁掉了，这里只是把不变量钉死。
+     *
+     * 标志位只能在守卫**通过之后**置：误置一次，[restore] 就永远不再恢复那一格。
+     */
+    private fun pathAccepted(path: String): Boolean = !_state.value.running && isSelectable(path)
 
     /** 同样拒绝在运行中改动删除开关——它决定这批会不会动原文件。 */
     fun setDeleteOriginals(value: Boolean) {
@@ -226,13 +263,21 @@ class BatchViewModel internal constructor(
      * 没授权同样静默拒绝——spec §9 把权限列为全局前置条件，绝不带着读写去撞 SecurityException。
      */
     fun start() {
-        val snapshot = _state.value
-        if (snapshot.running || !isGranted()) return
+        if (_state.value.running || !isGranted()) return
         cancelled = false
         _state.update {
             it.copy(running = true, done = 0, total = 0, bytes = 0, items = emptyList(), globalError = null)
         }
-        viewModelScope.launch(Dispatchers.IO) { runBatch(snapshot) }
+        viewModelScope.launch(Dispatchers.IO) {
+            // 先等冷启动那一次目录恢复落地，再取开工快照。不等就是拿 UiState 的默认值开工：
+            // 在用户没有选过的目录上合成，开关打开时还包括删原文件。
+            //
+            // "开工快照"这条约定没有被放宽：running 在上面已经置为 true，setSource / setTarget /
+            // setDeleteOriginals 在这段等待里全被同一个守卫挡住，所以 join 之后重读到的
+            // 就是开工那一刻的状态，等待期间没有任何字段能动。
+            restoreJob.join()
+            runBatch(_state.value)
+        }
     }
 
     /**
