@@ -439,15 +439,23 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 一个构件都不多引。全项目**每扇窗口恰好一个 `HazeState` + 一个 `hazeSource`**：主屏那个内容层是源，
 弹窗的列表是第二个源（`Dialog` 是独立窗口，跨窗口取不到位图）。
 
+**2026-10-22 凌晨实测之后，这条决定改了一半，按下面"帧预算"那段的数字**：三个浮动面里**底部操作栏不再糊**
+（改用同文件的 `Modifier.iosGlassTray`，层序一模一样、只把 `hazeBlur` 换成 `.background(glass.tint)`），
+真模糊现在只剩两处：主屏顶栏 + 弹窗顶栏（这两条不同时在场）。其余全部照原样 —— 卡片实心、条内按钮
+不各自糊一层、accent 四个值、每扇窗口一个源。
+
 **为什么**：苹果自己的采纳建议就是"自定义玻璃留给一两个关键浮动控件"，实心面上的卡片读起来更原生，
-玻璃不许叠玻璃。工程侧的理由更硬：需要实时模糊的绘制面从"每张卡片"降到三块，帧开销是可测的差别；
+玻璃不许叠玻璃。工程侧的理由更硬：需要实时模糊的绘制面从"每张卡片"降到三块（2026-10-22 实测之后是
+**两块**，见上面那段与下面的"帧预算"），帧开销是可测的差别；
 而"一层玻璃只模糊一次"是被这样满足的，不是靠把按钮改成实心（spec §1.1）。
 
-**顺序是这条决定的全部内容**（[GlassBar.kt:27-37](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L27)）：
+**顺序是这条决定的全部内容**（[GlassBar.kt:27-39](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L27)）：
 `shadow` 必须在 `clip` 之前（`clip` 设 `clipToOutline`，2.dp 阴影整个落在轮廓之外，反过来写等于把阴影裁没），
 `hazeBlur` 在 `clip` 之内，高光与描边叠在糊好的背景之上、不参与模糊本身。两套预设的 `radius` 都是 `0.dp`
-是刻意的 —— 贴边的两条 bar 本来不带圆角，**唯一要圆角的消费方是底部那条**，它必须显式传
-`IosMetrics.glassRadius`，走默认值只会得到一条方角 bar，编译器、测试和 lint 都不会吱声。
+是刻意的 —— 贴边的两条 bar 本来不带圆角；**要圆角的那条（底部操作栏）必须显式传 `IosMetrics.glassRadius`**，
+走默认值只会得到一条方角 bar，编译器、测试和 lint 都不会吱声。这条规则现在由 `iosGlassBar` 与
+`iosGlassTray` 各自守一遍（[GlassBar.kt:40-61 与 :79-87](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L40)），
+后者是前者的层序去掉 `hazeBlur`、换成一条 `.background(glass.tint)`。
 
 **对比度这一条按实测改写，不许掰数字**：spec §1.5 原文要求"Tinted 主按钮上的白字在各自外观下 ≥ 4.5:1"，
 整枝评审把这个判据拿去对 spec 自己的色板算了一遍，量出来两个数**不可能同时成立** ——
@@ -467,22 +475,99 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 **没过的这一条不许悄悄收下，也不许盲调**：深色高对比 `#66B3FF` 作白字底只有 2.9:1，是本表里**唯一**
 达不到本条自定硬指标（高对比那一列 ≥ 4.5:1）的一格。它不是改个数值就能了事的疏漏：`s.blue` 这一个 token
 同时兼两个角色 —— accent 当文字压在深色表面上要**亮**（同一格 8.5:1），白字压在 accent 填充上又要**暗**
-（2.9:1 正是"亮"这一面带来的），一个值不可能两头都赢。所以它**记成未决**，本轮不动任何 preset / accent 值；
-两条出路留给能看到它的人拍板：把这个 token 拆成 accent + accent-fill（各满足各的角色），或对"白字在深色
-高对比填充上"这一格单独放宽判据。今天也验不动：高对比信号是 `since="36"`（见 §5.20），31–35 只会渲染常规
-accent，而测试硬件只有 V2419A 一台、此刻还连不上（`adb devices` 为空），连它的 `ro.build.version.sdk`
-都读不到 —— 没有任何测量能在这一轮把这一格钉死，装机记录里也不许留成"看起来还行"。
+（2.9:1 正是"亮"这一面带来的），一个值不可能两头都赢。本轮不动任何 preset / accent 值；两条出路
+**用户已经拍板（2026-10-22）：对"白字在深色高对比填充上"这一格放宽判据** —— `accentFor` 不拆成
+accent + accent-fill，四个值一个都不改，2.9:1 从"未决"改成**已裁定接受的偏离**记在这里。
 
-**代价**：三块实时模糊层 + 每帧一次滚动驱动的 alpha。两个代价的形状已经被代码钉住：滚动折叠区间内
+**这一格今天在设备上能碰，碰了，结论是"信号取不到"**：测试硬件是 API 36（V2419A 与本轮新装的
+`vlive_api36` 模拟器同级，正是 `isHighContrastTextEnabled` 存在的第一档，见 §5.20）。在模拟器上把
+`settings put secure accessibility_high_text_contrast_enabled 1` 写进去、`settings get` 读回 `1`、
+`am force-stop` 后冷启动，取样像素与关掉时逐点相同 —— 浅色 Tinted 底 `#1D85F6`、深色 `#0B72DB`，
+开关两态一字不差（`D:/tmp/em31_hc_off_light.png` / `em32_hc_on_light.png` / `em33_hc_on_dark_en.png` /
+`em34_hc_off_dark_en.png`），而这一版 Settings 里没有"高对比文字"这一行（Accessibility → Color and
+motion 下只有 Color inversion / Dark theme / Color correction / Remove animations）。所以
+**四个值里高对比那一列仍然没有被任何设备渲染过一次**，只是原因从"够不着 API 36"换成了"API 够到了、
+信号没送到应用"。这条缺口按 §1.5 的原规矩记着，不许因为"值写了"就当它生效过；验完设置已还原
+（`settings delete secure …` 读回 `null`）。
+
+**代价**：两块实时模糊层（主屏顶栏 + 弹窗顶栏；2026-10-21 写下这句时是三块，底部那条已经按 §3.4 的回退
+不糊了）+ 每帧一次滚动驱动的 alpha。两个代价的形状已经被代码钉住：滚动折叠区间内
 只有那条顶栏会被无效化（`alpha` 以 `State` 传进 `BatchScreen` 的私有 `GlassTitleBar`，
 不在顶层委托，见 [BatchScreen.kt:445-497](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L445)），
 弹窗的四条 inset 在它自己的窗口里现算（[IosControls.kt:543-554](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L543)）。
 
-**帧预算：未测量**。`adb connect 192.168.1.18:36031` 自 Task 4 起一直 `WSAETIMEDOUT`（`adb devices` 为空），
-改造前的 janky 基线与改造后的读数都还没有取到 —— 这一行**故意不给百分比**。判据与流程在 spec §3.4 第 4 条
-（基线 +3 个百分点以内且绝对值 ≤ 10%，各三次采样取中位数），基线由 Task 9 重新构建 `739b388`（最后一个
-没有任何模糊消费方的构建）来取，两个数字一起进本节；不达标时走 spec §3.4 那条约定回退（底部栏去模糊、
-保留 tint + 高光 + 描边），回退也要把两个数字写在这里而不是静默改完。
+**帧预算：量到了，两条线都超，回退已启用但没有把预算拉回来**（2026-10-22 00:00–00:10，V2419A /
+API 36 / 120 Hz）。流程按 runbook：`dumpsys gfxinfo dev.zayn.vlive reset` 先行 → 冷启动 → 12 次固定
+swipe → 每个构建三遍取中位数，每遍的完整 dump 各自存盘（`D:/tmp/T9_base_s1..3.txt`、`T9_head_s1..3.txt`、
+`T9_tray_s1..3.txt`）。判据是 spec §3.4 第 4 条：**改造后 ≤ 基线 +3 个百分点，且绝对值 ≤ 10%**。
+
+| 构建 | 总帧数（三遍） | `Janky frames (legacy)` 三遍 → 中位数 | 50 分位 | 帧时间 >8ms 的占比 → 中位数 |
+| --- | --- | --- | --- | --- |
+| 基线 `739b388`（全项目没有模糊消费方） | 914 / 928 / 934 | 11.16% / 10.13% / 9.64% → **10.13%** | 7 / 6 / 6 ms → 6 ms | 12.25% / 12.50% / 12.85% → **12.50%** |
+| 三条 bar 全糊 `41e5e2a`（= `cab321b` 的父提交） | 888 / 896 / 924 | 11.71% / 13.62% / 13.85% → **13.62%** | 8 / 8 / 9 ms → 8 ms | 23.42% / 46.65% / 51.08% → **46.65%** |
+| 回退后 `cab321b`（底部那条不糊） | 906 / 926 / 924 | 8.61% / 14.25% / 13.20% → **13.20%** | 8 / 8 / 8 ms → 8 ms | 33.33% / 30.24% / 25.54% → **30.24%** |
+
+**判定：超预算。** 13.62% 对基线 10.13% 是 **+3.49 个百分点**，同时越过"基线 +3pp"和"≤10%"两条线，
+所以 §3.4 那条预先约定的回退被触发（不是临场发明）。另有一组更早的独立采样（2026-10-21 23:28 / 23:31，
+盘上只留下三行摘要 `D:/tmp/gfx_baseline_t9.txt`、`gfx_after_t9.txt`，没有直方图）给出基线中位数
+**10.75%**、改造后 **13.98%**（+3.23pp）—— 两组方向一致、绝对值不同，谁也不能冒充谁；上面这张表以
+留有完整 dump 的那一组为准，`cab321b` 提交信息里那三个数（10.13% → 13.62% → 13.20%、>8ms 30.2%）
+对得上这一组，对不上摘要那一组。
+
+**判据落在哪个字段不是选择，是设备事实**：spec §3.4 点名的 `Janky frames:` 那一行在九个样本里**全部**
+读 `0 (0.00%)`，同一批 dump 里 `Number Missed Vsync: 0` 也全部为 0，而 legacy 那一行同一批数到 78–136
+帧 —— 这台机器上那个字段根本不触发，判据只能用 `Janky frames (legacy)` + 帧时间直方图（spec §3.4 已按
+这条补注）。早先记录里"这台 ROM 的 presentation deadline 有 12.3 ms"那半句在盘上没有对应文件，本轮
+没有复现它，只把能核对的那半句写在这里。
+
+**回退收回了什么、没收回什么**：legacy 中位数 13.62% → 13.20%（−0.42pp，**小于它自己三个样本的散布
+8.61–14.25**，算不上信号）；>8ms 中位数 46.65% → 30.24%（−16.4pp，但两组的逐样本区间重叠：
+23.42–51.08 对 25.54–33.33，同样不能当干净结论）。**没有收回的是判定本身：13.20% 仍然同时越过两条线。**
+换来的是看得见的代价 —— 底部那条不再糊，卡片文字从它底下直接透出来和按钮文字打架，浅色深色都拍到了：
+`D:/tmp/em20_light_en_titlebar_in.png`（`Succeeded IMG_20260008 → …` 压在 "Start merging" 上）、
+`D:/tmp/em40_dark_en_scrolled.png`、`D:/tmp/em71_tray_tap.png`。同一些图里顶栏与弹窗顶栏糊得干净，
+这个反差就是"砍掉哪一层"的视觉证据。
+
+**模拟器不能用来量这条预算**：`vlive_api36` 上一次滚动报 `Janky frames: 6 (3.87%)` 与
+`Janky frames (legacy): 120 (77.42%)`，两个字段同时荒谬（软件合成的帧节拍）。上表全部来自 V2419A；
+模拟器只承担截图矩阵、手势与命中测试这些"看得到"的判据。
+
+**设备实测补记（2026-10-22 中午，`vlive_api36` / API 36 / 1080x2400，装的是 `cab321b` 的包）**：
+逐条对着 spec §3.4 与 §3.6 看过，图都在 `D:/tmp/`。
+- **保留模糊的两条 bar 真的在糊内容**：主屏顶栏下 "Progress 12/12 · 87 MB written"、"Delete originals
+  after merging (irreversible)"、"内部存储/Pictures/LivePhoto" 被抹平而 `vlive` 清晰
+  （`em20_light_en_titlebar_in.png`、`em40_dark_en_scrolled.png`、`em51_dark_zh_scrolled.png`、
+  `em54_light_zh_scrolled.png`）；弹窗顶栏糊的是它自己的列表 —— root 层滚起来后两枚蓝色目录图标在玻璃
+  下糊成两团，`关闭 / 选这里 / Camera` 清晰在上（`em13_sheet_root_scrolled.png` 浅色、
+  `em41_dark_sheet_scrolled.png` 深色）。玻璃叠玻璃：没有出现过（弹窗两颗按钮是纯文字）。
+- **手势与命中（spec §3.6 第三条落地）**：从玻璃顶栏里起手的滑动会滚后面的内容 —— 起手 y=150、位移 100px，
+  标记行 `Report` 从 y=658 走到 569（89px）；从底部 tray 的非按钮区起手同样成立，两按钮之间那条缝
+  （x=711）走 569→481，tray 下沿（y=2300）走 481→394。**顶栏上的点击穿透**：在 y=150（玻璃带内）点下去，
+  底下那行"源目录"响应、弹窗打开（`em21_tapthrough_titlebar.png`）。底部 tray 的非按钮带也点了
+  （x=711 / y=2300，底下正压着一张报告行），状态毫无变化 —— 但报告行本来就不吃点击，所以这一条只能证明
+  "点错不到按钮"，**不能**证明点击穿过它：这份夹具里没有任何可点元素能被滚到底部 tray 底下（报告只有一页），
+  记在未验清单里。没有为此加过任何 `hitTestBehavior`。
+- **两种外观 × 两种语言都看过**：浅色英文 `em01_now.png` / `em60_restored_light_en.png`、深色英文
+  `em34_hc_off_dark_en.png`、深色中文 `em50_dark_zh_idle.png`、浅色中文 `em53_light_zh_idle.png`，
+  加上各自的滚动态与弹窗态。bar 上的文字（`vlive` 紧凑标题、`开始合成`/`Start merging` 白字、
+  `取消`/`Cancel` accent 字）四种组合都读得清；卡片在两种外观下仍是实心白 / `#1C1C1E`。
+  **中文不是系统语言切出来的**：`settings put system system_locales zh-CN` 写完冷启动界面照旧是英文，
+  中文是靠 `cmd locale set-app-locales dev.zayn.vlive --locales zh-CN` 这个**按应用**开关渲染出来的，
+  验完已改回 `en-US`、`system_locales` 删回 `null`。跑完的还原证据是 `em60_restored_light_en.png`。
+- **权限缺失态与批次运行态各看过**：`appops … deny` 后冷启动是红字提示卡 + Tinted 的
+  "Grant all files access"，底部那颗 `Start merging` 走淡底淡字禁用（`em30_perm_denied_light_en.png`）；
+  批次运行中的那一帧是从 30fps 录屏里挑出来的 `D:/tmp/emrun/g040.png`（深色，`Progress 1/12 · 8 MB written`、
+  `Start merging` 禁用、`Cancel` 是亮 accent 可点）—— §1.4 改的两种按钮画法都对。验完 `appops` 已回到 `allow`。
+- **冷启动那一帧没被玻璃碰到**：同一个模拟器上分别装 `739b388` 与 `cab321b` 录冷启动，
+  `cab321b` 的 splash 帧 `D:/tmp/emsp_head/s11.png` 与基线的 `D:/tmp/emsp_basef/b12.png` 逐点比对
+  （每 9px 采样 26,760 点）最大差 12/765、平均 0.11、超过 30 的点 **0 个** —— 编码噪声以内。
+  浅灰底 + 蓝底白标记，画面里没有任何玻璃。
+- **一条真实缺陷（没改，按规矩报）**：弹窗顶栏的**副标题被 bar 自己的下边缘裁掉**——`Internal storage/DCIM/Camera`
+  与 `内部存储/DCIM/Camera` 的下半截（`g`、`y` 的下伸部）在玻璃条的 hairline 处被切平，浅色深色、
+  root 与下级都一样（`em10_sheet_root.png`、`em14_crop_bar.png`、`em41_dark_sheet_scrolled.png`）。
+  几何在 [IosControls.kt:597-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L597)：
+  bar 实高 `topInset + IosMetrics.sheetBarHeight`（52.dp），里面那列是 17.sp 标题 + 11.sp 副标题两行，
+  居中后超出这一层的高度就被 `iosGlassBar` 的 `clip` 裁掉。技术债表里有一条。
 
 ### 5.20 minSdk 抬到 31：真模糊的门槛，也是它带走了分支（2026-10-21 增量）
 
@@ -602,6 +687,9 @@ CI 之外的本机构建时）。
 | lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)（也是 `ObsoleteSdkInt` 唯一剩下的一条），两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
 | `:core` 的异常文案仍是**中文**，`err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子 | 英文提示里会嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）。`MediaStoreSync` 那两条已经随日志层收敛到 `Timber`（[§5.18](#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量)），它们只进日志文件、不进 UI，所以不再是本地化缺陷 | 抛出消息属于「给开发者读」的边界：要么也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message` |
 | `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:192](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L192)、[:217](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L217) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |
+| **弹窗顶栏的副标题被 bar 自己的下边缘裁掉**（2026-10-22 装机实测，浅色深色、root 与下级都一样） | 标题列是 17.sp + 11.sp 两行、居中在 `sheetBarHeight = 52.dp` 里，超出部分被 `iosGlassBar` 的 `clip` 切平：`D:/tmp/em14_crop_bar.png`。位置 [IosControls.kt:597-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L597)、[IosStyle.kt:223](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L223) | 要么把 bar 抬到装得下两行（同时改列表那段 `top = barHeight` 留白），要么副标题只在单行高度里显示；装机时按 `D:/tmp/em14_crop_bar.png` 那种 3× 裁图复核 |
+| **底部操作栏不糊之后，卡片文字从它底下透出来和按钮文字打架**（回退的已知代价，不是回归） | `iosGlassTray` 只画 tint，不再抹平底下的内容：`D:/tmp/em20_light_en_titlebar_in.png`、`em40_dark_en_scrolled.png`、`em71_tray_tap.png` 三种状态都拍到了 | 唯一允许的调法是 spec §1.3 那张预设表里的 `tint` alpha（调用点不许写散装 alpha）；改完必须重跑 §3.4 第 1/2 条并给出前后截图。本轮没改 |
+| **高对比那一列 accent 至今没被任何设备渲染过**：API 够到了，信号没送到 | 模拟器 API 36 上把 `accessibility_high_text_contrast_enabled` 写成 1、冷启动后取样像素与 0 时逐点相同（见 [§5.19](#519-玻璃只给三条浮动-bar卡片与按钮不各自糊一层2026-10-21-增量) 的那四张图），这一版 Settings 也没有"高对比文字"这一行 | 换一台 ROM 真带这个开关的机器再验一次；要能在 CI 里钉住，就得把"读信号"抽成可注入的谓词（现在它是 `IosTheme` 里的一次 `getSystemService`） |
 
 ## spec 引用索引
 

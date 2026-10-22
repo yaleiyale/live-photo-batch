@@ -82,7 +82,7 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
                 uiKit = component "ui/IosControls + IosStyle + IosEntrance" "按 iOS「设置」分组列表自绘的控件层与令牌层：两份 IosPalette（浅/深）+ IosStyle（颜色与文字样式）+ IosMetrics / IosMotion（几何与时长）。IosTheme 一次判定 isSystemInDarkTheme，把同一套色板同时给 LocalIosStyle 与 MaterialTheme。图形用 Canvas 画，不引入位图资源；状态全部提升，内部无 value 状态。IosEntrance 是冷启动入场闸门。" "Compose" {
                     tags "App"
                 }
-                glassBar = component "ui/GlassBar + ui/TitleBarAlpha" "玻璃层（2026-10-21 增量）。真模糊只给三个浮动面：主屏顶栏、主屏底部操作栏、目录弹窗顶栏，一条 Modifier.iosGlassBar 把顺序画完（shadow 在 clip 之前、hazeBlur 在 clip 之内、高光与描边叠在糊好的背景之上）。每扇窗口恰好一个 HazeState + 一个 hazeSource —— 主屏是那个内容层、弹窗是那条列表，因为 Dialog 是独立窗口、跨窗口取不到位图，于是全项目两个源、三个消费者。hazeBlur 落在 RenderEffect 上，要求 API 31：minSdk 就是为它从 30 抬上来的。卡片保持实心，条内按钮只加自己的 tint / 高光 / 描边，绝不各糊第二层（spec §1.1「一层玻璃只模糊一次」）。顶栏淡入由纯函数 titleBarAlpha(scrollY, collapseRange) 决定：恒在 0f..1f、线性、两端饱和，alpha > 0 才进组合，刻意不做动画（加了就落后于手指），且 alpha 以 State 传进 BatchScreen 的私有 GlassTitleBar 里读，滚动只无效化那一小块玻璃。两条贴边 bar 走默认 radius = 0.dp，只有底部那条显式传 IosMetrics.glassRadius。裁定见 docs/decisions.md §5.19。" "Compose Modifier + Haze 2.0.1（haze / haze-blur）/ RenderEffect" {
+                glassBar = component "ui/GlassBar + ui/TitleBarAlpha" "玻璃层（2026-10-21 增量）。真模糊只给两个面：主屏顶栏与目录弹窗顶栏，一条 Modifier.iosGlassBar 把顺序画完（shadow 在 clip 之前、hazeBlur 在 clip 之内、高光与描边叠在糊好的背景之上）；主屏底部操作栏在 2026-10-22 装机实测超预算之后按 spec §3.4 预先约定的回退改用同文件的 Modifier.iosGlassTray —— 层序一模一样，只把 hazeBlur 换成一条 background(glass.tint)。每扇窗口恰好一个 HazeState + 一个 hazeSource —— 主屏是那个内容层、弹窗是那条列表，因为 Dialog 是独立窗口、跨窗口取不到位图，于是全项目两个源、两个模糊消费者（底部那条只吃同一份预设，不吃模糊）。hazeBlur 落在 RenderEffect 上，要求 API 31：minSdk 就是为它从 30 抬上来的。卡片保持实心，条内按钮只加自己的 tint / 高光 / 描边，绝不各糊第二层（spec §1.1「一层玻璃只模糊一次」）。顶栏淡入由纯函数 titleBarAlpha(scrollY, collapseRange) 决定：恒在 0f..1f、线性、两端饱和，alpha > 0 才进组合，刻意不做动画（加了就落后于手指），且 alpha 以 State 传进 BatchScreen 的私有 GlassTitleBar 里读，滚动只无效化那一小块玻璃。两条贴边 bar 走默认 radius = 0.dp，只有底部那条显式传 IosMetrics.glassRadius。裁定见 docs/decisions.md §5.19。" "Compose Modifier + Haze 2.0.1（haze / haze-blur）/ RenderEffect" {
                     tags "App"
                 }
                 viewModel = component "BatchViewModel" "批次所有权：开工快照 → 全局前置校验 → plan/run → 逐项累积 UiState → NonCancellable 收尾扫描。root 字符串契约在这里与 FileStorage/DirBrowser 共享；权限与扫描器都是构造器注入的测试接缝。" "ViewModel + StateFlow" {
@@ -130,7 +130,7 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
         lpb.app.screen -> lpb.app.viewModel "collectAsState 读 UiState；发 start/cancel/setSource/setTarget/setDeleteOriginals"
         lpb.app.screen -> lpb.app.uiKit "SectionCard / DetailRow / SwitchRow / StatusRow / IosSheet / IosButton / ThinProgressBar"
         lpb.app.screen -> lpb.app.glassBar "内容层是本窗口的 hazeSource；主屏顶栏（私有 GlassTitleBar，alpha 以 State 传下去、不做动画）与底部操作栏各挂一条 iosGlassBar，底部那条显式传 glassRadius"
-        lpb.app.uiKit -> lpb.app.glassBar "IosSheet 的顶栏是第三个浮动面：弹窗是 Dialog（独立窗口，取不到主屏位图），所以那条列表自己注册第二个 HazeState + hazeSource；LightGlass / DarkGlass 两套预设与 glassRadius / hairline 令牌由令牌层供给"
+        lpb.app.uiKit -> lpb.app.glassBar "IosSheet 的顶栏是第二个模糊面：弹窗是 Dialog（独立窗口，取不到主屏位图），所以那条列表自己注册第二个 HazeState + hazeSource；LightGlass / DarkGlass 两套预设与 glassRadius / hairline 令牌由令牌层供给"
         lpb.app.screen -> lpb.app.dirBrowser "DirectoryPicker 在 Dispatchers.IO 上调 subdirs()；别名与 root 标签来自字符串资源"
         lpb.app.viewModel -> lpb.app.permissionGate "granted() 每次现读"
         lpb.app.viewModel -> lpb.app.dirBrowser "val browser = DirBrowser(root) 暴露给 UI"
@@ -183,7 +183,7 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
             autoLayout tb
         }
 
-        component lpb.app "AppComponents" "L3（:app）：UI + 自绘控件层 + 玻璃层（三个浮动面）+ 权限 + 目录浏览 + 存储/媒体两个适配器。" {
+        component lpb.app "AppComponents" "L3（:app）：UI + 自绘控件层 + 玻璃层（两个模糊面 + 一条不糊的 tray）+ 权限 + 目录浏览 + 存储/媒体两个适配器。" {
             include *
             autoLayout lr
         }
