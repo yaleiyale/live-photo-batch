@@ -216,12 +216,14 @@ fun IosSwitch(on: Boolean, enabled: Boolean, onColor: Color, onToggle: () -> Uni
         Box(
             Modifier
                 .align(Alignment.CenterStart)
+                // 行程 = 51 - 27 - 2*2。必须排在绘制类 modifier **之前**：offset 是 LayoutModifier，
+                // 挪的是它内侧的东西，写在 background 之后就只有内容被挪，而这颗圆点没有内容 ——
+                // 于是轨道换了色、圆点原地不动。
+                .offset(x = 20.dp * knob)
                 .padding(2.dp)
                 .size(27.dp)
                 .shadow(elevation = 2.dp, shape = CircleShape)
-                .background(Color.White, CircleShape)
-                // 行程 = 51 - 27 - 2*2
-                .offset(x = 20.dp * knob),
+                .background(Color.White, CircleShape),
         )
     }
 }
@@ -260,8 +262,10 @@ fun IosButton(
             .fillMaxWidth()
             .height(IosMetrics.buttonHeight)
             .alpha(if (pressed && enabled) 0.7f else 1f)
-            // shadow 必须在 clip 之前：clip 设 clipToOutline，2.dp 的阴影整个落在药丸轮廓之外，
-            // 反过来写就被裁掉 —— 与 GlassBar 里那条同一条规则。
+            // shadow 必须在 clip 之前：clip 设 clipToOutline，反过来写这 2.dp 阴影就被裁没。
+            // 这条只管药丸，不许拿去给玻璃 bar 加回 shadow —— 那边实测 shadow 会在层内预留一圈、
+            // 把排在它后面的绘制连子节点一起裁进去（decisions.md §5.21）。2.dp 这一档量不到预留：
+            // 蓝色填充铺满布局盒 x=74..694 / y=2154..2283。
             .shadow(elevation = if (style == IosButtonStyle.Destructive) 0.dp else 2.dp, shape = edge)
             .clip(edge)
             .background(surface)
