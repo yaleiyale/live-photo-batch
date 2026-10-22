@@ -201,7 +201,7 @@
 
 ### 5.4 报告列表刻意不用 `LazyColumn`，改用整表折叠 + 分页 + 筛选
 
-**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`；**整张列表默认收成一行** —— [`ReportCard`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L305) 折叠时只有表头那一行（标题 + 汇总计数 + chevron），展开之后才有四个筛选档位（全部 / 成功 / 跳过 / 失败）、**一页 20 行**（[`REPORT_PAGE_SIZE`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L20)）与分页行。分页与筛选的规则在纯函数 [`reportPage`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L47) 里。
+**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`；**整张列表默认收成一行** —— [`ReportCard`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L334) 折叠时只有表头那一行（标题 + 汇总计数 + chevron），展开之后才有四个筛选档位（全部 / 成功 / 跳过 / 失败）、**一页 20 行**（[`REPORT_PAGE_SIZE`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L20)）与分页行。分页与筛选的规则在纯函数 [`reportPage`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L47) 里。
 
 **「收起」收的是整张列表，不是逐行**。需求原话是「报告列表支持展开收起，默认收起」，指的是列表本身收成一行（这一条在第一版实现之后由用户澄清；第一版做成了逐行展开，已改）。所以每一行没有各自的展开态，摘要行回到一行装完：状态 + `stem → 产物名` + 原因短语（后面仍跟着机器可读的枚举名，spec §9）+ 没删掉的原文件警告。
 
@@ -277,7 +277,7 @@
 
 **决定**：桌面图标是**纯 XML 的 adaptive icon**（`drawable/ic_launcher_foreground.xml` + `ic_launcher_background.xml`，`mipmap-anydpi-v26/ic_launcher.xml` 与 `_round.xml`），零 PNG；两层结构只有 `background` + `foreground`，**不给 `<monochrome>`**（理由见下面那段）；冷启动走 `androidx.core:core-splashscreen`（1.2.0，`:app` 唯一新增的 androidx 依赖），退出动画再由 `BatchScreen` 的交错入场接住。
 
-**为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:297](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L297)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
+**为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:442](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L442)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
 
 **为什么现在没有 monochrome 层**：起初 `<monochrome>` 直接复用纯白前景层（省一份会各自漂移的副本），代价是任何走「主题图标」的渲染会把那一层重染成主题色。装机复核（2026-10-21，V2419A 深色）：撤掉之后**桌面图标是对的**（蓝底白标记，圆形遮罩没啃到图形），这条决定就凭这一点成立 —— 它**不是**冷启动 splash 黑标记的解药，那件事另有原因，见 [§5.16](#516-深色-splash-的白标记被-rom-画成黑2026-10-21-装机裁定)。
 
@@ -449,12 +449,16 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 **两块**，见上面那段与下面的"帧预算"），帧开销是可测的差别；
 而"一层玻璃只模糊一次"是被这样满足的，不是靠把按钮改成实心（spec §1.1）。
 
-**顺序是这条决定的全部内容**（[GlassBar.kt:27-39](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L27)）：
-`shadow` 必须在 `clip` 之前（`clip` 设 `clipToOutline`，2.dp 阴影整个落在轮廓之外，反过来写等于把阴影裁没），
-`hazeBlur` 在 `clip` 之内，高光与描边叠在糊好的背景之上、不参与模糊本身。两套预设的 `radius` 都是 `0.dp`
+**顺序是这条决定的全部内容**（[GlassBar.kt:26-28](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L26)）：
+`clip` 落在 `hazeBlur` 之前（背景糊完再按 shape 裁，才有那条干净的玻璃边缘），高光与描边叠在糊好的背景之上、
+不参与模糊本身。**这一段原本还写着第三条"`shadow` 必须在 `clip` 之前"，2026-10-22 实测之后整条作废** ——
+`Modifier.shadow` 把阴影的扩散区留在本层**内部**，两条玻璃链上的 `shadow` 连同 `GlassMaterial.shadowElevation`
+一起删掉了；机制、七台构建的读数与"不许再加回来"见
+[§5.21](#521-玻璃-bar-上的-modifiershadow-全部删掉它在层内预留一圈把玻璃切成白色方块2026-10-22-装机裁定)。
+两套预设的 `radius` 都是 `0.dp`
 是刻意的 —— 贴边的两条 bar 本来不带圆角；**要圆角的那条（底部操作栏）必须显式传 `IosMetrics.glassRadius`**，
 走默认值只会得到一条方角 bar，编译器、测试和 lint 都不会吱声。这条规则现在由 `iosGlassBar` 与
-`iosGlassTray` 各自守一遍（[GlassBar.kt:40-61 与 :79-87](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L40)），
+`iosGlassTray` 各自守一遍（[GlassBar.kt:47-66 与 :90-96](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/GlassBar.kt#L47)），
 后者是前者的层序去掉 `hazeBlur`、换成一条 `.background(glass.tint)`。
 
 **对比度这一条按实测改写，不许掰数字**：spec §1.5 原文要求"Tinted 主按钮上的白字在各自外观下 ≥ 4.5:1"，
@@ -494,7 +498,7 @@ motion 下只有 Color inversion / Dark theme / Color correction / Remove animat
 不糊了）+ 每帧一次滚动驱动的 alpha。两个代价的形状已经被代码钉住：滚动折叠区间内
 只有那条顶栏会被无效化（`alpha` 以 `State` 传进 `BatchScreen` 的私有 `GlassTitleBar`，
 不在顶层委托，见 [BatchScreen.kt:445-497](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L445)），
-弹窗的四条 inset 在它自己的窗口里现算（[IosControls.kt:543-554](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L543)）。
+弹窗的四条 inset 在它自己的窗口里现算（[IosControls.kt:551-558](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L551)）。
 
 **帧预算：量到了，两条线都超，回退已启用但没有把预算拉回来**（2026-10-22 00:00–00:10，V2419A /
 API 36 / 120 Hz）。流程按 runbook：`dumpsys gfxinfo dev.zayn.vlive reset` 先行 → 冷启动 → 12 次固定
@@ -565,7 +569,7 @@ swipe → 每个构建三遍取中位数，每遍的完整 dump 各自存盘（`
 - **一条真实缺陷（没改，按规矩报）**：弹窗顶栏的**副标题被 bar 自己的下边缘裁掉**——`Internal storage/DCIM/Camera`
   与 `内部存储/DCIM/Camera` 的下半截（`g`、`y` 的下伸部）在玻璃条的 hairline 处被切平，浅色深色、
   root 与下级都一样（`em10_sheet_root.png`、`em14_crop_bar.png`、`em41_dark_sheet_scrolled.png`）。
-  几何在 [IosControls.kt:597-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L597)：
+  几何在 [IosControls.kt:611-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L611)：
   bar 实高 `topInset + IosMetrics.sheetBarHeight`（52.dp），里面那列是 17.sp 标题 + 11.sp 副标题两行，
   居中后超出这一层的高度就被 `iosGlassBar` 的 `clip` 裁掉。技术债表里有一条。
 
@@ -643,6 +647,33 @@ AAR 都只要求 `minSdkVersion="23"`（`haze-blur-android` 的 POM 反向带上
 `:app:lintDebug` **9 条**，与 [§5.19](#519-玻璃只给三条浮动-bar卡片与按钮不各自糊一层2026-10-21-增量) 记下的那一组
 逐条同名（`EmptySuperCall` / `OldTargetApi` / `ModifierParameter` / `PluralsCandidate` / `ObsoleteSdkInt` /
 `UseOfNonLambdaOffsetOverload` / `UseKtx` / `MonochromeLauncherIcon`x2），没有新增。
+
+### 5.22 开关的圆点从来没动过：`Modifier.offset` 排在绘制类之后等于没写（2026-10-22 装机裁定）
+
+**结论先说**：`IosSwitch` 那颗圆点从这条开关落地起就**没有移动过一步**。轨道换色是真的、动画值 `knob` 从 0f 走到 1f
+也是真的，被丢掉只有最后那一步位移。裁定：`.offset(...)` 提到链子最前面，**并且把 `testing.md` 那条
+"深色下开关轨道正常"的记录作废** —— 它是一次不成立的验证，比没测更贵。
+
+**机制**：`Modifier.offset` 是 `LayoutModifier`，它挪的是排在它**内侧**的那个 measurable；而圆点这颗 `Box`
+没有子内容。所以 `.shadow() → .background(Color.White, CircleShape) → .offset(...)` 这个顺序下，被挪走的是
+"什么都没有"，圆点自己的白色背景留在原地。和 [§5.21](#521-玻璃-bar-上的-modifiershadow-全部删掉它在层内预留一圈把玻璃切成白色方块2026-10-22-装机裁定)
+是同一类错：**modifier 的位置就是它的语义**，编译器、测试和 lint 全都不吱声。
+
+**怎么量出来的**（emulator-5554 / API 36 / 420dpi，V2419A 当天没连着）：轨道盒 x=862…996，取 y=742 一行看白色像素。
+修之前 —— 关：圆点 867…941、轨道右段 230；开：圆点**还是** 867…941、轨道右段 116。修之后 —— 关：左沿 867；
+开：左沿 **920**，走掉 53px = 20.2dp，正是代码里那条 `行程 = 51 - 27 - 2*2` = 20dp。直径 77px ≈ 29dp，
+说明它没被自己那层 `shadow(2.dp)` 缩掉。
+
+**顺带给 §5.21 补的下界**：同一次扫描量了 `IosButton` —— 蓝色填充包围盒 x=74…694 / y=2154…2283，
+与布局盒 74…695 / 2154…2284 严丝合缝。所以 **2.dp 这一档预留量不到**，按钮与圆点上的 `shadow(2.dp)` 保留，
+不必跟着 §5.21 一起删。那条机制是随 elevation 长出来的，不是"只要有 shadow 就坏"。
+
+**为什么活了整整一轮**：`testing.md` 的装机矩阵只看颜色与边界，圆点不动被轨道换色冒名顶替了；
+`:app` 的 JVM 单测没有 Compose UI-test（依赖表里就没有），结构上测不到任何 modifier 次序问题。
+缺口表新增一行「modifier 链的次序 / `LayoutModifier` 摆在哪一格」，判据写成可量的形式，别再只看颜色。
+
+**验收**：205 个用例、0 失败、1 条既有跳过；`:app:lintDebug` 仍 9 条、无新增；`UseOfNonLambdaOffsetOverload`
+这一条 lint 依旧命中（修法是把 lambda 版 `offset` 用对，但这条改的是**位置**不是重载，不在本次范围内）。
 
 ## 6. 构建与 CI
 
@@ -728,15 +759,15 @@ CI 之外的本机构建时）。
 | `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
 | `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
 | `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:195](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L195) | 收拢间距或删令牌 |
-| 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:186-213](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L186) | 进 `IosMetrics` |
+| 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:201-228](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L201) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
 | 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 205 条 JVM 测试绿（145 `:core` + 60 `:app`）+ lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
 | `RollingLogTree` 与 `PreferencesBatchSettings` 没有自动化测试 | 测到的只有决策函数（`planLogCleanup`、`restore`/`save` 走的是内存假实现）；真的写文件与真的 DataStore 都要 `Context` | 要么补 `:app` 的仪器化测试（`androidTest` 里已经有一条 `FileStorageTest` 的先例），要么把「装机看 `run-as` 目录」固定成验收步骤 —— 现在选的是后者，见 testing.md 的缺口表 |
 | lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)（也是 `ObsoleteSdkInt` 唯一剩下的一条），两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
 | `:core` 的异常文案仍是**中文**，`err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子 | 英文提示里会嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）。`MediaStoreSync` 那两条已经随日志层收敛到 `Timber`（[§5.18](#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量)），它们只进日志文件、不进 UI，所以不再是本地化缺陷 | 抛出消息属于「给开发者读」的边界：要么也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message` |
-| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:192](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L192)、[:217](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L217) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |
-| **弹窗顶栏的副标题被 bar 自己的下边缘裁掉**（2026-10-22 装机实测，浅色深色、root 与下级都一样） | 标题列是 17.sp + 11.sp 两行、居中在 `sheetBarHeight = 52.dp` 里，超出部分被 `iosGlassBar` 的 `clip` 切平：`D:/tmp/em14_crop_bar.png`。位置 [IosControls.kt:597-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L597)、[IosStyle.kt:223](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L223) | 要么把 bar 抬到装得下两行（同时改列表那段 `top = barHeight` 留白），要么副标题只在单行高度里显示；装机时按 `D:/tmp/em14_crop_bar.png` 那种 3× 裁图复核 |
+| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:199](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L199)、[:222](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L222) 与 [:290](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L290) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |
+| **弹窗顶栏的副标题被 bar 自己的下边缘裁掉**（2026-10-22 装机实测，浅色深色、root 与下级都一样） | 标题列是 17.sp + 11.sp 两行、居中在 `sheetBarHeight = 52.dp` 里，超出部分被 `iosGlassBar` 的 `clip` 切平：`D:/tmp/em14_crop_bar.png`。位置 [IosControls.kt:611-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L611)、[IosStyle.kt:223](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L223) | 要么把 bar 抬到装得下两行（同时改列表那段 `top = barHeight` 留白），要么副标题只在单行高度里显示；装机时按 `D:/tmp/em14_crop_bar.png` 那种 3× 裁图复核 |
 | **底部操作栏不糊之后，卡片文字从它底下透出来和按钮文字打架**（回退的已知代价，不是回归） | `iosGlassTray` 只画 tint，不再抹平底下的内容：`D:/tmp/em20_light_en_titlebar_in.png`、`em40_dark_en_scrolled.png`、`em71_tray_tap.png` 三种状态都拍到了 | 唯一允许的调法是 spec §1.3 那张预设表里的 `tint` alpha（调用点不许写散装 alpha）；改完必须重跑 §3.4 第 1/2 条并给出前后截图。本轮没改 |
 | **高对比那一列 accent 至今没被任何设备渲染过**：API 够到了，信号没送到 | 模拟器 API 36 上把 `accessibility_high_text_contrast_enabled` 写成 1、冷启动后取样像素与 0 时逐点相同（见 [§5.19](#519-玻璃只给三条浮动-bar卡片与按钮不各自糊一层2026-10-21-增量) 的那四张图），这一版 Settings 也没有"高对比文字"这一行 | 换一台 ROM 真带这个开关的机器再验一次；要能在 CI 里钉住，就得把"读信号"抽成可注入的谓词（现在它是 `IosTheme` 里的一次 `getSystemService`） |
 
