@@ -110,7 +110,6 @@ data class GlassMaterial(
     val blurRadius: Dp,
     val highlight: Color,
     val stroke: Color,
-    val shadowElevation: Dp,
     val radius: Dp,
 )
 
@@ -119,7 +118,6 @@ val LightGlass = GlassMaterial(
     blurRadius = 24.dp,
     highlight = Color.White.copy(alpha = 0.70f),
     stroke = Color.Black.copy(alpha = 0.10f),
-    shadowElevation = 8.dp,
     radius = 0.dp,
 )
 
@@ -134,7 +132,6 @@ val DarkGlass = GlassMaterial(
     blurRadius = 24.dp,
     highlight = Color.White.copy(alpha = 0.18f),
     stroke = Color.White.copy(alpha = 0.14f),
-    shadowElevation = 6.dp,
     radius = 0.dp,
 )
 
