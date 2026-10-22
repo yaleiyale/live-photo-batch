@@ -139,6 +139,13 @@ class FileStorage(private val root: String) : BatchStorage {
             src.delete()
             true
         } catch (e: IOException) {
+            // copyTo(overwrite = true) 打开输出流的那一刻就已经把 dst 截成 0 了，所以走到这里
+            // dst 可能是一份**半截文件挂在正式产物名上**。这比"什么都没有"更糟：runner 报的是
+            // FAILED，报告因此写着"这一项什么都没产出"，而 touchedPathsFor 只扫 SUCCESS 的产物
+            // 与被删掉的源，谁也不会再去看这个名字——那张打不开的照片就静静留在相册里。
+            // 原来的 dst 在截断那一刻已经没了，删掉它不多丢任何东西，只是把"损坏"变成"缺失"，
+            // 而源还在原地，重试可以修好。
+            if (dst.isFile) dst.delete()
             false
         }
     }
