@@ -31,11 +31,15 @@
 
 ### 1.1 一句话规则
 
-**一层玻璃只模糊一次。** 玻璃 = 真背景模糊（Haze/`RenderEffect`）+ 一层着色（tint）+ 上边缘镜面高光 + hairline 描边 + 阴影。全项目只有**三个 bar 区**注册模糊：主屏顶部标题栏、主屏底部操作栏、目录弹窗顶栏；条内的按钮**不再各自模糊一层**，它们复用所在 bar 已经模糊好的底，只加自己的 tint / 高光 / 描边。苹果那条"玻璃不许叠玻璃"就是被这样满足的，而不是靠把按钮改成实心。
+**一层玻璃只模糊一次。** 玻璃 = 真背景模糊（Haze/`RenderEffect`）+ 一层着色（tint）+ 上边缘镜面高光 + hairline 描边。全项目只有**三个 bar 区**注册模糊：主屏顶部标题栏、主屏底部操作栏、目录弹窗顶栏；条内的按钮**不再各自模糊一层**，它们复用所在 bar 已经模糊好的底，只加自己的 tint / 高光 / 描边。苹果那条"玻璃不许叠玻璃"就是被这样满足的，而不是靠把按钮改成实心。
+
+> **这份配方里原本还有一项"阴影"，2026-10-22 实测之后删掉了**：`Modifier.shadow` 不在本层外面画阴影，而是在层内
+> **预留**一圈扩散区，排在它后面的 `hazeBlur` / 高光 / 描边连子节点一起被裁进那一圈以内，于是贴边的 full-bleed 顶栏
+> 读起来像"玻璃背后压着一块白色方形色块"。七台构建的读数与判据见 [decisions.md §5.21](../../decisions.md#521-玻璃-bar-上的-modifiershadow-全部删掉它在层内预留一圈把玻璃切成白色方块2026-10-22-装机裁定)。
 
 > **实现落地的形状（2026-10-22 设备实测之后）**：注册模糊的 bar 区实际是**两个** —— 主屏顶部标题栏与目录弹窗顶栏。
 > 主屏底部操作栏按 §3.4 那条预先约定的回退去掉了模糊（改用同文件的 `Modifier.iosGlassTray`：同一套层序，
-> 只把 `hazeBlur` 换成 `.background(glass.tint)`），tint / 高光 / hairline 描边 / 阴影照旧。"一层玻璃只模糊一次"
+> 只把 `hazeBlur` 换成 `.background(glass.tint)`），tint / 高光 / hairline 描边照旧。"一层玻璃只模糊一次"
 > 与"玻璃不许叠玻璃"两条没有被削弱，只是受益面从三块变成两块。数字与截图见
 > [decisions.md §5.19](../../decisions.md#519-玻璃只给三条浮动-bar卡片与按钮不各自糊一层2026-10-21-增量)。
 
@@ -50,19 +54,19 @@
 
 ### 1.3 新增的数据结构
 
-放在 [IosStyle.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt) 里，与 `IosPalette` 并排，由同一个 `IosTheme` 的单次深浅判定一起发出去——**判定仍然只有 [IosStyle.kt:197-206](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L197) 这一处**，不许出现第二个 `isSystemInDarkTheme()`。
+放在 [IosStyle.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt) 里，与 `IosPalette` 并排，由同一个 `IosTheme` 的单次深浅判定一起发出去——**判定仍然只有 [IosStyle.kt:295-321](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L295) 这一处**，不许出现第二个 `isSystemInDarkTheme()`。
 
 ```kotlin
 /** 一块玻璃的全部参数。只服务浮动控件（两条 bar + 弹窗顶栏）与 tinted 按钮。
  *  2026-10-22 实现落地：主屏底部操作栏改用不糊的 `iosGlassTray`，它照样吃这份参数的
- *  tint / highlight / stroke / shadowElevation / radius，只有 `blurRadius` 不再被它消费。 */
+ *  tint / highlight / stroke / radius，只有 `blurRadius` 不再被它消费。
+ *  这份表里原本还有一项 `shadowElevation`，同日实测之后删掉，见 §1.1 那条注。 */
 @Immutable
 data class GlassMaterial(
     val tint: Color,            // 盖在模糊之上的着色层，决定"清澈"还是"着色"
     val blurRadius: Dp,         // 真模糊半径；两套预设取同一个值，见下
     val highlight: Color,       // 上边缘镜面高光的起点色（往下渐隐到透明）
     val stroke: Color,          // hairline 描边，用现成的 IosMetrics.hairline
-    val shadowElevation: Dp,
     val radius: Dp,             // 通栏的两条 bar（主屏顶栏、弹窗顶栏）用 0dp；底部浮动栏用 glassRadius
 )
 ```
@@ -75,7 +79,6 @@ data class GlassMaterial(
 | `blurRadius` | `24.dp` | `24.dp`（刻意同值：只让着色不同，性能画像只有一种） |
 | `highlight` | `White @ 0.70` | `White @ 0.18` |
 | `stroke` | `#000000 @ 0.10` | `White @ 0.14` |
-| `shadowElevation` | `8.dp` | `6.dp`（深色下阴影几乎不可见，不值得花一次绘制） |
 
 具体 alpha 值允许在真机上按可读性调（§3.4 的第 2 条就是这件事），但**调整只能发生在这一张表里**，调用点不许写散装 alpha。深色档比讨论中的初稿更轻：因为卡片回到实心，着色层只需要保证 **bar 上的文字**读得清，不必再为"隔着玻璃读卡片文字"兜底。
 
@@ -97,7 +100,7 @@ data class GlassMaterial(
 
 ### 1.5 accent 四个值
 
-苹果要求自定义强调色给 **浅/深 × 常规/高对比** 四个值。`IosPalette` 里现有的单个 `blue`（[IosStyle.kt:53](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L53) / [:70](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L70)）扩成：
+苹果要求自定义强调色给 **浅/深 × 常规/高对比** 四个值。`IosPalette` 里现有的单个 `blue`（[IosStyle.kt:57](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L57) / [:74](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L74)）扩成：
 
 ```kotlin
 /** 一个入口取四个值；绿/橙/红是状态色，不参与这轮扩列。 */
@@ -180,7 +183,7 @@ fun titleBarAlpha(scrollY: Int, collapseRange: Int): Float =
 
 `开始合成`（Tinted）与`取消`（清澈玻璃）**同一行**：主按钮占剩余宽度，取消按钮固定在右侧、未运行时禁用（保持今天"禁用而不是隐藏"的语义，用户随时看得见自己能不能取消）。
 
-- 内容高度 = `IosMetrics.buttonHeight`（50.dp，[IosStyle.kt:129](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L129)）+ 上下各 12.dp = 74.dp；
+- 内容高度 = `IosMetrics.buttonHeight`（50.dp，[IosStyle.kt:204](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L204)）+ 上下各 12.dp = 74.dp；
 - 水平内缩 16.dp，`radius = IosMetrics.glassRadius`（30.dp，刻意小于半高，读作苹果的连续圆角而不是胶囊）；
 - 底部留白 = `IosMetrics.barBottomGap`（8.dp）+ 导航栏 inset；
 - 入场动效：bar 的容器**沿用腾出来的序号 5**。搬出去之后不需要给后面的 6/7/8 重编号——序号只是延迟倍数，保留原值等于保留现有节奏，[BatchScreen.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt) 里其余调用点一个都不动。
@@ -232,7 +235,7 @@ inset 一律现算，不许写死 dp。**实测校正（Task 6/7/8）**：落地
 
 - **加**：顶部栏 alpha（§2.2，无动画）；
 - **禁**：**不做模糊半径动画**。半径从 0 长到 24.dp 意味着 220ms 里每帧重算一次全屏模糊，为一点收尾手感付这个价不值得；
-- **不动**：`IosEntrance` 的分段上浮（[IosStyle.kt:138-157](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138)）、`IosSwitch` 的 220ms、进度条推进、弹窗换层的推入/弹出。玻璃不改变时长与曲线。
+- **不动**：`IosEntrance` 的分段上浮（[IosEntrance.kt:26-58](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosEntrance.kt#L26)）、`IosSwitch` 的 220ms、进度条推进、弹窗换层的推入/弹出。玻璃不改变时长与曲线。
 
 ---
 
@@ -319,7 +322,7 @@ haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 
 > **这条回退已经启用了**（`cab321b`，2026-10-22）：基线 10.13% → 三条 bar 全糊 13.62%（+3.49pp，同时越过两条线），
 > 换成 `iosGlassTray` 之后 13.20% —— **仍然在预算外**，两个数字与散布都写在 §5.19。实际实现因此是
-> **两个模糊面**（主屏顶栏 + 弹窗顶栏），底部那条只有 tint + 高光 + 描边 + 阴影；它换掉的代价（卡片文字从
+> **两个模糊面**（主屏顶栏 + 弹窗顶栏），底部那条只有 tint + 高光 + 描边；它换掉的代价（卡片文字从
 > 底部条底下透出来、和按钮文字打架，两种外观都拍到了）也记在同一段里，没有当成"通过"。
 
 **第 1、3、5、6 条的实测记录（2026-10-22 中午，`vlive_api36` / API 36 / 1080x2400，装的是 `cab321b` 的包；图在 `D:/tmp/`）**：

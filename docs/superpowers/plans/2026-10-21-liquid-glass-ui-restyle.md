@@ -10,6 +10,12 @@
 
 **Spec:** [docs/superpowers/specs/2026-10-21-liquid-glass-ui-design.md](../specs/2026-10-21-liquid-glass-ui-design.md) —— 本计划逐条实现它，验收判据也在那里（§3.4）。执行时两份一起读。
 
+> **执行后修订（2026-10-22）**：本文件里 Task 4 / Task 7 的玻璃片段仍带 `.shadow(elevation = glass.shadowElevation, …)`，
+> `GlassMaterial` 也仍列着 `shadowElevation`。**这些片段已经不代表现在的代码** —— 装机实测发现 `Modifier.shadow`
+> 在层内预留一圈扩散区，会把贴边的玻璃条切成一块白色方形色块、把条内按钮切出矩形补丁，两条玻璃链上的 `shadow`
+> 与那个字段都已删除。读数与裁定见 [decisions.md §5.21](../../decisions.md#521-玻璃-bar-上的-modifiershadow-全部删掉它在层内预留一圈把玻璃切成白色方块2026-10-22-装机裁定)。
+> 保留原文是因为它是那份计划被照着执行时的样子。
+
 ## Global Constraints
 
 以下每一条对**每个任务**都生效，值一律从 spec 原样抄来：
