@@ -49,6 +49,8 @@
     <string name="reason_malformed_jpeg">broken JPEG structure</string>
     <string name="reason_already_motion_photo">already a motion photo</string>
     <string name="reason_extended_xmp">extended XMP not supported</string>
+    <string name="reason_duplicate_xmp">more than one XMP segment</string>
+    <string name="reason_output_not_verified">written file failed the final check</string>
     <string name="reason_not_mp4">not an MP4</string>
     <string name="reason_io_error">read/write failure</string>
     <string name="reason_no_pair">no matching pair</string>

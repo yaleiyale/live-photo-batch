@@ -42,6 +42,8 @@
     <string name="reason_malformed_jpeg">JPEG 结构损坏</string>
     <string name="reason_already_motion_photo">已是动态照片</string>
     <string name="reason_extended_xmp">扩展 XMP 不支持</string>
+    <string name="reason_duplicate_xmp">XMP 段不止一份</string>
+    <string name="reason_output_not_verified">写好的产物没通过最终复检</string>
     <string name="reason_not_mp4">不是 MP4</string>
     <string name="reason_io_error">读写故障</string>
     <string name="reason_no_pair">没有配对的文件</string>

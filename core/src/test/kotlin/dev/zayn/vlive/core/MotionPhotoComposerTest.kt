@@ -360,6 +360,22 @@ class MotionPhotoComposerTest {
         assertEquals(0, out.size)
     }
 
+    @Test fun `two xap segments are refused and write nothing`() {
+        // 扫描器只会把**最后一个** XAP 记成"旧 XMP 的原位"，于是新包插到第二段的位置、
+        // 第一段原样留在它之前。按"取第一个 XMP"实现的读法（Exiv2、vivo 相册）看到的仍是
+        // 旧的普通照片 —— 而 runner 只看 move() 为真就会删原图。宁可拒绝，不许猜。
+        val two = Fixtures.jpeg(
+            headSegments = listOf(
+                Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket),
+                Fixtures.app1(Fixtures.XAP, Fixtures.ascii("<x:xmpmeta/>")),
+                Fixtures.sof0(),
+            ),
+        )
+        val (result, out) = compose(two, Fixtures.mp4())
+        assertEquals(FailureReason.DUPLICATE_XMP_UNSUPPORTED, (result as ComposeResult.Failure).reason)
+        assertEquals(0, out.size, "被校验拒掉的项对 sink 一个字节都不写")
+    }
+
     @Test fun `truncated jpeg is malformed`() {
         val (result, out) = compose(Fixtures.jpeg().copyOf(9), Fixtures.mp4())
         assertEquals(FailureReason.MALFORMED_JPEG, (result as ComposeResult.Failure).reason)

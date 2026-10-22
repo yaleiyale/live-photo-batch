@@ -59,6 +59,63 @@ class BatchRunnerTest {
         assertTrue(storage.exists("/t/IMG_a_MP.jpg"))
     }
 
+    @Test fun `a refused source keeps both of its originals`() {
+        val two = Fixtures.jpeg(
+            headSegments = listOf(
+                Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket),
+                Fixtures.app1(Fixtures.XAP, Fixtures.ascii("<x:xmpmeta/>")),
+                Fixtures.sof0(),
+            ),
+        )
+        val (runner, storage) = runnerWith("/s/IMG_a.jpg" to two, "/s/IMG_a.mp4" to video)
+        val report = runner.run(runner.plan(options(true)), options(true), CancelToken { false }) {}
+        val item = report.items.single()
+        assertEquals(ItemStatus.FAILED, item.status)
+        assertEquals(FailureReason.DUPLICATE_XMP_UNSUPPORTED, item.reason)
+        assertTrue(storage.exists("/s/IMG_a.jpg"), "拒绝处理不等于删除")
+        assertTrue(storage.exists("/s/IMG_a.mp4"), "拒绝处理不等于删除")
+        assertFalse(storage.exists("/t/IMG_a_MP.jpg"))
+        assertFalse(storage.tmpFiles.isNotEmpty())
+    }
+
+    /**
+     * 复检是删除前最后一道门：compose 自己说成功不算成功，要把写下去的那份**读回来**验一遍
+     * 才许 move、才许碰原文件。下面两个篡改都只作用于"读回来的 .part"，写进去的字节是好的
+     * —— 那正是这道门存在的理由：将来任何一个绕过前置校验的 composer 回归都会在这里被拦住，
+     * 而不是变成一次不可逆的删除。
+     */
+    private class Tampering(val base: InMemoryStorage, val rewrite: (ByteArray) -> ByteArray) :
+        BatchStorage by base {
+        override fun open(filePath: String): ChannelSource {
+            if (!filePath.endsWith(".part")) return base.open(filePath)
+            return ByteArraySource(rewrite(base.bytesOf(filePath)))
+        }
+    }
+
+    @Test fun `a product carrying a second xmp segment is not committed`() {
+        val extra = Fixtures.app1(Fixtures.XAP, Fixtures.ascii("<x:xmpmeta/>"))
+        val base = InMemoryStorage(mapOf("/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video))
+        val runner = BatchRunner(Tampering(base) { it.copyOfRange(0, 2) + extra + it.copyOfRange(2, it.size) })
+        val item = runner.run(runner.plan(options(true)), options(true), CancelToken { false }) {}.items.single()
+        assertEquals(ItemStatus.FAILED, item.status)
+        assertEquals(FailureReason.OUTPUT_NOT_VERIFIED, item.reason)
+        assertTrue(base.exists("/s/IMG_a.jpg"), "复检没过不等于删除")
+        assertTrue(base.exists("/s/IMG_a.mp4"), "复检没过不等于删除")
+        assertFalse(base.exists("/t/IMG_a_MP.jpg"))
+        assertFalse(base.tmpFiles.isNotEmpty())
+    }
+
+    @Test fun `a product shorter than the reported byte count is not committed`() {
+        val base = InMemoryStorage(mapOf("/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video))
+        val runner = BatchRunner(Tampering(base) { it.copyOf(it.size - 10) })
+        val item = runner.run(runner.plan(options(true)), options(true), CancelToken { false }) {}.items.single()
+        assertEquals(ItemStatus.FAILED, item.status)
+        assertEquals(FailureReason.OUTPUT_NOT_VERIFIED, item.reason)
+        assertTrue(base.exists("/s/IMG_a.jpg"))
+        assertTrue(base.exists("/s/IMG_a.mp4"))
+        assertFalse(base.exists("/t/IMG_a_MP.jpg"))
+    }
+
     @Test fun `tmp write then move then delete is the exact operation order`() {
         val storage = RecordingStorage(InMemoryStorage(mapOf("/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video)))
         val runner = BatchRunner(storage)

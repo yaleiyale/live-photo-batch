@@ -122,7 +122,12 @@ class BatchRunner(private val storage: BatchStorage) {
                         reason = result.reason, bytes = 0, deleteFailures = emptyList())
                 }
                 is ComposeResult.Success -> {
-                    if (!storage.move(tmpPath, finalPath)) {
+                    if (!outputVerified(tmpPath, result.totalBytes)) {
+                        deleteQuietly(tmpPath)
+                        ItemResult(job.stem, job.outputName, ItemStatus.FAILED,
+                            reason = FailureReason.OUTPUT_NOT_VERIFIED, bytes = 0,
+                            deleteFailures = emptyList())
+                    } else if (!storage.move(tmpPath, finalPath)) {
                         deleteQuietly(tmpPath)
                         ioFailure(job)
                     } else {
@@ -137,6 +142,29 @@ class BatchRunner(private val storage: BatchStorage) {
             deleteQuietly(tmpPath)
             ioFailure(job)
         }
+    }
+
+    /**
+     * 删除之前最后一道门：把写下去的 `.part` **读回来**重扫一遍。
+     *
+     * [ComposeResult.Success] 只说明 composer 认为自己产出了这样一个文件，不说明磁盘上真是那样：
+     * 写入通道半途失败、XMP 段被复制成两份、长度对不上，任何一种下一步都会变成不可逆的删除。
+     * 判据只认产物自己的字节：长度等于上报的 `totalBytes`、EOI 扫得回来、XAP 段恰好一份且有原位、
+     * 那一份里写着 `MicroVideo`。代价是 JPEG 那一段被多读一遍（真机一张约 4 MB，视频部分不用碰），
+     * 换掉的是"猜"。任何异常都算没过——复检不许把故障读成成功。
+     */
+    private fun outputVerified(tmpPath: String, totalBytes: Long): Boolean = try {
+        val source = storage.open(tmpPath)
+        if (source.size() != totalBytes) {
+            false
+        } else {
+            val scan = source.open().use { JpegScanner.scan(it) }
+            val s = (scan as? JpegScanResult.Parsed)?.structure
+            s != null && s.xmpSegments == 1 && s.oldXmp != null &&
+                s.oldXmpText?.contains("MicroVideo") == true
+        }
+    } catch (e: Exception) {
+        false
     }
 
     /**

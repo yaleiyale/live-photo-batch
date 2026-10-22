@@ -721,6 +721,8 @@ private fun reasonResource(reason: FailureReason?): Int = when (reason) {
     FailureReason.MALFORMED_JPEG -> R.string.reason_malformed_jpeg
     FailureReason.ALREADY_MOTION_PHOTO -> R.string.reason_already_motion_photo
     FailureReason.EXTENDED_XMP_UNSUPPORTED -> R.string.reason_extended_xmp
+    FailureReason.DUPLICATE_XMP_UNSUPPORTED -> R.string.reason_duplicate_xmp
+    FailureReason.OUTPUT_NOT_VERIFIED -> R.string.reason_output_not_verified
     FailureReason.NOT_MP4 -> R.string.reason_not_mp4
     FailureReason.IO_ERROR -> R.string.reason_io_error
     FailureReason.NO_PAIR -> R.string.reason_no_pair

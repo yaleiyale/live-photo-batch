@@ -11,6 +11,8 @@ enum class FailureReason {
     MALFORMED_JPEG,
     ALREADY_MOTION_PHOTO,
     EXTENDED_XMP_UNSUPPORTED,
+    DUPLICATE_XMP_UNSUPPORTED,
+    OUTPUT_NOT_VERIFIED,
     NOT_MP4,
     IO_ERROR,
     NO_PAIR,
@@ -81,6 +83,17 @@ object MotionPhotoComposer {
         }
         if (structure.hasExtendedXmp) {
             return ComposeResult.Failure(FailureReason.EXTENDED_XMP_UNSUPPORTED)
+        }
+        // 新 XMP 只有两种落点是明确的：源片一段 XAP 都没有（插到 SOI 之后），或者恰好一段且
+        // 扫描器记下了它的原位（原位替换）。除此之外产物里必然留着第二份 XMP，而 Exiv2 与
+        // vivo 相册读的是**第一个** —— 它们看到的仍是旧那份普通照片。
+        // 这一步之后没有任何东西会拦着：compose 返回 Success、move() 成功、原图被删，三步照常走完，
+        // 所以宁可在这里拒掉，把这张来路不明的源片留给用户自己判断。
+        val placementIsUnambiguous =
+            (structure.xmpSegments == 0 && structure.oldXmp == null) ||
+                (structure.xmpSegments == 1 && structure.oldXmp != null)
+        if (!placementIsUnambiguous) {
+            return ComposeResult.Failure(FailureReason.DUPLICATE_XMP_UNSUPPORTED)
         }
 
         val fileSize = image.size()

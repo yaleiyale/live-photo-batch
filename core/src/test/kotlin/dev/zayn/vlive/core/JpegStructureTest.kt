@@ -20,6 +20,26 @@ class JpegStructureTest {
         assertNull(structure.oldXmp)
     }
 
+    @Test fun `every xap segment is counted - the last one must not silently win`() {
+        fun structureOf(headSegments: List<ByteArray>) =
+            (scan(Fixtures.jpeg(headSegments = headSegments)) as JpegScanResult.Parsed).structure
+
+        assertEquals(0, structureOf(listOf(Fixtures.sof0())).xmpSegments)
+        assertEquals(
+            1,
+            structureOf(listOf(Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket), Fixtures.sof0()))
+                .xmpSegments,
+        )
+        val two = structureOf(
+            listOf(
+                Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket),
+                Fixtures.app1(Fixtures.XAP, Fixtures.ascii("<x:xmpmeta/>")),
+                Fixtures.sof0(),
+            ),
+        )
+        assertEquals(2, two.xmpSegments)
+    }
+
     @Test fun `entropy byte stuffing hides a fake eoi`() {
         // 熵数据里 FF 00 D9 是被填充过的 0xFF，不是 marker（这条测的是填充规则，
         // 与下面两条"真 FFD9 必须被跳过"的测试是两种性质，都要留着）。

@@ -10,6 +10,15 @@ data class JpegStructure(
     val oldXmp: ByteRange?,
     val oldXmpText: String?,
     val hasExtendedXmp: Boolean,
+    /**
+     * 源片里 `http://ns.adobe.com/xap/1.0/` 这个标识符出现了多少次，**含空包**（只有标识符、
+     * 没有 XMP 文本的那一段，[oldXmp] 不会记它）。
+     *
+     * 这个数不是 [oldXmp] 的装饰：拼接只会把 [oldXmp] 那一段换掉，其余 XAP 段原样留在产物里。
+     * 于是"多于一个"或"有一个但空着"都会让产物带着两份 XMP，而 Exiv2 与 vivo 相册读的是
+     * **第一个** —— 它们看到的还是旧的那份普通照片。合成照样返回 Success、原图照样被删。
+     */
+    val xmpSegments: Int,
 )
 
 sealed interface JpegScanResult {
@@ -35,6 +44,7 @@ object JpegScanner {
 
         var oldXmp: ByteRange? = null
         var oldXmpText: String? = null
+        var xmpSegments = 0
         var hasExtendedXmp = false
         var pending: Int? = null
 
@@ -53,7 +63,7 @@ object JpegScanner {
                 // FileChannel），保证调用方拿到的 channel 恰好停在 imageEnd。
                 cur.rewindUnused()
                 return JpegScanResult.Parsed(
-                    JpegStructure(cur.position, oldXmp, oldXmpText, hasExtendedXmp)
+                    JpegStructure(cur.position, oldXmp, oldXmpText, hasExtendedXmp, xmpSegments)
                 )
             }
             if (marker == 0x01 || marker in 0xD0..0xD7) continue // TEM / RSTn：无长度字段
@@ -67,6 +77,8 @@ object JpegScanner {
                 0xDA -> pending = cur.scanEntropy() ?: return JpegScanResult.Malformed
                 0xE1 -> when {
                     payload.startsWith(XAP) -> {
+                        // 空包也要计数：它同样会原样留在产物里，读第一个 XMP 的实现照样读到它。
+                        xmpSegments++
                         // XAP 已含结尾 NUL，标识符长度就是 XAP.size
                         val identifierEnd = XAP.size
                         if (payload.size > identifierEnd) {
