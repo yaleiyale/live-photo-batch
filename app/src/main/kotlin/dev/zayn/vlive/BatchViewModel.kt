@@ -37,10 +37,11 @@ import timber.log.Timber
  * - [done] / [total] / [bytes]：逐项回调累加的进度；[bytes] 只来自成功项
  *   （Task 8 保证跳过/失败项 `bytes = 0`）。
  * - [items]：已经回报过的每一项，按发生顺序追加，UI 直接当报告列表渲染。
- * - [globalError]：全局异常的一行提示，两种来源（spec §9 + §7.6）：
- *   **整批被拒绝**（源目录不可读 / 目标目录建不起来 / 批次意外中断），或**收尾媒体扫描未确认**
- *   （磁盘事实已定，只是相册索引可能暂时不准）。UiState 形状被计划钉死，扫描提示没有新字段
- *   可去，只能借用这个通道；下一次 [BatchViewModel.start] 即重置。
+ * - [globalError]：全局异常的一行提示，三个来源（spec §9 + §7.6）：
+ *   **整批被拒绝**（源目录不可读 / 目标目录建不起来 / 批次意外中断）、**批次中途丢权限而提前停止**，
+ *   或**收尾媒体扫描未确认**（磁盘事实已定，只是相册索引可能暂时不准）。UiState 形状被计划钉死，
+ *   扫描提示没有新字段可去，只能借用这个通道；下一次 [BatchViewModel.start] 即重置。
+ *   只有一格，所以**先说的那条占着**：原因不该被自己引发的下游后果（"索引没确认"）覆盖掉。
  *   它是 [MessageText]（资源 id + 参数）而不是拼好的串——见那个类型的理由。
  */
 data class UiState(
@@ -361,7 +362,20 @@ class BatchViewModel internal constructor(
             )
             // 回调同步、单线程：每一项在回报那一刻才进 _state.items，所以 finally 里从状态取的
             // 就是"此刻已存在的全部磁盘事实"——包括取消之后跑完的那条尾巴。
-            runner.run(plan, options, CancelToken { cancelled }) { item ->
+            //
+            // 取消通道兼做权限复查：`[am force-stop 之类的外部停止]` 之外，用户随时可能去系统设置里
+            // 收回 MANAGE_EXTERNAL_STORAGE。不复查的话，剩下的每一项都会撞在一次读不出来的目录上，
+            // 报告变成一整屏同质的 IO_ERROR——那堵墙既不说明原因，也把"已经提交了几个"淹掉。
+            // 查在每一项之前正是 Task 8 给取消标志定的位置，所以停批不需要 :core 知道权限这东西。
+            //
+            // `permissionLost` 是普通 var：BatchRunner 与逐项回调都在这个协程的同一线程上跑，
+            // 写它的只有取消令牌，读它的只有下面的收尾，没有跨线程可见性问题。
+            var permissionLost = false
+            runner.run(plan, options, CancelToken {
+                if (cancelled) true
+                else if (isGranted()) false
+                else { permissionLost = true; true }
+            }) { item ->
                 if (item.status != ItemStatus.SUCCESS) {
                     Timber.i("item %s -> %s: %s", item.stem, item.status, item.reason)
                 }
@@ -371,6 +385,18 @@ class BatchViewModel internal constructor(
                 // 删完立刻落账：此刻源文件已经没了，这条记录是唯一还能回答"删了哪些"的东西。
                 journal.record(snapshot.batchId, item.outputName, item.deletedSources)
                 _state.update { it.copy(done = it.done + 1, bytes = it.bytes + item.bytes, items = it.items + item) }
+            }
+            if (permissionLost) {
+                // 一行提示，外加把快照改成"没授权"——UI 的授权入口和禁用的开工按钮都读这一个字段，
+                // 不改成 false 的话界面会继续宣称一切正常，直到用户下一次回到前台。
+                // 走 update 而不是 value =：这条写发生在 IO 线程，主线程的 refreshPermission 随时可能撞上来。
+                Timber.w("batch stopped: all-files access revoked after %d items", _state.value.done)
+                _state.update {
+                    it.copy(
+                        permissionGranted = false,
+                        globalError = MessageText(R.string.err_permission_lost),
+                    )
+                }
             }
         } catch (e: Exception) {
             // 含 CancellationException（外层 scope 取消）：报一行"批次中断"，但绝不因此跳过
@@ -409,7 +435,9 @@ class BatchViewModel internal constructor(
                         MessageText(R.string.err_scan_failed, listOf(e.message ?: e.javaClass.simpleName))
                     }
                     if (hint != null) {
-                        _state.update { it.copy(globalError = hint) }
+                        // 全局提示只有一格，先说的那条占着：批次已经因为丢权限/意外中断停下时，
+                        // "索引没确认"只是同一个故障的下游后果，把原因换成后果等于把界面说糊涂。
+                        _state.update { if (it.globalError == null) it.copy(globalError = hint) else it }
                     }
                     _state.update { it.copy(running = false) }
                 }

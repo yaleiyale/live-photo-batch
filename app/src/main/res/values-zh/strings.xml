@@ -67,6 +67,7 @@
     <string name="err_source_unreadable">源目录不存在或不可读：%1$s</string>
     <string name="err_target_uncreatable">目标目录无法创建：%1$s</string>
     <string name="err_batch_aborted">批次中断：%1$s</string>
+    <string name="err_permission_lost">批次运行中全部文件访问权限被收回，已提前停止。重新授权后再跑一次——已经写出的产物会保留。</string>
     <string name="err_scan_unconfirmed">媒体索引未确认刷新，相册可能暂时看不到新产物或仍留着已删文件的条目</string>
     <string name="err_scan_failed">媒体索引刷新失败：%1$s</string>
 </resources>

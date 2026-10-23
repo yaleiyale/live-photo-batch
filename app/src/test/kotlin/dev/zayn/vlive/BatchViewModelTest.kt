@@ -355,6 +355,58 @@ class BatchViewModelTest {
         t.root.deleteRecursively()
     }
 
+    /**
+     * 批次跑着跑着权限被收回（用户去系统设置里关掉"全部文件访问"，或被 OEM 收回）：
+     * 不复查的话，剩下的每一项都会撞在一次 `SecurityException` / 读不出来的目录上，
+     * 报告变成一整屏同质的 `IO_ERROR`——那是一堵没有信息量的墙，而且用户已经点不到"取消"。
+     * 这里在**每一项之前**复查同一个权限，第一项复查失败就停：后面的项连磁盘都没碰。
+     *
+     * 停批的判据取自 [UiState.done] 而不是"isGranted 被调了几次"：将来多一处复查（或开工前置
+     * 检查改动）都不会把这条测试变成偶发失败。
+     */
+    @Test
+    fun `permission revoked mid-batch stops the batch with its own error`() {
+        val t = tree(pairs = listOf("IMG_a", "IMG_b", "IMG_c"))
+        val vmRef = AtomicReference<BatchViewModel?>()
+        val scanned = AtomicReference<List<String>>(emptyList())
+        val vm = viewModel(t.rootPath, granted = { vmRef.get()?.state?.value?.done == 0 }) { paths ->
+            scanned.set(paths)
+            true
+        }
+        vmRef.set(vm)
+        val snapshot = UiState(
+            sourceDir = t.srcPath, targetDir = t.outPath, deleteOriginals = true, running = true,
+        )
+        runBlocking { vm.runBatch(snapshot) }
+
+        val state = vm.state.value
+        assertEquals(3, state.total)
+        assertEquals(1, state.done)
+        assertEquals(ItemStatus.SUCCESS, state.items.single().status)
+        assertEquals(R.string.err_permission_lost, state.globalError!!.id)
+        assertFalse("界面必须重新把授权入口摆出来", state.permissionGranted)
+        // 没被碰过的项不留痕迹：源文件都在，产物也不存在。
+        assertTrue(File(t.srcPath, "IMG_b.jpg").isFile)
+        assertTrue(File(t.srcPath, "IMG_c.jpg").isFile)
+        assertFalse(File(t.outPath, "IMG_b_MP.jpg").exists())
+        // §7.6 不变量不因中途停批而放宽：已经提交的那一项照样进扫描器。
+        assertEquals(listOf("${t.outPath}/IMG_a_MP.jpg", "${t.srcPath}/IMG_a.jpg", "${t.srcPath}/IMG_a.mp4"),
+            scanned.get())
+        t.root.deleteRecursively()
+    }
+
+    /** 用户自己按的取消不是丢权限：同一个停止通道必须能分清两者，否则提示会说谎。 */
+    @Test
+    fun `a user cancel is not reported as a lost permission`() {
+        val t = tree(pairs = listOf("IMG_a", "IMG_b"))
+        val vm = viewModel(t.rootPath)
+        vm.cancel()
+        runBlocking { vm.runBatch(UiState(sourceDir = t.srcPath, targetDir = t.outPath, running = true)) }
+        assertNull(vm.state.value.globalError)
+        assertEquals(0, vm.state.value.done)
+        t.root.deleteRecursively()
+    }
+
     @Test
     fun `missing source dir maps to a global error and never reaches the scanner`() {
         val t = tree(pairs = listOf("IMG_a"))

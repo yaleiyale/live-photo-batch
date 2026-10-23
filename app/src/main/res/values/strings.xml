@@ -81,6 +81,7 @@
     <string name="err_source_unreadable">Source folder is missing or unreadable: %1$s</string>
     <string name="err_target_uncreatable">Target folder could not be created: %1$s</string>
     <string name="err_batch_aborted">Batch interrupted: %1$s</string>
+    <string name="err_permission_lost">All-files access was revoked while the batch was running, so it stopped early. Re-grant access and run again — already written files are kept.</string>
     <string name="err_scan_unconfirmed">Media index refresh was not confirmed — the album may not show the new files yet, or may still list deleted originals.</string>
     <string name="err_scan_failed">Media index refresh failed: %1$s</string>
 </resources>
