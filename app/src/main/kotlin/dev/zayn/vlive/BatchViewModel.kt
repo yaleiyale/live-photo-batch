@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.zayn.vlive.browse.DirBrowser
 import dev.zayn.vlive.io.FileStorage
+import dev.zayn.vlive.journal.DeleteJournal
 import dev.zayn.vlive.perm.PermissionGate
 import dev.zayn.vlive.settings.BatchSettings
 import dev.zayn.vlive.settings.PreferencesBatchSettings
@@ -53,6 +54,12 @@ data class UiState(
     val bytes: Long = 0,
     val items: List<ItemResult> = emptyList(),
     val globalError: MessageText? = null,
+    /** 这一批的编号，同时是 journal 那个凭据文件的名字。0 = 还没跑过。 */
+    val batchId: Long = 0,
+    /** 从**文件**里读回来的"这一批删掉了几个原文件"，不是内存计数。 */
+    val deletedRecorded: Int = 0,
+    /** 展开那一行时才从 journal 读出来；合成期不碰磁盘，所以它只能由 [loadDeletedSources] 填。 */
+    val deletedSources: List<String> = emptyList(),
 )
 
 /**
@@ -133,6 +140,8 @@ class BatchViewModel internal constructor(
     private val settings: BatchSettings,
     /** 存储根；生产入口固定为 DEFAULT_ROOT，测试注入临时目录。 */
     val root: String,
+    /** 不可逆删除的凭据，写在应用私有目录里；见 [DeleteJournal] 开头那段"为什么非要有它"。 */
+    private val journal: DeleteJournal,
 ) : ViewModel() {
 
     constructor(app: Application) : this(
@@ -140,6 +149,7 @@ class BatchViewModel internal constructor(
         scanner = { paths -> MediaStoreSync.scan(app, paths) },
         settings = PreferencesBatchSettings(app),
         root = DEFAULT_ROOT,
+        journal = DeleteJournal(File(app.filesDir, "journal")),
     )
 
     val browser = DirBrowser(root)
@@ -253,6 +263,19 @@ class BatchViewModel internal constructor(
     private fun pathAccepted(path: String): Boolean = !_state.value.running && isSelectable(path)
 
     /** 同样拒绝在运行中改动删除开关——它决定这批会不会动原文件。 */
+    /**
+     * 展开"已删除 N 个原文件"那一行时读回清单。走协程而不是在 composable 里直接调：
+     * 这是一次磁盘读，而 BatchScreen 守着"合成期不碰 binder/磁盘"那条约定。
+     */
+    fun loadDeletedSources() {
+        val batchId = _state.value.batchId
+        if (batchId == 0L || _state.value.deletedSources.isNotEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val paths = journal.deletedPaths(batchId)
+            _state.update { if (it.batchId == batchId) it.copy(deletedSources = paths) else it }
+        }
+    }
+
     fun setDeleteOriginals(value: Boolean) {
         if (_state.value.running) return
         _state.update { it.copy(deleteOriginals = value) }
@@ -265,8 +288,13 @@ class BatchViewModel internal constructor(
     fun start() {
         if (_state.value.running || !isGranted()) return
         cancelled = false
+        // 批次号由 journal 的时钟发出去，两边才是同一个时间源；它同时是这一批那个凭据文件的名字。
+        val batchId = journal.newBatchId()
         _state.update {
-            it.copy(running = true, done = 0, total = 0, bytes = 0, items = emptyList(), globalError = null)
+            it.copy(
+                running = true, done = 0, total = 0, bytes = 0, items = emptyList(),
+                globalError = null, batchId = batchId, deletedRecorded = 0, deletedSources = emptyList(),
+            )
         }
         viewModelScope.launch(Dispatchers.IO) {
             // 先等冷启动那一次目录恢复落地，再取开工快照。不等就是拿 UiState 的默认值开工：
@@ -340,6 +368,8 @@ class BatchViewModel internal constructor(
                 if (item.deleteFailures.isNotEmpty()) {
                     Timber.w("item %s kept sources it could not delete: %s", item.stem, item.deleteFailures)
                 }
+                // 删完立刻落账：此刻源文件已经没了，这条记录是唯一还能回答"删了哪些"的东西。
+                journal.record(snapshot.batchId, item.outputName, item.deletedSources)
                 _state.update { it.copy(done = it.done + 1, bytes = it.bytes + item.bytes, items = it.items + item) }
             }
         } catch (e: Exception) {
@@ -355,6 +385,9 @@ class BatchViewModel internal constructor(
             // 外层协程已取消时，finally 里的 withContext(NonCancellable) 块会完整执行，块后的
             // 语句也会执行；running 落位仍写进块内，只为把"扫描 + 落位"钉成一个不再依赖外层命运的收尾。
             val paths = touchedPathsFor(snapshot.targetDir, _state.value.items)
+            // 数字从**文件**读回来，而不是把内存里的计数搬过来：写失败时它会诚实地停在 0，界面上
+            // 那一行就不出现。"界面说有、文件里其实没有"是这份凭据最不该有的样子。
+            _state.update { it.copy(deletedRecorded = journal.deletedPaths(snapshot.batchId).size) }
             val settled = _state.value
             Timber.i(
                 "batch end: done=%d/%d bytes=%d touched=%d cancelled=%b",

@@ -29,6 +29,13 @@
         <item quantity="one"> · %1$d original not deleted</item>
         <item quantity="other"> · %1$d originals not deleted</item>
     </plurals>
+    <!-- 删除凭据（journal）那一节。计数走 plurals：英文 "1 file deleted" 与 "3 files deleted"
+         不同形。展开后列出的是被删原文件的绝对路径，不额外翻译。 -->
+    <string name="journal_deleted_title">Deleted originals</string>
+    <plurals name="journal_deleted_count">
+        <item quantity="one">%1$d file deleted</item>
+        <item quantity="other">%1$d files deleted</item>
+    </plurals>
     <!-- 筛选与分页。摘要行永远画，明细（原因代码 / 写出字节 / 没删掉的原文件）只在展开时画，
          所以一屏组合出来的行数由页大小决定，而不是由这批有多少项决定。 -->
     <string name="filter_all">All</string>

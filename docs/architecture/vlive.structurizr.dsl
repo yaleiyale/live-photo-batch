@@ -107,6 +107,9 @@ workspace "vlive" "当前状态（as-built）的 C4 模型：Android 批量动�
                 logTree = component "log/RollingLogTree + planLogCleanup" "Timber 的落点：私有目录里的滚动日志文件。单文件 512 KB / 最多 4 个 / 合计 2 MB / 7 天，当前文件永不删；所有磁盘动作在 vlive-log 守护线程上，日志自己吞 IOException。" "Timber + java.io.File" {
                     tags "App"
                 }
+                deleteJournal = component "journal/DeleteJournal" "不可逆删除的凭据（2026-10-23 增量）：每一批真正删掉的原文件绝对路径，落在 filesDir/journal/，一批一个文件（deleted-<13位毫秒>.txt，定宽名让字典序==时间序）。写点在 BatchViewModel 的逐项回调里、commit 之后，所以记的是事实不是意图。TSV 一行一条，字段是 epochMillis/batchId/outputName/count/路径，不引入 JSON 依赖。保留策略直接调用 log/planLogCleanup —— 那个顶层纯函数的输入只是 LogFile(name, bytes, lastModified)，与「日志」无耦合，所以零复制零改动；上限 60 个文件 / 180 天 / 2 MB。带时间上限是选定过的代价：过期那批整体淘汰，「半年前删了哪些」按策略就没有答案。写不进只是丢记录，吞 IOException。裁定见 docs/decisions.md §5.23。" "java.io.File + log/planLogCleanup" {
+                    tags "App"
+                }
                 application = component "VliveApp" "唯一的 Application：种两棵日志树（logcat 只在可调试构建 + 文件树）。不在 Activity 里种，因为 Timber 没种树时是静默丢弃。" "Application" {
                     tags "App"
                 }
