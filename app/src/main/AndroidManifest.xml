@@ -18,7 +18,16 @@
              dev.zayn.vlive/dev.zayn.vlive.MainActivity（真机 am start 用这一串）。 -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="portrait"
+            tools:ignore="LockedOrientationActivity,DiscouragedApi">
+            <!-- screenOrientation：这一屏是竖版单屏设计（卡片、两条玻璃 bar、目录弹窗都按手机竖屏排），
+                 横向一套布局都没有。锁掉还顺带挡住转屏带来的整窗重建：入场动画与 splash 衔接会从头再走一遍。
+                 折叠屏内屏的宽度问题由 IosMetrics.contentMaxWidth 封顶解决，不靠横屏。
+                 两条 ignore 都是量出来后加的，不是预防性的：
+                 LockedOrientationActivity 是 Google 对 ChromeOS/大屏的通用建议；
+                 DiscouragedApi 的原文是「Android 16 起多数情况下固定方向会被忽略」——
+                 这条是真信息，写在 decisions.md §5.30，包括它在 API 35 这台机上还没被忽略的实测边界。 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
