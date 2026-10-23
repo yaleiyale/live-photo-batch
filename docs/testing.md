@@ -14,22 +14,23 @@
 每个文件的方法数：
 
 ```
-core:  BatchRunnerTest 23 · MotionPhotoComposerTest 21 · TrailerClassifierTest 20
-       PairPlannerTest 13 · JpegXmpPatcherTest 13 · JpegStructureTest 12 · XmpPacketTest 12
+core:  BatchRunnerTest 29 · MotionPhotoComposerTest 22 · TrailerClassifierTest 20
+       PairPlannerTest 13 · JpegXmpPatcherTest 13 · JpegStructureTest 13 · XmpPacketTest 12
        InMemoryStorageTest 10 · VivoLivePhotoTailTest 9 · TrailerModelTest 7
        SourcesTest 3 · MotionDetectorTest 2      （Fixtures / InMemoryStorage 是夹具，0 条）
-app:   BatchViewModelTest 14 · DirBrowserTest 15 · ReportPageTest 8 · LogRotationTest 8
-       TouchedPathsForTest 4 · PermissionGateTest 2 · ui/TitleBarAlphaTest 6 · ui/AccentForTest 3
+app:   BatchViewModelTest 19 · DirBrowserTest 15 · LogRotationTest 8 · ReportPageTest 8
+       DeleteJournalTest 7 · FileStorageMoveTest 5 · ui/TitleBarAlphaTest 6
+       TouchedPathsForTest 4 · PermissionGateTest 2 · ui/AccentForTest 3 · RollingLogTreeTest 1
 androidTest: FileStorageTest 8
 ```
 
-`DirBrowserTest` 的 `absolute path is used as-is and ignores the root` 用 `assumeTrue(File.separator == "/")` 守 POSIX 专属规则，所以在 Windows 构建主机上是**跑过但跳过**（`DirBrowserTest` 那份 JUnit XML 报 `tests=15 skipped=1`；整个 `:app` 模块 60 条里跳的就是这一条），不是没编译进去。
+`DirBrowserTest` 的 `absolute path is used as-is and ignores the root` 用 `assumeTrue(File.separator == "/")` 守 POSIX 专属规则，所以在 Windows 构建主机上是**跑过但跳过**（`DirBrowserTest` 那份 JUnit XML 报 `tests=15 skipped=1`；整个 `:app` 模块 78 条里跳的就是这一条），不是没编译进去。
 
 ## 命令
 
 ```bash
-./gradlew :core:test                     # 145 条，最快反馈，纯 JVM
-./gradlew :app:testDebugUnitTest         # 60 条 ViewModel / DirBrowser / ReportPage / LogRotation / PermissionGate / accent 四值 / titleBarAlpha
+./gradlew :core:test                     # 153 条，最快反馈，纯 JVM
+./gradlew :app:testDebugUnitTest         # 78 条 ViewModel / DirBrowser / ReportPage / LogRotation / journal / 移动语义 / PermissionGate / accent 四值 / titleBarAlpha / 日志树
 ./gradlew :app:assembleDebug             # 产出 app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:assembleDebugAndroidTest   # CI 用它保证仪器化测试还能编译
 ./gradlew :app:connectedDebugAndroidTest  # 8 条契约测试，必须插着设备跑
@@ -44,13 +45,13 @@ CI 有两个工作流、三个 job。[build.yml](file:///D:/projects/piece/live-
 | --- | --- | --- |
 | 文件动作 | `InMemoryStorage` 实现 `BatchStorage`：`LinkedHashMap<String, ByteArray>`，目录由 key 前缀隐含；`openWrite` **只在 `close()` 返回后**发布条目；额外给 `tmpFiles` / `bytesOf` 两个测试专用读法 | [core/src/test/…/InMemoryStorage.kt:14-72](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/InMemoryStorage.kt#L14) |
 | 字节来源 | `ByteArraySource` 让合成整条线直接吃内存数组（注意它住在 **main** sourceSet，见 [decisions.md 技术债](decisions.md#7-已知技术债下次动这片之前先读)） | [Sources.kt:20-36](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L20) |
-| 权限 | `BatchViewModel(isGranted = { … })`：假 lambda 每次现读，不缓存 | [BatchViewModel.kt:122-135](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L122)、[BatchViewModelTest.kt:58-62](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L58) |
+| 权限 | `BatchViewModel(isGranted = { … })`：假 lambda 每次现读，不缓存 | [BatchViewModel.kt:123-136](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L123)、[BatchViewModelTest.kt:58-62](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L58) |
 | 媒体扫描 | `BatchViewModel(scanner = { … })`：假扫描器记录收到的路径 | 同上 |
 | 存储根 | `FileStorage(root)` / `DirBrowser(root)` / `BatchViewModel(root = …)` 允许注入临时目录，与生产同一个 root 契约规则 | [FileStorage.kt:78-82](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L78) |
 | 目录设置 | `BatchViewModel(settings = …)`：`BatchSettings` 只有 `load()` / `save()` 两个 suspend 方法，测试给内存假实现，DataStore 那一层不进单测 | [BatchSettings.kt:28-36](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L28)、[BatchViewModelTest.kt:61-67](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L61) |
-| 日志保留规则 | `planLogCleanup(files, now, …)` 是纯函数：目录列表由调用方给，删除决定在这里算 | [LogRotation.kt:21-57](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/LogRotation.kt#L21)、[LogRotationTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/LogRotationTest.kt) |
+| 日志保留规则 | `planLogCleanup(files, now, …)` 是纯函数：目录列表由调用方给，删除决定在这里算 | [LogRotation.kt:24-60](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/LogRotation.kt#L24)、[LogRotationTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/LogRotationTest.kt) |
 
-`app/src/test` 能驱动真协程是因为 lifecycle 2.11 在没有 Android 主线程时把 `viewModelScope` 退化成 `SupervisorJob + Dispatchers.Default`（实测，写在 [BatchViewModel.kt:100-101](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L100)）。
+`app/src/test` 能驱动真协程是因为 lifecycle 2.11 在没有 Android 主线程时把 `viewModelScope` 退化成 `SupervisorJob + Dispatchers.Default`（实测，写在 [BatchViewModel.kt:101-102](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L101)）。
 
 ## 夹具都是合成的
 
@@ -74,11 +75,11 @@ CI 有两个工作流、三个 job。[build.yml](file:///D:/projects/piece/live-
 | 钉的是什么 | 测试 |
 | --- | --- |
 | `.part → close → move → 删原文件` 的**精确操作顺序** | [BatchRunnerTest.kt:62](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L62) `tmp write then move then delete is the exact operation order` |
-| 删除只发生在提交之后；原地批次也要走 `.tmp` | [:54](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L54)、[:156](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L156)、[:417](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L417)（抛出的删除只加警告，不回改写 SUCCESS） |
-| 取消只在项与项之间生效（含 `unpaired` 预循环；开局取消零效果） | [:121](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L121)、[:445](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L445)、[:461](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L461) |
-| 失败项不留 `.part`；清理自己抛出也不许穿出 `run` | [:189](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L189)、[:360](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L360)、[:389](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L389) |
-| 只有 `ALREADY_MOTION_PHOTO` 算跳过 | [:208](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L208) |
-| `move` 返回 false → `IO_ERROR` 且原文件不动 | [:292](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L292) |
+| 删除只发生在提交之后；原地批次也要走 `.tmp` | [:54](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L54)、[:210](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L210)、[:471](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L471)（抛出的删除只加警告，不回改写 SUCCESS） |
+| 取消只在项与项之间生效（含 `unpaired` 预循环；开局取消零效果） | [:121](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L121)、[:499](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L499)、[:515](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L515) |
+| 失败项不留 `.part`；清理自己抛出也不许穿出 `run` | [:243](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L243)、[:414](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L414)、[:443](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L443) |
+| 只有 `ALREADY_MOTION_PHOTO` 算跳过 | [:262](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L262) |
+| `move` 返回 false → `IO_ERROR` 且原文件不动 | [:346](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L346) |
 | **64 位扩展盒长**（`size==1` → `largesize`）：vivo/OPPO 的 `mdat` 形态；截断的 `largesize` 与盖住窗口的 64 位填充盒都**不许猜** | [TrailerClassifierTest.kt:58](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/TrailerClassifierTest.kt#L58)、[:66](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/TrailerClassifierTest.kt#L66)、[:72](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/TrailerClassifierTest.kt#L72) |
 | XMP 信号优先于尾巴探针；裸词不许误判成动态照片 | [:123](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/TrailerClassifierTest.kt#L123)、[:153](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/TrailerClassifierTest.kt#L153)、[MotionDetectorTest.kt:20-22](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/MotionDetectorTest.kt#L20) |
 | `GainMap` / `Padding` **互斥**，违反时必须是 `IllegalStateException`（**不是** `IllegalArgumentException`） | [XmpPacketTest.kt:151-162](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/XmpPacketTest.kt#L151) |
@@ -94,8 +95,11 @@ CI 有两个工作流、三个 job。[build.yml](file:///D:/projects/piece/live-
 | 目录浏览**只出一列**：别名只替换显示名、当前目录不列自己、没被别名提到的子目录仍然可达、**嵌套别名不得补成快捷方式**（`相机 = DCIM/Camera` 那条机制已撤销）、别的根下的别名一律不掺、顺序稳定 | [DirBrowserTest.kt:103](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L103)、[:124](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L124)、[:138](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L138)、[:150](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L150)、[:166](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L166)、[:182](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L182) |
 | 副标题 `displayPath`：根显示 root 别名、下级保持 `别名/DCIM/Camera`、**root 之外不改名**（那种路径选不了，改名就是骗人）。别名是**入参**而不是常量，所以这两种语言的说法都能在同一条测试里断言 | [DirBrowserTest.kt:200](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L200)、[:210](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L210)、[:221](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/browse/DirBrowserTest.kt#L221) |
 | 报告分页与筛选：`All` 保留全部且顺序不变、三个状态档各只收自己的行、尾页是短页、**连续页不重也不漏**、页码越界夹回、空结果仍算一页、空批次也是一页、`size = 0` 不死循环 | [ReportPageTest.kt](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/ReportPageTest.kt)（8 条） |
-| 目录选择的持久化：选过的路径写回设置；存下来的路径过不了 `isSelectable` 就**不采纳**；用户已经改过之后，一次迟到的 `restore()` 不许把它覆盖回去 | 3 条用例（[BatchViewModelTest.kt:362-406](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L362)） |
+| 目录选择的持久化：选过的路径写回设置；存下来的路径过不了 `isSelectable` 就**不采纳**；用户已经改过之后，一次迟到的 `restore()` 不许把它覆盖回去 | 3 条用例（[BatchViewModelTest.kt:414-458](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L414)） |
 | 日志保留：过期 / 数量 / **总体积** 三条上限任一条超了都往下删，删除顺序从旧到新，**当前文件永不删**，`maxFiles = 0` 也不清空目录 | 8 条用例（[LogRotationTest.kt](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/LogRotationTest.kt)） |
+| 日志树"接着写哪个文件"与 `planLogCleanup` 认的是**同一个键**（两个夹具文件刻意让名字与 mtime 互相矛盾） | 1 条用例（[RollingLogTreeTest.kt:51](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/RollingLogTreeTest.kt#L51)），走公共入口 `Timber.plant` + 真 `File`，不需要 Robolectric |
+| 半截 `.part` 的清扫：孤儿删在**第一次写入之前**、`.tmp` 内外与 `.part`/非 `.part` 两条边界一条都不许多越、没有 jobs 时一条都不许多删 | 3 条用例（[BatchRunnerTest.kt:145](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L145)、[:163](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L163)、[:185](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/BatchRunnerTest.kt#L185)） |
+| 批次中途丢权限：停在下一次写入之前、报告里只留已经跑过的那一项而不是整屏 `IO_ERROR`、专属提示 `err_permission_lost`、已提交那项照样进扫描器；用户自己按的取消不许冒充丢权限 | 2 条用例（[BatchViewModelTest.kt:368](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L368)、[:400](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt#L400)） |
 | 端口实现分叉点：`exists`/`delete` 对目录必须 false、`list` 排序与缺目录给空、root 不二次拼接、close 后字节完整 | [FileStorageTest.kt:94](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L94)、[:58](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L58)、[:73](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L73)、[:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L162)、[:144](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L144) |
 | 内存实现镜像同样几条契约（两侧对齐才有意义） | [InMemoryStorageTest.kt:48-83](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/InMemoryStorageTest.kt#L48) |
 
@@ -134,14 +138,15 @@ CI 有两个工作流、三个 job。[build.yml](file:///D:/projects/piece/live-
 | 真实权限流：`PermissionGate.of()` / `requestIntent()` | 未测（[PermissionGateTest.kt:8-9](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/perm/PermissionGateTest.kt#L8)）；vivo 上跳不到系统页是已知风险 | 真机 + Toast 退化路径 |
 | `MainActivity` / `BatchScreen` / `ui/*` 全部 | 零测试，依赖表里没有 Compose UI-test | 装机肉眼看 |
 | `rename(2)` 原子性、跨卷 `copyTo` 退化、`ensureDir` 抛出路径 | 无覆盖 | 真机 / 仪器化测试补 |
-| 进程被杀后的索引收敛 | 代码里如实写了"修不了"（[BatchViewModel.kt:113-120](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L113)） | 等 MediaStore 例行收敛 |
+| 进程被杀后的索引收敛 | 代码里如实写了"修不了"（[BatchViewModel.kt:114-121](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L114)） | 等 MediaStore 例行收敛 |
 | 性能（"100 张约 15 秒"只是动机） | 无计时测试 | 真机计时 |
 | 三条 gain map 声明串的实际覆盖 | 代码认三种拼法（连字符 / 冒号 / Adobe 旧命名空间，[TrailerModel.kt:46-50](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/TrailerModel.kt#L46)），但**只有冒号形态**被夹具真正走过（`urn:iso:std:iso:ts:21496:-1`，[Fixtures.kt:213](file:///D:/projects/piece/live-photo-batch/core/src/test/kotlin/dev/zayn/vlive/core/Fixtures.kt#L213)）；另两种没有各自的用例 | 各补一条 `TrailerModelTest` |
 | 启动入场的**手感**（logo 淡出与卡片上浮接不接得上、系统关掉动画时入场是否归零）与目录弹窗的返回手势 / 换层滑动 | 2026-10-21 装机看过一轮：桌面图标（含圆形遮罩、深色下蓝底白标记）、冷启动 splash 的**存在与配色场**、交错入场落位都正常；**逐帧手感没有量化**，`ANIMATOR_DURATION_SCALE` 归零行为仍未验 | 再装机看；要收口就补 Compose UI 测试 |
-| 深色下的**其它**渲染面：`Dialog`（目录弹窗）表面、进度条、开关轨道、报告行的语义色 | 主界面与冷启动色场已实测（黑底 + `#1C1C1E` 卡片 + 白字，状态栏图标翻亮）；**2026-10-22 深色下的弹窗与报告行都看过了**（`D:/tmp/em41_dark_sheet_scrolled.png`、`em40_dark_en_scrolled.png`、`em51_dark_zh_scrolled.png`），弹窗与列表之间没有多出来的接缝，进度条正常。**开关那一格当时记成"正常"，是错的**：那三张图里圆点从来没动过 —— `IosSwitch` 的 `.offset(...)` 当时排在 `.background(...)` 之后，只挪到了这颗圆点并不存在的子内容，轨道换了色就把"整颗开关是好的"冒名顶替了。深色下的开关**至今没有过一次有效观察**。另有一条已开缺陷：弹窗顶栏的副标题被 bar 下边缘裁掉（[§5.19](decisions.md#519-玻璃只给三条浮动-bar卡片与按钮不各自糊一层2026-10-21-增量) 末尾与技术债表） | 深色下把开关点到开再截一次（量圆点左沿是否从 x=867 走到 x=920）；副标题那条修完一起补 |
+| 深色下的**其它**渲染面：`Dialog`（目录弹窗）表面、进度条、开关轨道、报告行的语义色 | 主界面与冷启动色场已实测（黑底 + `#1C1C1E` 卡片 + 白字，状态栏图标翻亮）；**2026-10-22 深色下的弹窗与报告行都看过了**（`D:/tmp/em41_dark_sheet_scrolled.png`、`em40_dark_en_scrolled.png`、`em51_dark_zh_scrolled.png`），弹窗与列表之间没有多出来的接缝，进度条正常。**深色下的开关至今没有过一次有效观察**这条**已结**：2026-10-23 浅色（模拟器，`D:/tmp/sw03_rowpad_tap.png`）与 2026-10-24 深色真机（Brain BGX5 / Android 15 / 中文，`D:/tmp/ph02_rowpad_tap.png`、`ph03_rowpad_off.png`）各量到一次圆点行程 —— 深色下按整行的 padding 带 → `checked=true`、圆点 x=867..937 → **920..990（+53px ≈ 20dp）**、轨道 `(255,69,58)`；再按一次回到 867..937。深色下的弹窗顶栏也在这台真机上重测过：副标题末行 y=190 vs bar 下沿 y=261（净空 27dp），标题与 `选这里` 净空 120dp，都不裁不叠 | 深色下仍未观察的两面：报告行在深色下的语义色（这一轮真机上没造失败项）、高对比那一列 accent（另有一行专门记着） |
 | **modifier 链的次序、`LayoutModifier` 摆在哪一格** | 纯 JVM 单测在结构上看不见这类错（上一行就是代价：一个"颜色变了形态没变"的开关被记成已验证，活完整整一轮装机）。这两天查出来的两个 UI bug 同属一类 —— `Modifier.shadow` 在层内预留一圈把画面和子节点一起裁进去（[§5.21](decisions.md#521-玻璃-bar-上的-modifiershadow-全部删掉它在层内预留一圈把玻璃切成白色方块2026-10-22-装机裁定)），`Modifier.offset` 排在绘制类之后等于没写 | 要么补 Compose UI 测试（依赖表里没有这条），要么每个新控件装机后**逐项量像素**：位置、尺寸、边界各量一个数，不许只看颜色对不对 |
 | **系统语言切成英文之后**整屏是否全英文（含目录别名、错误提示、Toast） | 2026-10-22 在 API 36 模拟器上看过：主界面、目录弹窗（root 读作 `Internal storage`）、报告行与筛选档全英文，没有中文残留、没有空字符串；`Movies` 这类真实目录名在弹窗里保持原样。**注意这块镜像不认 `settings put system system_locales`**，中文那轮是用 `cmd locale set-app-locales` 按应用切的。**没验到**：错误提示与 Toast 的英文（这一批夹具跑不出失败项）、以及三按钮导航形态下的 shipped 截图 | 要收口就补一条失败项（把一个配对 mp4 换成非 JPEG）+ 一次三按钮形态截图 |
-| `RollingLogTree` 真的在写文件、轮转与清理真的发生 | 只测到决策函数 `planLogCleanup`；树本身要 `Context` + 真实文件系统（`filesDir/logs`）与一条后台线程 | 装机跑一批，然后 `adb shell run-as dev.zayn.vlive ls -l /data/data/dev.zayn.vlive/files/logs`：文件数 ≤ 4、合计 ≤ 2 MB、里面能 grep 到 `batch start` / `batch end` |
+| `RollingLogTree` 真的在写文件、轮转与清理真的发生 | 2026-10-23 补了一条本地 JVM 用例，但它钉的是"续写哪个文件"这一格（[RollingLogTreeTest.kt:51](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/RollingLogTreeTest.kt#L51)）；`filesDir/logs` 上的**真**轮转与三条上限淘汰仍未测，那条后台线程的时序也没测 | 装机跑一批，然后 `adb shell run-as dev.zayn.vlive ls -l /data/data/dev.zayn.vlive/files/logs`：文件数 ≤ 4、合计 ≤ 2 MB、里面能 grep 到 `batch start` / `batch end` |
+| **读屏真的把开关念成"开/关"** | `uiautomator dump` 只能证明语义节点写对了（模拟器与真机 Brain BGX5 上那一行都是 `checkable="true"` 且 `checked` 随点击翻转，见 [§5.28](decisions.md#528-开关整行是-toggleable不是标题那几个字2026-10-23-增量)），不能证明 TalkBack 真念出来 —— 念法在无障碍服务那一侧。**2026-10-24 没在那台真机上开 TalkBack**：它会接管触摸手势（单指滚动、双击确认），而那台是日常机，开完万一退不干净就等于让人拿不起手机 —— 这类改动等他点头再做 | 他点头就装机听一次这一行；要钉死就得补 Compose UI 测试（依赖表里没有） |
 | `PreferencesBatchSettings` 真的跨进程活下来 | DataStore 需要 Android `Context`，本地只测到接口那一侧（内存假实现） | 装机：改一次目标目录 → `am force-stop` → 重开 → 那一行还是改过的值 |
 | 非 vivo 厂商（OPPO/小米/Pixel）识别 | 只有 OPPO 作为**反例**被分析过 | 各厂商真机各跑一批 |
 

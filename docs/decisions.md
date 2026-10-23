@@ -129,7 +129,7 @@
 
 **为什么**：`JpegScanner` 会把 `IOException` 折叠成 Malformed。若把 Malformed 算跳过，**真实磁盘故障会被埋进"坏文件"里**。
 
-证据：[BatchRunner.kt:184-187](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchRunner.kt#L184)。
+证据：[BatchRunner.kt:188-191](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/BatchRunner.kt#L188)。
 
 ### 4.3 取消只查在项与项之间
 
@@ -185,7 +185,7 @@
 
 **代价**：一个跨三个类的隐式约定，只能靠注释与测试守。
 
-证据：[FileStorage.kt:60-66](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L60)、[BatchViewModel.kt:74-82](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L74)、[FileStorageTest.kt:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L162)。
+证据：[FileStorage.kt:60-66](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/io/FileStorage.kt#L60)、[BatchViewModel.kt:75-83](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L75)、[FileStorageTest.kt:162](file:///D:/projects/piece/live-photo-batch/app/src/androidTest/kotlin/dev/zayn/vlive/io/FileStorageTest.kt#L162)。
 
 ### 5.2 "能浏览"比"能选"宽，且批次用同一个谓词再守一遍
 
@@ -201,7 +201,7 @@
 
 ### 5.4 报告列表刻意不用 `LazyColumn`，改用整表折叠 + 分页 + 筛选
 
-**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`；**整张列表默认收成一行** —— [`ReportCard`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L334) 折叠时只有表头那一行（标题 + 汇总计数 + chevron），展开之后才有四个筛选档位（全部 / 成功 / 跳过 / 失败）、**一页 20 行**（[`REPORT_PAGE_SIZE`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L20)）与分页行。分页与筛选的规则在纯函数 [`reportPage`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L47) 里。
+**决定**：外层一条 `verticalScroll` 的 `Column`，报告用普通 `Column` + `forEach`；**整张列表默认收成一行** —— [`ReportCard`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L343) 折叠时只有表头那一行（标题 + 汇总计数 + chevron），展开之后才有四个筛选档位（全部 / 成功 / 跳过 / 失败）、**一页 20 行**（[`REPORT_PAGE_SIZE`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L20)）与分页行。分页与筛选的规则在纯函数 [`reportPage`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ReportPage.kt#L47) 里。
 
 **「收起」收的是整张列表，不是逐行**。需求原话是「报告列表支持展开收起，默认收起」，指的是列表本身收成一行（这一条在第一版实现之后由用户澄清；第一版做成了逐行展开，已改）。所以每一行没有各自的展开态，摘要行回到一行装完：状态 + `stem → 产物名` + 原因短语（后面仍跟着机器可读的枚举名，spec §9）+ 没删掉的原文件警告。
 
@@ -243,7 +243,7 @@
 
 **代价（如实记录的两个残余）**：① 批次协程**还没被线程启动**就碰上 scope 已取消 → 整个协程体连 finally 都不执行（此刻零文件效果，代价只是 `running` 卡在 true，而 ViewModel 已销毁）；② **进程被杀** → 协程、NonCancellable、扫描一起死，索引只能等 MediaStore 自己例行收敛。两者都"JVM 测不到/修不了"。
 
-证据：[BatchViewModel.kt:99-106](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L99)、[:223-249](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L223)。
+证据：[BatchViewModel.kt:100-107](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L100)、[:224-250](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L224)。
 
 ### 5.9 状态写入一律 `update { }`（CAS）
 
@@ -267,7 +267,7 @@
 
 **同一条决定的另一半 —— 返回手势先当"上一级"，换层用整层滑动**
 
-**决定**：目录弹窗里系统返回键**先当"上一级"用**，只有在 root（没有可去的父级）才关闭弹窗；换层用 `AnimatedContent` 做整层推入/弹出 + 淡入淡出，进子目录向左推、返回向右弹，与标题改动同一时刻发生（[BatchScreen.kt:426-455](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L426)）。时长与缓动复用 `IosMotion`（[IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138)）那一套令牌，和冷启动入场是同一种手感。
+**决定**：目录弹窗里系统返回键**先当"上一级"用**，只有在 root（没有可去的父级）才关闭弹窗；换层用 `AnimatedContent` 做整层推入/弹出 + 淡入淡出，进子目录向左推、返回向右弹，与标题改动同一时刻发生（[BatchScreen.kt:426-455](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L426)）。时长与缓动复用 `IosMotion`（[IosStyle.kt:233](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L233)）那一套令牌，和冷启动入场是同一种手感。
 
 **为什么**：这是一台设备上的文件浏览器，"返回键直接把整个弹窗关掉"会让人反复重选层级；而方向感（向左=进深、向右=回退）是让列表可读的关键，尤其在只剩一列之后。`BackHandler` 必须放在 `IosSheet` 的 content 里 —— 那是 Dialog 自己的组合，返回键先落到它的 `OnBackPressedDispatcher`，放在 Activity 那层拦不到。
 
@@ -277,7 +277,7 @@
 
 **决定**：桌面图标是**纯 XML 的 adaptive icon**（`drawable/ic_launcher_foreground.xml` + `ic_launcher_background.xml`，`mipmap-anydpi-v26/ic_launcher.xml` 与 `_round.xml`），零 PNG；两层结构只有 `background` + `foreground`，**不给 `<monochrome>`**（理由见下面那段）；冷启动走 `androidx.core:core-splashscreen`（1.2.0，`:app` 唯一新增的 androidx 依赖），退出动画再由 `BatchScreen` 的交错入场接住。
 
-**为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:442](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L442)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
+**为什么是纯矢量**：仓库里有一条刻意的约定「图形用 Canvas 画，不引入矢量资源」（[IosControls.kt:451](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L451)）。launcher 图标必须是资源文件，所以这条只能破一半：破的是"要有图形资源文件"，守的是"不要二进制美术资产"——XML 能 diff、能进代码评审、改一行的改动看得出来，PNG 六档密度做不到。
 
 **为什么现在没有 monochrome 层**：起初 `<monochrome>` 直接复用纯白前景层（省一份会各自漂移的副本），代价是任何走「主题图标」的渲染会把那一层重染成主题色。装机复核（2026-10-21，V2419A 深色）：撤掉之后**桌面图标是对的**（蓝底白标记，圆形遮罩没啃到图形），这条决定就凭这一点成立 —— 它**不是**冷启动 splash 黑标记的解药，那件事另有原因，见 [§5.16](#516-深色-splash-的白标记被-rom-画成黑2026-10-21-装机裁定)。
 
@@ -289,7 +289,7 @@
 
 **代价与两处刻意**：
 - `installSplashScreen()` 必须在 `super.onCreate()` **之前**（window 级的，晚一步拦不到首帧），并且随后**显式** `setTheme(Theme.Vlive)`（[MainActivity.kt:36-40](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/MainActivity.kt#L36)）。`core-splashscreen` 在 31+ 走的是系统那条分支，而 `minSdk 31` 之后这条就是唯一一条；显式 `setTheme` 保留，是为了不把恢复时机压在库的内部行为上。
-- 入场有一条 **600ms 超时兜底**（[IosStyle.kt:153](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L153)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
+- 入场有一条 **600ms 超时兜底**（[IosStyle.kt:248](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L248)）：OEM 的 splash 分支不少，退出监听万一不回叫，没有兜底整屏就**永久**停在 alpha 0。看不见动画可以接受，看不见界面不行。
 - 入场**不读** `Settings.Global.ANIMATOR_DURATION_SCALE`：那是一次跨进程查询，与 §5.3「组合期不碰 binder」冲突。用户在系统里关掉动画时这段会不会归零，**尚未装机确认**。
 
 ### 5.12 `-v26` 这个"多余"的目录限定符不能删
@@ -314,13 +314,13 @@
 
 ### 5.14 文案全部进资源，默认语言是英文（2026-10-21 增量）
 
-**决定**：`res/values/strings.xml` 写**英文**（未限定配置），`res/values-zh/strings.xml` 写中文；`:app` 的界面上没有一个字面文案 —— 一屏、目录弹窗、Toast、失败原因短语全部走 `stringResource` / `pluralStringResource`。`:app` 唯一新增的语言相关结构是 [`MessageText`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L64)：`@StringRes id + List<Any> args`。
+**决定**：`res/values/strings.xml` 写**英文**（未限定配置），`res/values-zh/strings.xml` 写中文；`:app` 的界面上没有一个字面文案 —— 一屏、目录弹窗、Toast、失败原因短语全部走 `stringResource` / `pluralStringResource`。`:app` 唯一新增的语言相关结构是 [`MessageText`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L66)：`@StringRes id + List<Any> args`。
 
 **为什么默认给英文，而不是让中文当默认**：未匹配到任何 `values-*` 语言时拿到的是未限定配置。默认是中文的话，任何非中文环境（含 es / fr / ja，本仓库不打算伺候它们）都会**看到中文** —— 那等于把"没翻译"伪装成"翻译好了"。默认放英文，剩下的语言落到一种全球读得懂的说法上。
 
 **代价**：中文从"就是它"降级成一个 qualifier。改文案要改两个文件，漏一条就会在中文环境下掉回英文 —— 这条靠 lint 的 `MissingTranslation` 兜（当前 0 条，见 [testing.md](testing.md#本地化与深浅色没有设备时验到哪一层)）。
 
-**为什么 `UiState.globalError` 不是 `String`**（[:50](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L50)）：拼好的串会把语言焊死在状态里 —— 系统语言切换后重建的组合读到的还是上一条语言的旧文案；而且 VM 要摸 `Context` 才能拼串，`app/src/test` 那条"不引 Robolectric"的前提就没了。`args` 用 `List<Any>` 而不是 `vararg`：`data class` 的 `equals` 要能整条比较，`Array` 是引用相等。
+**为什么 `UiState.globalError` 不是 `String`**（[:51](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L51)）：拼好的串会把语言焊死在状态里 —— 系统语言切换后重建的组合读到的还是上一条语言的旧文案；而且 VM 要摸 `Context` 才能拼串，`app/src/test` 那条"不引 Robolectric"的前提就没了。`args` 用 `List<Any>` 而不是 `vararg`：`data class` 的 `equals` 要能整条比较，`Array` 是引用相等。
 
 **为什么目录别名由调用方注入**：`DirBrowser` 原来的 `presets()` 既给别名又给"要画出来的条目"，而且自己探 `/storage/emulated/0`。现在只剩 [`mergedRootEntries(aliases, children, currentPath)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L106) 与 [`displayPath(path, root, rootLabel)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/browse/DirBrowser.kt#L31) 两条**纯函数**，别名表由 [`folderAliases(root)`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L511) 用资源拼出来。理由和 §5.10 是同一条：这个文件要能在本地 JVM 上直接测，一旦去摸 `R.string` 就得把资源系统一起拖进来。
 
@@ -334,7 +334,7 @@
 
 ### 5.15 深色跟随系统，判定只有 `IosTheme` 一处（2026-10-21 增量）
 
-**决定**：颜色从 `object IosColor { val card = Color(...) }` 那种**编译期常量**搬进 [`IosPalette`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L27)（浅/深两份实例），[**唯一**一次深浅判定在 `IosTheme`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L197)：`isSystemInDarkTheme()` 选的色板同时交给自绘层（`LocalIosStyle`）和 `MaterialTheme` 的兜底色。**不做应用内开关**，跟随系统。
+**决定**：颜色从 `object IosColor { val card = Color(...) }` 那种**编译期常量**搬进 [`IosPalette`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L27)（浅/深两份实例），[**唯一**一次深浅判定在 `IosTheme`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L292)：`isSystemInDarkTheme()` 选的色板同时交给自绘层（`LocalIosStyle`）和 `MaterialTheme` 的兜底色。**不做应用内开关**，跟随系统。
 
 **为什么先把常量搬成色板**（这一条推翻原来"只有浅色"的写法）：常量把浅色的值烧进了 14 个调用点，加深色只能逐点重写、还可能只改一半；`LocalIosStyle` 让"这次运行是哪套色板"变成一个运行时取值，判定只剩一处。控件层里剩下的 `Color.White` 是有意的两处：开关旋钮与主按钮文字（蓝底上的白，深色下仍然是白）。
 
@@ -372,7 +372,7 @@
 ### 5.17 目录选择持久化：只记两个路径，采纳前先验一遍（2026-10-21 增量）
 
 **决定**：源/目标目录写进 Preferences DataStore（`vlive.preferences_pb`，应用私有目录），
-[`BatchViewModel`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L126) 只认 [`BatchSettings`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L28) 这个两方法接口 ——
+[`BatchViewModel`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L127) 只认 [`BatchSettings`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L28) 这个两方法接口 ——
 `load()` / `save()`，生产实现是 [`PreferencesBatchSettings`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/settings/BatchSettings.kt#L46)。恢复在 `init` 里由
 `viewModelScope.launch(Dispatchers.IO)` 发起，**过一遍 `isSelectable` 才采纳**。
 
@@ -385,7 +385,7 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 比忘掉一次记忆严重得多。用例：[BatchViewModelTest 的 `a stored path outside the root is never adopted`](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/BatchViewModelTest.kt)。
 
 **为什么 `restore()` 要认「用户已经选过」**：恢复是异步的（DataStore 第一次访问要开文件），
-一次慢速恢复可以把用户刚点下去的选择**覆盖回去**。[`userPickedDir`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L157) 让最近的人类意图赢，
+一次慢速恢复可以把用户刚点下去的选择**覆盖回去**。[`userPickedDir`](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchViewModel.kt#L158) 让最近的人类意图赢，
 `running` 时同样不覆盖。
 
 **为什么必须显式 `Dispatchers.IO`**（这条是实测撞出来的）：`viewModelScope` 默认落在
@@ -411,7 +411,7 @@ root 之外那种只能看不能选的串）。那种情况静默留着默认值
 
 **三条上限同时生效**（默认：单文件 512 KB、最多 4 个、合计 ≤ 2 MB、最多留 7 天）：
 写满就换文件；数量、总体积、年龄任何一条超了都往下删。只限文件数会漏掉「单个文件被写爆」，
-只限体积会留一堆空壳文件，所以两条都要。**当前正在写的这个永不删**（[planLogCleanup](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/LogRotation.kt#L21)），
+只限体积会留一堆空壳文件，所以两条都要。**当前正在写的这个永不删**（[planLogCleanup](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/log/LogRotation.kt#L24)），
 否则等于把「刚刚发生了什么」丢掉；删除顺序从旧到新，部分失败也不会在中间打洞。
 8 条用例钉着：[LogRotationTest](file:///D:/projects/piece/live-photo-batch/app/src/test/kotlin/dev/zayn/vlive/log/LogRotationTest.kt)。
 
@@ -498,7 +498,7 @@ motion 下只有 Color inversion / Dark theme / Color correction / Remove animat
 不糊了）+ 每帧一次滚动驱动的 alpha。两个代价的形状已经被代码钉住：滚动折叠区间内
 只有那条顶栏会被无效化（`alpha` 以 `State` 传进 `BatchScreen` 的私有 `GlassTitleBar`，
 不在顶层委托，见 [BatchScreen.kt:445-497](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L445)），
-弹窗的四条 inset 在它自己的窗口里现算（[IosControls.kt:551-558](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L551)）。
+弹窗的四条 inset 在它自己的窗口里现算（[IosControls.kt:560-567](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L560)）。
 
 **帧预算：量到了，两条线都超，回退已启用但没有把预算拉回来**（2026-10-22 00:00–00:10，V2419A /
 API 36 / 120 Hz）。流程按 runbook：`dumpsys gfxinfo dev.zayn.vlive reset` 先行 → 冷启动 → 12 次固定
@@ -569,7 +569,7 @@ swipe → 每个构建三遍取中位数，每遍的完整 dump 各自存盘（`
 - **一条真实缺陷（没改，按规矩报）**：弹窗顶栏的**副标题被 bar 自己的下边缘裁掉**——`Internal storage/DCIM/Camera`
   与 `内部存储/DCIM/Camera` 的下半截（`g`、`y` 的下伸部）在玻璃条的 hairline 处被切平，浅色深色、
   root 与下级都一样（`em10_sheet_root.png`、`em14_crop_bar.png`、`em41_dark_sheet_scrolled.png`）。
-  几何在 [IosControls.kt:611-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L611)：
+  几何在 [IosControls.kt:620-639](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L620)：
   bar 实高 `topInset + IosMetrics.sheetBarHeight`（52.dp），里面那列是 17.sp 标题 + 11.sp 副标题两行，
   居中后超出这一层的高度就被 `iosGlassBar` 的 `clip` 裁掉。技术债表里有一条。
 
@@ -699,11 +699,95 @@ AAR 都只要求 `minSdkVersion="23"`（`haze-blur-android` 的 POM 反向带上
 **同期修掉的相邻两条竞态**（都是为这条写测试时暴露的，见 commit `874799e`）：`userPickedDir` 一个标志位同时管源和目标，只改目标会把记住的源丢掉；而 `persist()` 是**整份**写回 `StoredPaths`，恢复还没落地时那一格在内存里仍是默认值，于是这次 save 把磁盘上记着的源覆盖成默认值 —— 源目录是在存储层丢的，不只是这一次运行没读到。现在 `persist()` 也先 join 恢复再重读状态。
 
 **怎么验的**：`DeleteJournalTest` 7 条（行格式往返、空删除不留文件、一批一文件、过期整批淘汰且**要第三批才轮到淘汰**、条数超限从旧到新、撕裂行跳过不外抛、目录写不进时吞掉）+ `BatchViewModelTest` 1 条回归（跑一批开删除的 → 再 Start 一次 → 界面上的计数归零，但文件里上一批四条路径一条不少）。装机实测（emulator-5554）：`run-as` 看到 `deleted-1792734407652.txt` 296 字节，`od -c` 确认行尾是裸 `\n`（先前看到的 `^M` 是 `adb shell` 的 PTY 转换，不是文件内容），折叠态读作 `4 files deleted`，展开列出 4 条绝对路径；深色外观看过一张。
-**没验到的一条如实说**：中文那一屏这轮没截到 —— `cmd locale set-app-locales` 在这块镜像上设不进去（`get-app-locales` 回 `[]`）。两语对齐改由 lint（无 `MissingTranslation`/`ExtraTranslation`）与键集合直接核对：`values` 与 `values-zh` 各 54 个键、无单边。
+**没验到的一条如实说**：中文那一屏这轮没截到 —— `cmd locale set-app-locales` 在这块镜像上设不进去（`get-app-locales` 回 `[]`）。两语对齐改由 lint（无 `MissingTranslation`/`ExtraTranslation`）与键集合直接核对：`values` 与 `values-zh` 各 55 个键、无单边（这一轮又加了 `err_permission_lost`）。
 
-**仍然残余**：时间上限会淘汰旧记录（选定的代价）；没有跨批次浏览；`am force-stop` 留在 `.tmp/` 的半截 `.part` 仍无人清扫，批次也仍跑在 `viewModelScope` 而不是前台服务 —— 那是审计里另一条，没在这次的范围里。
+**仍然残余**：时间上限会淘汰旧记录（选定的代价）；没有跨批次浏览；批次仍跑在 `viewModelScope` 而不是前台服务 —— 那条明确不做（要加 service 声明、通知渠道与 API 33+ 的 `POST_NOTIFICATIONS`，还会让状态栏常驻一条通知，是设计决定不是补漏）。同一天补上的另一半：`am force-stop` 留在 `.tmp/` 的半截 `.part` 现在由下一次批次清扫，见 [§5.24](#524-半截-part-交给下一次批次清扫2026-10-23-增量)。
 
 **验收**：225 个用例、0 失败、1 条既有跳过；`:app:lintDebug` 仍 9 条、同一组规则名，无新增。
+
+### 5.24 半截 `.part` 交给下一次批次清扫（2026-10-23 增量）
+
+**决定**：`BatchRunner.run()` 在两次 `ensureDir` 之后、第一项之前扫一遍 `<target>/.tmp`，删掉其中以 `.part` 结尾的普通文件。
+
+**为什么需要专门一道清扫**：`composeOne()` 的三条出路（校验拒 / rename 失败 / rename 成功）每条都删 `.part`，但前提是那次运行活到了分支上。进程被 force-stop 或被系统回收是第四种结局 —— `catch` 跑不到，半截文件就永久留在原地，而之后**没有任何代码会再看那个目录**：`BatchStorage.list()` 只列一层，`.tmp` 是目录，既进不了配对计划也不会有人来删。占的是用户存动态照片的那点空间。
+
+**判据只有名字，而且只有一个字面量**：`PART_SUFFIX = ".part"` 写进 `private companion object`，写它的人（`composeOne`）和扫它的人（`sweepStaleParts`）共用一个常量 —— 两处各写各的话，清扫会安静地什么都不知道删。范围刻意收得很窄：只碰 `<target>/.tmp` 里以它结尾的名字，那个目录本类独占；`.tmp` 里不是 `.part` 的东西、`.tmp` 之外的 `.part`（那可能是用户自己的文件）一律不动。
+
+**只在真要写东西时执行**（`plan.jobs` 非空），跟它上面那两次 `ensureDir` 是同一条不变量：一次"无事可做"的批次不许对磁盘有任何影响。读目录失败就当没得扫 —— 清扫是回收空间，不是正确性前提，没资格掀翻批次（spec §9）。
+
+**怎么验的**：`BatchRunnerTest` 3 条（孤儿被扫掉且**排在第一次 `openWrite` 之前**、越界一条都不许碰、没有 jobs 时一条都不许删）。装机实测（emulator-5554，真 `FileStorage`）：先手种 `<target>/.tmp/IMG_8888_MP.jpg.part`（24 字节）+ `.tmp/notes.txt` + `.tmp` 之外的 `stray.jpg.part`，用 8 对合成夹具跑一批（`8 succeeded · 0 skipped · 0 failed`，2 MB 写出）→ 之后 `.part` 没了，`notes.txt` 和 `stray.jpg.part` 都还在。**没验到的一条如实说**：孤儿本身是手种的，不是真跑一次 force-stop 造出来的 —— 造它需要成批的真文件当输入，而那批夹具已经不在了（见 [test-fixtures 记忆]），所以"force-stop 确实会留下孤儿"这一步是代码事实（进程死了，清理跑不到），不是测量。
+
+### 5.25 权限中途被收回：停批并说清原因，不要一屏 `IO_ERROR`（2026-10-23 增量）
+
+**决定**：`runBatch` 的取消令牌兼做权限复查 —— 每一项之前问一次 `isGranted()`，问出 false 就停，并给一条专属提示 `err_permission_lost`。`:core` 不知道权限这种东西存在。
+
+**之前是什么样**：只在 `start()` 查一次。用户去系统设置里把"全部文件访问"关掉（或被 OEM 收回）之后，剩下的每一项都撞在同一个读不出来的目录上，报告变成一整屏同质的 `IO_ERROR` —— 那堵墙既不说明原因，也把"已经提交了几个"淹掉；而且此时用户按得到"取消"却按不到任何解释。
+
+**几个定下来的点**：
+
+- **查在每一项之前**，正是 Task 8 给取消标志定的那个位置，所以停批不需要在 `:core` 里长新 API。正在写的那一项照样走完 rename 或 `.part` 清理。
+- **`permissionLost` 是普通 `var`**：`BatchRunner` 与逐项回调都在这个协程的同一线程上跑，写它的只有令牌、读它的只有收尾，没有跨线程可见性问题（不是偷懒，是这里确实没有第二个线程）。
+- **提示只有一格，先说的那条占着**：`finally` 里的媒体扫描提示现在只在 `globalError == null` 时才写。丢权限/批次中断是**原因**，"索引没确认"是它的下游后果，把原因换成后果等于把界面说糊涂。
+- **快照同步改成"没授权"**（`permissionGranted = false`），否则界面会继续宣称一切正常，直到用户下一次回到前台。
+- **用户自己按的取消不算丢权限**：令牌先看 `cancelled`，短路时连 `isGranted()` 都不问。
+
+**怎么验的**：`BatchViewModelTest` 2 条 —— 一条把权限供应器写成"第一项落账之后就是 false"（判据取 `UiState.done` 而不是"被调了几次"，将来多一处复查也不会把它变成偶发失败），断言 `total=3 / done=1`、只有一项 SUCCESS（**没有一排 IO_ERROR**）、`globalError = err_permission_lost`、没跑到的那两项源文件还在原地、产物不存在、而已提交那项的产物与两个源文件照样进扫描器（§7.6 不因中途停批放宽）；另一条 `cancel()` 后跑一批，断言 `globalError` 仍是 null。
+
+### 5.26 "最新"只许有一个键：日志轮转与"接着写哪个文件"（2026-10-23 增量）
+
+**决定**：`RollingLogTree.open()` 挑"续写哪个文件"的比较，改成与 `planLogCleanup` 逐字同一条 —— `lastModified` 升序、同分按名字。原来那里是 `maxByOrNull { it.name }`。
+
+**为什么两个键是真问题**：名字里的毫秒来自**时钟**（用户能往回拨），mtime 是**文件系统**自己盖的。分叉之后，"当前正在写的文件"和"规则说永不许删的那个文件"就不是同一个，清理可以把手上的日志从目录里抽走 —— 之后的行写进一个没人认识的 inode，静默丢掉一段上下文。
+
+**为什么选 mtime 而不是反过来让 `planLogCleanup` 按名字排**：`planLogCleanup` 是两条通道共用的纯函数（日志与删除凭据），改它的排序会同时改两份保留策略；而 `open()` 只有一处。而且 mtime 才是"最近被写过"的字面意思。
+
+**顺带查清、没改的一条**：`nextName()` 用 `%013d` 定宽，同一毫秒重启会续写同一个文件 —— 这在文档里本来就写着是**可接受**，且一次轮转要写满 512 KB，撞在同一毫秒里没有实际路径。审计把它列成"同毫秒撞名"，量下来不是缺陷，故只把注释改准（别再拿名字当"哪个最新"的判据），代码不动。
+
+**怎么验的**：新增 `RollingLogTreeTest`（`:app` 本地 JVM，不需要 Robolectric：这个类只用到 `Log` 的 `static final int` 常量，其余是 `java.io.File` + 一条后台线程，`dir`/`clock` 都是构造参数；`log()` 是 `protected`，所以走公共入口 `Timber.plant` + `Timber.i`）。两个文件刻意让两个键互相矛盾（`log-1000.txt` mtime 新、`log-9000.txt` 名字大），断言写进前者。改之前这条测试是红的（写进了 `log-9000.txt`）。
+
+### 5.27 弹窗顶栏改成一条 Row：让位靠布局，不靠写死的 76dp（2026-10-23 增量）
+
+**决定**：`IosSheet` 顶栏那一层从"三段各自 `align` 到同一个 Box"改成一条 `Row`：`关闭 / 标题段 weight(1f) / 选这里`。`IosMetrics.sheetBarActionReserve = 76.dp` 随之**删掉**（它没有别的消费方，留着只会让人以为还需要它）。
+
+**之前是什么样**：标题两侧各让 76dp 给两颗文字按钮。可按钮的实宽是"字宽 + 32dp 内边距"，英文 `Choose here` 那侧要 110dp 左右 —— 76dp 让不出来，标题末字符就直接压在按钮的字上。写死的数字在这里注定输：它得跟着语言与字号走。
+
+**顺带修掉一处注释与画面相反**：原来的声明顺序是 BarAction、BarAction、标题 Column，Box 按声明序绘制 ⇒ 盖在上面的是标题，而注释写的是"被压住的是标题不是按钮"。
+
+**代价如实写**：标题现在是在"两颗按钮之间"居中，不再是在整条 bar 上严格居中；两种语言的按钮字宽不同，标题会跟着偏几 dp。这比两块字叠在一起轻。
+
+**怎么验的**：装机实测（emulator-5554 / 1080×2400 / 英文 / root 与下级各看过）—— 标题 `Camera` 的字占 396..542px，右侧 `Choose here` 从 790px 起笔，**净空 248px ≈ 94dp**，标题中心 469px 正好落在两颗按钮之间那段的中点上。宽屏那一档也量了（`wm size 2400x1080` → 914dp 宽）：弹窗整体仍封在 `contentMaxWidth` 里，bar 三段照旧不打架。**真机也量了一次**（Brain BGX5 / Android 15 / 1080×2392@420 / 深色 / 中文）：标题 444..592px，右侧 `选这里` 从 908px 起笔，**净空 316px ≈ 120dp**，标题中心 518px 与"两颗按钮之间"的中点 517px 差 1px。中文那侧的按钮字更短（`选这里` 3 字 < `Choose here`），所以英文是最坏情况，结构上由 `weight(1f)` + `maxLines = 1` + `Ellipsis` 保证不再可能重叠。
+
+### 5.28 开关整行是 toggleable，不是标题那几个字（2026-10-23 增量）
+
+**决定**：`SwitchRow` 的点击从标题 `Text` 搬到整条 `Row`，并且用 `Modifier.toggleable(value = checked, role = Role.Switch, …)` 而不是 `clickable(role = Switch)`。
+
+**之前是什么样**：`clickable` 挂在 `Text` 上，于是行高方向那 6dp padding、标题与开关之间那 8dp 缝、卡片到屏幕边的余量全都不响应 —— 用户按着一行的空白处什么也不会发生。读屏那边更糟：`clickable(role = Switch)` 只给角色不给状态，TalkBack 说得出"开关，双击以激活"，说不出它现在是开还是关。
+
+**为什么是 `toggleable`**：它把 `ToggleableState`（开/关）连同角色一起写进语义节点，正是缺的那一半。签名先 `javap` 过 `foundation-android:1.12.1` 再写（`androidx.compose.foundation.selection.ToggleableKt`，`toggleable-O2vRcR0`）。开关本体那颗仍是独立的点击目标 —— Compose 先命中子节点，两者不抢。
+
+**怎么验的**：装机实测（emulator-5554）。`uiautomator dump` 里那一行现在是 `android.view.View` `checkable="true" checked="false" clickable="true"`，bounds `[42,674][1038,810]`（整行 996×136px），而标题 `TextView` 自己变成 `clickable="false"` —— 状态与角色都落在整行上。交互也按了一次真的：点在 `[42,674]` 那 16px 的 padding 带上（`input tap 500 680`，在旧代码里是死区）→ 轨道变系统红、圆点走到右端、标题转红、下方警告行出现。**真机同一套再走一遍**（Brain BGX5 / Android 15 / 深色 / 中文）：那一行 bounds `[42,710][1038,836]`，`input tap 500 720` 落在文字上方那条 31px 的 padding 带里（旧代码的死区）→ `uiautomator` 回 `checked="true"`，像素上圆点从 x=867..937 走到 **x=920..990（+53px ≈ 20dp，正是设计的行程）**、左侧轨道读作 `(255,69,58)` 系统红；再按一次回到 `checked="false"` 且圆点回到 867..937。这一台也是**深色外观下第一次对这颗圆点做出有效观察**（此前只有浅色，见 testing.md 那条缺口）。
+
+### 5.29 这一轮被推翻的两条审计结论
+
+上一轮审计列了 4 条 UI/健壮性结论，装机与查库之后有两条不成立，记下来免得下一轮再被同一份清单端上来。
+
+- **"`GlassTitleBar` 少了 `widthIn(max = contentMaxWidth)`"** —— 不是缺陷。`IosMetrics.contentMaxWidth` 那条注释列的三个消费方（主屏内容层、主屏底部操作栏、弹窗那层 Box）**从来不含主屏顶栏**，spec §"通栏的两条 bar 用 0dp"要的就是它贴住左、右、上三条屏幕边。914dp 宽实测（`wm size 2400x1080`）：卡片封在 640dp（1595px 宽）而顶栏玻璃铺满 0..2400px，底下滚过的内容**整条都被抹平**。真给它套上封顶，两侧就会各露出一段没糊的字，中间糊、两边不糊 —— 那才是缺陷。已在 `contentMaxWidth` 的 KDoc 与 `GlassTitleBar` 的调用点各写一句"这里不套是刻意的"。
+- **"`BatchSettings` 只 catch `IOException`，损坏文件抛的 RuntimeException 会穿出去"** —— 量了签名，不成立。`javap` 过 datastore-core / datastore-preferences-core 1.2.1：`PreferencesSerializer.readFrom/writeTo` 声明的抛出面是 `IOException, CorruptionException`，而 `CorruptionException extends java.io.IOException` —— "文件坏了"和"磁盘坏了"落在同一只手臂里。唯一的 RuntimeException 来源 `IllegalStateException("multiple DataStores active")` 需要两个持有者同时开同一个文件，而 `preferencesDataStore` 委托属性就是那个"每进程一个持有者"的机制。所以这里**不加**宽捕获（那是没有故障路径的保险），只把这段判据写进代码注释。
+
+### 5.30 主屏锁竖屏（2026-10-24 增量）
+
+**决定**：`MainActivity` 加 `android:screenOrientation="portrait"`。
+
+**为什么**：这一屏是竖版单屏设计 —— 卡片、两条玻璃 bar、目录弹窗全按手机竖屏排，横向一套布局都没有。锁掉还顺带挡住转屏带来的整窗重建：入场动画与 splash 衔接会从头再走一遍。折叠屏内屏太宽那个真问题由 `IosMetrics.contentMaxWidth` 封顶解决（[§5.29](#529-这一轮被推翻的两条审计结论) 那条已经写过顶栏为什么不套它），不靠横屏。
+
+**两条 lint 是量出来才加的，不是预防性的**：只加 `screenOrientation` 时 `:app:lintDebug` 从 9 条变 11 条 —— `LockedOrientationActivity`（Google 对 ChromeOS/大屏的通用建议）与 `DiscouragedApi`。加上 `tools:ignore="LockedOrientationActivity,DiscouragedApi"` 之后回到**恰好 9 条、同一组规则名**，基线没被稀释。
+
+**`DiscouragedApi` 那句原文值得记下来**：「固定屏幕方向在 Android 16 起多数情况下会被忽略，系统转向要求应用适应不同方向、尺寸与宽高比」。这不是套话，是这条属性的生效边界：
+- 今天这台是 **API 35**，属性照旧生效；
+- 真到 API 36 上还想锁住，文档口径的路子是 `android:resizableActivity="false"`。它**没加**，因为那条不只管方向 —— 它同时改掉分屏与折叠屏上的可调整行为，是另一个设计决定；而且本项目一条既有的规矩是"没有故障路径就不留保险"。等真在 16 的机器上看到它转，再按那条决定一次。
+
+**怎么验的**：`aapt2 dump xmltree --file AndroidManifest.xml app-debug.apk` 读回 `android:screenOrientation(0x0101001e)=1`（= PORTRAIT，确认锁是**发进包里**的，不只是源码里有）；真机 Brain BGX5 / Android 15 装上并起得来。
+**"横过来它不转"这一步是靠手验的，不是靠 adb**：这台 ROM 不采纳 `settings put system user_rotation` —— 写进去读回来确实是 1、`accelerometer_rotation` 也置了 0，但连桌面都仍停在 `mCurrentOrientation=0`，所以"系统请求横屏、本应用拒绝"这组对照在命令行里造不出来。改由**手转这台 Brain BGX5（Android 15）确认：界面不转**（2026-10-24，装机复核人是 Zayn 本人）。测完把两个设置写回原值（`user_rotation=0`、`accelerometer_rotation=1`）。**API 36 那一档仍未验**，边界与理由写在上面。
 
 ## 6. 构建与 CI
 
@@ -788,16 +872,17 @@ CI 之外的本机构建时）。
 | `ByteArraySource` 住在 `:core` 的 **main** sourceSet，只有测试用 | [Sources.kt:20](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/Sources.kt#L20) | 移进 test，或明确它是有意的公开测试工具 |
 | `compose-ui-tooling` 在依赖表里但没有任何 `@Preview` | [libs.versions.toml:18](file:///D:/projects/piece/live-photo-batch/gradle/libs.versions.toml#L18) | 要么用起来，要么删依赖 |
 | `PermissionGate.of(context)` 的 `context` 参数未使用，靠 `@Suppress("UNUSED_PARAMETER")` | [PermissionGate.kt:44-45](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/perm/PermissionGate.kt#L44) | 真需要按包名查询时再展开 |
-| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:195](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L195) | 收拢间距或删令牌 |
-| 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:201-228](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L201) | 进 `IosMetrics` |
+| `IosMetrics.sectionGap` 在控件层内部没被使用（间距交给调用方） | [IosStyle.kt:192](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L192) | 收拢间距或删令牌 |
+| 控件层散落魔法数字（开关尺寸、导航栏高、若干内边距） | [IosControls.kt:210-237](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L210) | 进 `IosMetrics` |
 | 真机语料不在仓库，格式回归不可复现 | 只有合成夹具 | 加一份 golden 文件 + 断言测试 |
 | 无计时/性能测试，"100 张 15 秒"只是注释里的动机 | [JpegStructure.kt:100-102](file:///D:/projects/piece/live-photo-batch/core/src/main/kotlin/dev/zayn/vlive/core/JpegStructure.kt#L100) | 要提速先测 |
 | 图标观感、入场时序、系统关动画时是否归零 —— 全部未装机确认 | 只验到「资源进包 + 编译 + 205 条 JVM 测试绿（145 `:core` + 60 `:app`）+ lint」这一层 | 装机看一次：桌面图标（含圆形遮罩与主题图标）、冷启动 logo→内容的衔接 |
-| `RollingLogTree` 与 `PreferencesBatchSettings` 没有自动化测试 | 测到的只有决策函数（`planLogCleanup`、`restore`/`save` 走的是内存假实现）；真的写文件与真的 DataStore 都要 `Context` | 要么补 `:app` 的仪器化测试（`androidTest` 里已经有一条 `FileStorageTest` 的先例），要么把「装机看 `run-as` 目录」固定成验收步骤 —— 现在选的是后者，见 testing.md 的缺口表 |
+| `PreferencesBatchSettings` 没有自动化测试（`RollingLogTree` 的那条已经补上，见下一行） | 真的 DataStore 要 `Context`。它的故障面改由签名量清：`readFrom/writeTo` 只声明 `IOException, CorruptionException`，后者 `extends IOException`（[§5.29](#529-这一轮被推翻的两条审计结论)） | 要么补 `:app` 的仪器化测试（`androidTest` 里已有 `FileStorageTest` 先例），要么维持"装机看 `run-as` 目录"当验收 —— 现在选的是后者 |
+| `RollingLogTree` 只有决策函数被测 | 2026-10-23 补了 `RollingLogTreeTest`：本地 JVM 驱动 `Timber.plant` + 真 `File`，钉住"续写哪个文件"与 `planLogCleanup` 认的是同一个键（[§5.26](#526-最新只许有一个键日志轮转与接着写哪个文件2026-10-23-增量)）。没测到的仍是那三样上限的**真文件**淘汰与写线程时序 | 同一行上面那条的两种手段任选其一即可覆盖 |
 | lint 有 9 条 information 级基线，而且 **CI 不跑 lint** | 手动 `:app:lintDebug` 的结果；其中一条是[被迫保留的 `-v26`](#512--v26-这个多余的目录限定符不能删)（也是 `ObsoleteSdkInt` 唯一剩下的一条），两条是[刻意撤销的 monochrome 层](#511-图标与启动过渡2026-10-21-增量)，一条是 `report_summary` 的 `PluralsCandidate` **误报**（见 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量)） | 要收口就把 `lintDebug` 加进 CI 并逐条处置，别整类静音 |
 | `:core` 的异常文案仍是**中文**，`err_batch_aborted` 会把 `e.message` 当参数拼进本地化句子 | 英文提示里会嵌一句中文（`BatchRunner` / `JpegXmpPatcher` / `XmpPacket` 那几条抛出都走这条路）。`MediaStoreSync` 那两条已经随日志层收敛到 `Timber`（[§5.18](#518-日志写进应用私有目录三条上限一条写线程2026-10-21-增量)），它们只进日志文件、不进 UI，所以不再是本地化缺陷 | 抛出消息属于「给开发者读」的边界：要么也改成英文（同 [§5.14](#514-文案全部进资源默认语言是英文2026-10-21-增量) 里 `ensureDir` 的处理），要么在 VM 侧只报枚举/类名而不报 `message` |
-| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:199](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L199)、[:222](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L222) 与 [:290](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L290) | 令牌 [IosStyle.kt:138](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L138) 已就位，改这两处即可对齐 |
-| **弹窗顶栏的副标题被 bar 自己的下边缘裁掉**（2026-10-22 装机实测，浅色深色、root 与下级都一样） | 标题列是 17.sp + 11.sp 两行、居中在 `sheetBarHeight = 52.dp` 里，超出部分被 `iosGlassBar` 的 `clip` 切平：`D:/tmp/em14_crop_bar.png`。位置 [IosControls.kt:611-647](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L611)、[IosStyle.kt:223](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L223) | 要么把 bar 抬到装得下两行（同时改列表那段 `top = barHeight` 留白），要么副标题只在单行高度里显示；装机时按 `D:/tmp/em14_crop_bar.png` 那种 3× 裁图复核 |
+| `IosControls` 里仍有散装动效字面量（220/180ms）和一处非 lambda 的 `offset` | [IosControls.kt:208](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L208)、[:231](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L231) 与 [:299](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L299) | 令牌 [IosStyle.kt:233](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L233) 已就位，改这两处即可对齐 |
+| **弹窗顶栏的副标题被 bar 自己的下边缘裁掉**（2026-10-22 装机实测，浅色深色、root 与下级都一样）—— **2026-10-23 同一台模拟器重测：不再复现，但机制没查明，别当已修复** | 当时：`D:/tmp/em14_crop_bar.png` 里副标题下沿被切平。今天（emulator-5554 / 1080×2400 / 英文 / root）：副标题最后一行像素在 y=240，bar 的下沿 hairline 在 y=271，**净空 31px ≈ 12dp**。**真机同一把尺子（Brain BGX5 / Android 15 / 深色 / 中文）也不复现**：副标题末行 y=190、bar 下沿 y=261，**净空 71px ≈ 27dp**。这一轮只改了顶栏的横向布局（[§5.27](#527-弹窗顶栏改成一条-row让位靠布局不靠写死的-76dp2026-10-23-增量)），竖向几何与当时逐条相同，所以"是它治好的"这句话说不出口 | 下次装机按同一把尺子再量一次（副标题末行 vs hairline 行）；真复发就照建议二选一：把 bar 抬到装得下两行（同时改列表那段 `top = barHeight` 留白），或副标题只在单行高度里显示 |
 | **底部操作栏不糊之后，卡片文字从它底下透出来和按钮文字打架**（回退的已知代价，不是回归） | `iosGlassTray` 只画 tint，不再抹平底下的内容：`D:/tmp/em20_light_en_titlebar_in.png`、`em40_dark_en_scrolled.png`、`em71_tray_tap.png` 三种状态都拍到了 | 唯一允许的调法是 spec §1.3 那张预设表里的 `tint` alpha（调用点不许写散装 alpha）；改完必须重跑 §3.4 第 1/2 条并给出前后截图。本轮没改 |
 | **高对比那一列 accent 至今没被任何设备渲染过**：API 够到了，信号没送到 | 模拟器 API 36 上把 `accessibility_high_text_contrast_enabled` 写成 1、冷启动后取样像素与 0 时逐点相同（见 [§5.19](#519-玻璃只给三条浮动-bar卡片与按钮不各自糊一层2026-10-21-增量) 的那四张图），这一版 Settings 也没有"高对比文字"这一行 | 换一台 ROM 真带这个开关的机器再验一次；要能在 CI 里钉住，就得把"读信号"抽成可注入的谓词（现在它是 `IosTheme` 里的一次 `getSystemService`） |
 

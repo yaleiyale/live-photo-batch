@@ -54,7 +54,7 @@
 
 ### 1.3 新增的数据结构
 
-放在 [IosStyle.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt) 里，与 `IosPalette` 并排，由同一个 `IosTheme` 的单次深浅判定一起发出去——**判定仍然只有 [IosStyle.kt:295-321](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L295) 这一处**，不许出现第二个 `isSystemInDarkTheme()`。
+放在 [IosStyle.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt) 里，与 `IosPalette` 并排，由同一个 `IosTheme` 的单次深浅判定一起发出去——**判定仍然只有 [IosStyle.kt:293-319](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L293) 这一处**，不许出现第二个 `isSystemInDarkTheme()`。
 
 ```kotlin
 /** 一块玻璃的全部参数。只服务浮动控件（两条 bar + 弹窗顶栏）与 tinted 按钮。
@@ -84,7 +84,7 @@ data class GlassMaterial(
 
 ### 1.4 按钮按苹果的四档按钮规范
 
-苹果当前的按钮样式是 **Filled / Tinted / Gray / Plain**，醒目操作是 **Tinted**（accent 着色的半透明块），不是实心色块。对应到 [IosControls.kt:231](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L231) 现有的 `enum class IosButtonStyle`：
+苹果当前的按钮样式是 **Filled / Tinted / Gray / Plain**，醒目操作是 **Tinted**（accent 着色的半透明块），不是实心色块。对应到 [IosControls.kt:240](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L240) 现有的 `enum class IosButtonStyle`：
 
 | 现有 | 改成 | 画法 |
 | --- | --- | --- |
@@ -94,7 +94,7 @@ data class GlassMaterial(
 
 放在实心卡片里的按钮（目前只有权限卡里那颗"授予"，[BatchScreen.kt:162-168](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt#L162)）用同一套画法：Tinted 的填充是固定 alpha 的 accent，压在实心白卡上读作柔和的着色块，压在玻璃上读作 tinted glass——**一份实现，两处都对**，因此不为它加"在 bar 里/不在 bar 里"的分支。
 
-**禁用态**沿用现有思路（淡文字，主按钮淡底），[IosControls.kt:250-251](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L251) 那段"禁用态只淡填充与文字，不动结构"的注释在玻璃上更加成立，所以玻璃控件的禁用态**只动文字与 tint 的 alpha，不动模糊**。
+**禁用态**沿用现有思路（淡文字，主按钮淡底），[IosControls.kt:259-260](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L260) 那段"禁用态只淡填充与文字，不动结构"的注释在玻璃上更加成立，所以玻璃控件的禁用态**只动文字与 tint 的 alpha，不动模糊**。
 
 **着色只给三种状态**：主操作、选中态、需要注意（错误/警告）。filter chip 选中、"取消"、进度条、状态点这些已经用色的地方保持现在的语义，不因为这次改造而扩大 accent 的覆盖面。
 
@@ -183,7 +183,7 @@ fun titleBarAlpha(scrollY: Int, collapseRange: Int): Float =
 
 `开始合成`（Tinted）与`取消`（清澈玻璃）**同一行**：主按钮占剩余宽度，取消按钮固定在右侧、未运行时禁用（保持今天"禁用而不是隐藏"的语义，用户随时看得见自己能不能取消）。
 
-- 内容高度 = `IosMetrics.buttonHeight`（50.dp，[IosStyle.kt:204](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L204)）+ 上下各 12.dp = 74.dp；
+- 内容高度 = `IosMetrics.buttonHeight`（50.dp，[IosStyle.kt:208](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosStyle.kt#L208)）+ 上下各 12.dp = 74.dp；
 - 水平内缩 16.dp，`radius = IosMetrics.glassRadius`（30.dp，刻意小于半高，读作苹果的连续圆角而不是胶囊）；
 - 底部留白 = `IosMetrics.barBottomGap`（8.dp）+ 导航栏 inset；
 - 入场动效：bar 的容器**沿用腾出来的序号 5**。搬出去之后不需要给后面的 6/7/8 重编号——序号只是延迟倍数，保留原值等于保留现有节奏，[BatchScreen.kt](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/BatchScreen.kt) 里其余调用点一个都不动。
@@ -218,11 +218,11 @@ inset 一律现算，不许写死 dp。**实测校正（Task 6/7/8）**：落地
 
 ### 2.5 目录弹窗：第二个 haze source，玻璃不许叠玻璃
 
-`IosSheet` 是 `Dialog`——**独立窗口**，拿不到主屏那个 source 的位图，所以它必须自己注册一个 `hazeSource`（给弹窗内的列表），顶栏（[IosControls.kt:611-615](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L611) 那个 52.dp 的 `Box`）是这块新 source 的唯一消费者。
+`IosSheet` 是 `Dialog`——**独立窗口**，拿不到主屏那个 source 的位图，所以它必须自己注册一个 `hazeSource`（给弹窗内的列表），顶栏（[IosControls.kt:620-624](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L620) 那个 52.dp 的 `Box`）是这块新 source 的唯一消费者。
 
 两条硬约束：
 
-1. 弹窗整体仍然是实心 `groupedBackground` 表面（[IosControls.kt:526](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L526) 不变）——**主屏的玻璃不铺到弹窗里**，弹窗顶栏也不叠在另一块玻璃上；
+1. 弹窗整体仍然是实心 `groupedBackground` 表面（[IosControls.kt:535](file:///D:/projects/piece/live-photo-batch/app/src/main/kotlin/dev/zayn/vlive/ui/IosControls.kt#L535) 不变）——**主屏的玻璃不铺到弹窗里**，弹窗顶栏也不叠在另一块玻璃上；
 2. 两个 `HazeState` 必须是两个实例（各自 `remember`），共用一个会把主屏的位图当成弹窗的模糊源，跨窗口只会得到空白或错位。
 
 还有一条是几何，不补就会做出一个"糊空气"的顶栏：现在弹窗里顶栏和列表是**竖着排**的（顶栏占 52.dp，列表从它下面开始），所以顶栏底下没有任何可糊的东西。要做成 §2.1 那种叠层——列表从弹窗顶部铺满、顶栏压在它上面、列表在同一条 `verticalScroll` 之后用 `padding(paddingValues = PaddingValues(top = 状态栏 inset + 顶栏高))` 把第一行让出来（同样没有 `contentPadding` 形参可用）。`IosSheet` 的签名与 `rowsFor`/换层动画都不受这件事影响。
