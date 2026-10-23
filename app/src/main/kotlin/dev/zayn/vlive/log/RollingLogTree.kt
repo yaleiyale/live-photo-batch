@@ -93,7 +93,11 @@ class RollingLogTree(
             prune()
             // 这里要的是 File（取长度、续写），不是 logs() 那份喂给 planLogCleanup 的摘要。
             val candidates = dir.listFiles()?.filter { it.isFile && isLogName(it.name) }.orEmpty()
-            val newest = candidates.maxByOrNull { it.name }
+            // "最新"在本类里只允许有一个键，就是 [planLogCleanup] 用的那个：lastModified 升序、同分按名字。
+            // 曾经这里写的是 `maxByOrNull { it.name }`，于是"接着写哪个文件"和"哪个文件永不许删"
+            // 是两个答案——名字来自时钟，mtime 是文件系统自己盖的，系统时间被往回拨过一次它们就分叉，
+            // 而分叉的代价是清理可以把手上正在写的文件从目录里抽走，之后的日志写进一个没人认识的 inode。
+            val newest = candidates.maxWithOrNull(compareBy({ it.lastModified() }, { it.name }))
             val file = if (newest != null && newest.length() < maxFileBytes) newest else File(dir, nextName())
             written = file.length()
             BufferedWriter(FileWriter(file, true)).also { writer = it }
@@ -136,7 +140,11 @@ class RollingLogTree(
 
     private fun isLogName(name: String): Boolean = name.startsWith(PREFIX) && name.endsWith(SUFFIX)
 
-    /** 名字里的毫秒数定宽，所以字典序 == 时间序；同一毫秒重启就续写同一个文件，可接受。 */
+    /**
+     * 名字里的毫秒数定宽（`%013d`），所以文件名本身就是一段可读的时间，同一毫秒内也不会撞出两个名字；
+     * 同一毫秒重启就续写同一个文件，可接受。
+     * 但**别拿名字当"哪个最新"的判据**：[open] 和 [planLogCleanup] 认的是 mtime，理由写在上面那段里。
+     */
     private fun nextName(): String =
         PREFIX + String.format(Locale.US, "%013d", clock()) + SUFFIX
 

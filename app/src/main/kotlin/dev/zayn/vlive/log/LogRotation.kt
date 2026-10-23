@@ -17,6 +17,9 @@ data class LogFile(val name: String, val bytes: Long, val lastModified: Long)
  * 1. **最新的那个文件永远不删**，哪怕它自己就超过 [maxTotalBytes]。它是当前这一轮正在写的，
  *    删了等于把"刚刚发生了什么"丢掉，而轮转（写满就换文件）本来就会把它压在上限附近；
  * 2. 删除顺序是**从旧到新**（`lastModified` 升序，同分按名字），所以留下的永远是最近的上下文。
+ *    这个键是**唯一**的一份：`RollingLogTree.open` 挑"接着写哪个文件"用的就是同一个比较，
+ *    两边一旦各认各的（名字 vs mtime），"永不删的那个"和"正在写的那个"就不是同一个文件，
+ *    清理会把手上的日志抽走。
  */
 fun planLogCleanup(
     files: List<LogFile>,
