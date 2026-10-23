@@ -136,6 +136,60 @@ class BatchRunnerTest {
         )
     }
 
+    /**
+     * 一次运行被 force-stop / 低内存回收掀掉时，[BatchRunner] 的 `catch` 与 §7.5 的清理都来不及跑，
+     * 半截 `.part` 就永久躺在 `<target>/.tmp/` 里占空间——没有任何东西会再去看那个目录
+     * （`list` 只列一层，`.tmp` 是目录，所以它既不会被配对也永远不会被删）。
+     * 下一次开工先清扫：这些名字只可能是死掉的运行留下的，本次运行的 `.part` 此刻还不存在。
+     */
+    @Test fun `a stale part file left by a dead batch is swept before anything is written`() {
+        val stale = "/t/.tmp/IMG_old_MP.jpg.part"
+        val storage = RecordingStorage(InMemoryStorage(mapOf(
+            stale to ByteArray(7), "/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video,
+        )))
+        val runner = BatchRunner(storage)
+        val report = runner.run(runner.plan(options()), options(), NoCancel) { }
+        assertEquals(ItemStatus.SUCCESS, report.items.single().status)
+        assertFalse(storage.memory.exists(stale), "上一辈子留下的半截文件还在：${storage.memory.tmpFiles}")
+        val swept = storage.calls.indexOfFirst { it == "delete:$stale=true" }
+        val wrote = storage.calls.indexOfFirst { it.startsWith("openWrite") }
+        assertTrue(swept in 0 until wrote, "清扫没有走在第一次写入之前：${storage.calls}")
+    }
+
+    /**
+     * 清扫的范围就是"`.tmp` 里以 `.part` 结尾的名字"，一条边都不许多越：
+     * 同目录里别的文件可能是人放进去的，`.tmp` 之外的 `.part` 更是用户数据。
+     */
+    @Test fun `the sweep deletes only part files inside the tmp directory`() {
+        val stale = "/t/.tmp/IMG_old_MP.jpg.part"
+        val otherInTmp = "/t/.tmp/notes.txt"
+        val partInTarget = "/t/IMG_borrowed_MP.jpg.part"
+        val partInSource = "/s/IMG_user.jpg.part"
+        val (runner, storage) = runnerWith(
+            stale to ByteArray(3), otherInTmp to ByteArray(3),
+            partInTarget to ByteArray(3), partInSource to ByteArray(3),
+            "/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video,
+        )
+        val report = runner.run(runner.plan(options()), options(), NoCancel) { }
+        assertEquals(ItemStatus.SUCCESS, report.items.single().status)
+        assertFalse(storage.exists(stale), "该扫的没扫掉")
+        assertTrue(storage.exists(otherInTmp), "清扫越界：删掉了 .tmp 里不是 .part 的文件")
+        assertTrue(storage.exists(partInTarget), "清扫越界：删掉了 .tmp 之外的 .part")
+        assertTrue(storage.exists(partInSource), "清扫越界：删掉了来源目录里的文件")
+    }
+
+    /**
+     * 没有任何项要写的时候，`run` 对磁盘一个字节都不碰——这是既有的不变量（NO_PAIR 行不建目录），
+     * 清扫也守它：一次"无事可做"的点击不该顺手删掉别人的文件。
+     */
+    @Test fun `a batch with nothing to compose sweeps nothing`() {
+        val stale = "/t/.tmp/IMG_old_MP.jpg.part"
+        val (runner, storage) = runnerWith(stale to ByteArray(7), "/s/IMG_a.mp4" to video)
+        val report = runner.run(runner.plan(options()), options(), NoCancel) { }
+        assertEquals(FailureReason.NO_PAIR, report.items.single().reason)
+        assertTrue(storage.exists(stale), "计划里没有要合成的项，就不该发生删除")
+    }
+
     @Test fun `already motion photo items are skipped and keep originals`() {
         val embedded = Fixtures.app1(Fixtures.XAP, XmpPacket.motionPhoto(10L))
         val dirty = Fixtures.jpeg(headSegments = listOf(embedded, Fixtures.sof0()))

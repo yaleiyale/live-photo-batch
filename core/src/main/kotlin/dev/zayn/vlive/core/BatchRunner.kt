@@ -34,7 +34,7 @@ object NoCancel : CancelToken { override fun cancelled() = false }
  * （配不上对的 NO_PAIR 行也算一项，见 [run] 的两个循环）。
  *
  * 每一项的生命周期只有三条出路，三条都执行 `.part` 清理（清理自己万一抛出，只留一个垃圾文件，
- * 见下面第四段）：
+ * 见下面讲 `catch` 的那一段）：
  * - 校验/合成被拒（[ComposeResult.Failure]）→ 无条件删 `.part` → 原因在 [SKIPPABLE] 里
  *   记 SKIPPED，否则记 FAILED；
  * - 合成成功但 rename 失败（[BatchStorage.move] 返回 false）→ 删 `.part` → FAILED(IO_ERROR)，
@@ -42,6 +42,9 @@ object NoCancel : CancelToken { override fun cancelled() = false }
  * - rename 成功 → **本项当场提交**，先建出 SUCCESS，然后才（在 `deleteOriginals` 下）依次
  *   删图、删视频；删除无论是 false 还是抛出来都只进 [ItemResult.deleteFailures]，
  *   没有一条路径能回头把 SUCCESS 改写成 FAILED（spec §7.5 把它当警告）。
+ *
+ * 上面三条的前提是那次运行还活着。进程被 force-stop 或被系统回收是第四种结局：三条出路一条都
+ * 走不到，`.part` 留在原地，而那一次没人收尾。收尾由**下一次**运行的 [sweepStaleParts] 补做。
  *
  * `catch` 分支与 `.part` 清理同理：清理自己万一抛出，最多留一个垃圾文件，
  * 不允许穿出 [run]——[run] 的契约是必定返回一份 [BatchReport]（spec §9：单项失败不中断批次）。
@@ -90,6 +93,7 @@ class BatchRunner(private val storage: BatchStorage) {
         if (plan.jobs.isNotEmpty()) {
             storage.ensureDir(options.targetDir)
             storage.ensureDir("${options.targetDir}/.tmp")
+            sweepStaleParts(options.targetDir)
         }
 
         for (job in plan.jobs) {
@@ -107,7 +111,7 @@ class BatchRunner(private val storage: BatchStorage) {
         val imagePath = "${options.sourceDir}/${job.imageName}"
         val videoPath = "${options.sourceDir}/${job.videoName}"
         val finalPath = "${options.targetDir}/${job.outputName}"
-        val tmpPath = "${options.targetDir}/.tmp/${job.outputName}.part"
+        val tmpPath = "${options.targetDir}/.tmp/${job.outputName}$PART_SUFFIX"
         return try {
             val result = storage.openWrite(tmpPath).use { sink ->
                 MotionPhotoComposer.compose(storage.open(imagePath), storage.open(videoPath), sink)
@@ -197,6 +201,33 @@ class BatchRunner(private val storage: BatchStorage) {
         ItemResult(job.stem, job.outputName, ItemStatus.FAILED, FailureReason.IO_ERROR, 0, emptyList())
 
     /**
+     * 扫掉上一次运行留下的孤儿 `.part`。
+     *
+     * 为什么需要专门一道清扫：[composeOne] 的三条出路都删 `.part`，但"三条出路"的前提是那次运行
+     * 活到了分支上。真实设备上还有第四条——进程被 force-stop 或被系统回收，`catch` 与清理都来不及跑，
+     * 半截文件就永久留在 `<target>/.tmp/`。之后没有任何东西会再看它一眼：[BatchStorage.list] 只列一层，
+     * `.tmp` 是目录，既进不了配对计划，也不会有人来删。占的就是用户存动态照片的那点空间。
+     *
+     * 判据只有名字：`<target>/.tmp` 里以 [PART_SUFFIX] 结尾的普通文件。这个目录由本类独占写入
+     * （[composeOne] 只往里面写 `.part`），所以里面的 `.part` 只可能是死掉的运行留下的；
+     * 本次运行的 `.part` 在清扫之后才被创建，不可能被误删。
+     * 目录里**不是** `.part` 的东西一律不碰，`.tmp` 之外的 `.part` 更不碰——那可能是用户自己的文件。
+     *
+     * 只在真要写东西时执行（`plan.jobs` 非空），和它上面的两次 `ensureDir` 同一条不变量：
+     * 一次"无事可做"的批次不许对磁盘有任何影响。读目录失败就当没得扫——清扫是回收空间，
+     * 不是正确性前提，没有资格掀翻批次（spec §9）。
+     */
+    private fun sweepStaleParts(targetDir: String) {
+        val tmpDir = "$targetDir/.tmp"
+        val stale = try {
+            storage.list(tmpDir).mapNotNull { if (it.name.endsWith(PART_SUFFIX)) "$tmpDir/${it.name}" else null }
+        } catch (e: Exception) {
+            return
+        }
+        for (path in stale) deleteQuietly(path)
+    }
+
+    /**
      * [BatchStorage.delete] 的接口契约只返回 true/false（Task 7 定的，Task 9 落地时必须守住），
      * 但 `run` 的契约是**必定返回一份 [BatchReport]**：真实实现万一抛出，清理失败最多留一个
      * 垃圾 `.part`，没资格把整批掀翻（spec §9）。返回 false 的意思是"到这里为止没能确认它没了"。
@@ -213,5 +244,11 @@ class BatchRunner(private val storage: BatchStorage) {
         // FAILED —— 尤其 MALFORMED_JPEG：Task 2 的 Cursor 会把 IOException 折叠成
         // Malformed，若把它算作跳过，真实磁盘故障会被埋进"坏文件"里
         val SKIPPABLE = setOf(FailureReason.ALREADY_MOTION_PHOTO)
+
+        /**
+         * `.part` 后缀只有一个定义处：写它的人（[composeOne]）和扫它的人（[sweepStaleParts]）
+         * 必须认同一个字面量，否则清扫会安静地什么都不知道删。
+         */
+        const val PART_SUFFIX = ".part"
     }
 }
