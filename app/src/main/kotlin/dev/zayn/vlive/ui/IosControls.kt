@@ -10,7 +10,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -147,7 +147,16 @@ fun DetailRow(
     }
 }
 
-/** 整行点标题也能切换——iOS 的开关行就是这么工作的，原实现同样如此。 */
+/**
+ * 整行点标题也能切换——iOS 的开关行就是这么工作的，原实现同样如此。
+ *
+ * `toggleable` 挂在**整条 Row** 上，不是挂在标题 `Text` 上：标题只吃 `weight(1f)` 那段文字宽，
+ * 挂在它上面时，行高方向的 6dp padding、标题与开关之间那 8dp 缝、以及卡片到屏幕边的余量全都不响应，
+ * 用户按着一行的空白处什么也不会发生（TalkBack 同样只会把"开关"读在几个字上）。
+ * 换成 `toggleable` 而不只是 `clickable(role = Switch)`：前者会把
+ * `ToggleableState`（开/关）连同角色一起写进语义节点，读屏才说得出"删除原文件，关"，
+ * 而不是只说"双击以激活"。开关本体自己那颗仍是独立的点击目标，子节点先命中，不会互相抢。
+ */
 @Composable
 fun SwitchRow(
     title: String,
@@ -165,6 +174,14 @@ fun SwitchRow(
             Modifier
                 .fillMaxWidth()
                 .background(if (pressed && enabled) s.highlight else Color.Transparent)
+                .toggleable(
+                    value = checked,
+                    interactionSource = interaction,
+                    indication = null,
+                    enabled = enabled,
+                    role = Role.Switch,
+                    onValueChange = onCheckedChange,
+                )
                 .heightIn(min = IosMetrics.rowMinHeight)
                 .padding(horizontal = IosMetrics.rowPadding, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -173,15 +190,7 @@ fun SwitchRow(
                 title,
                 // 危险开关一勾上就把整行染成系统红，和原实现的 error 同一条规则。
                 style = s.body.copy(color = if (checked) s.red else s.label),
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(
-                        interactionSource = interaction,
-                        enabled = enabled,
-                        onClickLabel = null,
-                        role = Role.Switch,
-                        onClick = { onCheckedChange(!checked) },
-                    ),
+                modifier = Modifier.weight(1f),
             )
             Spacer8()
             IosSwitch(on = checked, enabled = enabled, onColor = onColor) { onCheckedChange(!checked) }
@@ -614,37 +623,47 @@ fun IosSheet(
                             .padding(top = topInset)
                             .height(IosMetrics.sheetBarHeight),
                     ) {
-                        BarAction(text = cancelText, align = Alignment.CenterStart, onClick = onDismiss)
-                        BarAction(
-                            text = confirmText,
-                            align = Alignment.CenterEnd,
-                            enabled = confirmEnabled,
-                            emphasized = true,
-                            onClick = onConfirm,
-                        )
-                        Column(
-                            Modifier
-                                .align(Alignment.Center)
-                                .fillMaxWidth()
-                                // 标题两侧让位给「关闭 / 选这里」（`picker_close` / `picker_pick`）两颗文字
-                                // 按钮，被压住的是标题不是按钮。
-                                .padding(horizontal = IosMetrics.sheetBarActionReserve),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
+                        // 一条 Row，三段：关闭 / 标题 / 选这里。中间那段吃 `weight(1f)`，所以标题
+                        // **在布局上就不可能**压到两颗按钮 —— 之前这里是三段各自 `align` 到同一个 Box，
+                        // 靠一个写死的 `sheetBarActionReserve = 76.dp` 让位，而按钮的实宽是"字宽 + 32dp"：
+                        // 英文 "Choose here" 那侧要 110dp 左右，76dp 让不出来说缺 35dp 就缺 35dp，
+                        // 于是标题的末字符直接压在按钮的字上（2026-10-22 装机量出来的）。
+                        // 顺带修掉另一处不符：声明顺序里标题 Column 排在两颗按钮**之后**，Box 按声明序绘制，
+                        // 盖住谁的正是它，而当时的注释写的是"被压住的是标题不是按钮"——注释与画面相反。
+                        // 代价是标题改成在"两颗按钮之间"居中，不再是在整条 bar 上严格居中；
+                        // 两种语言的按钮字宽不同，标题会跟着偏几 dp，这比两块字叠在一起轻。
+                        Row(
+                            Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                title,
-                                style = s.title,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                subtitle,
-                                style = s.footnote.copy(fontSize = 11.sp, color = s.tertiaryLabel),
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            BarAction(text = cancelText, onClick = onDismiss)
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    // 与两颗按钮之间至少留这点缝：撞不上之外还要读得开。
+                                    .padding(horizontal = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    title,
+                                    style = s.title,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    subtitle,
+                                    style = s.footnote.copy(fontSize = 11.sp, color = s.tertiaryLabel),
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            BarAction(
+                                text = confirmText,
+                                enabled = confirmEnabled,
+                                emphasized = true,
+                                onClick = onConfirm,
                             )
                         }
                     }
@@ -654,10 +673,13 @@ fun IosSheet(
     }
 }
 
+/**
+ * 弹窗顶栏上的那颗文字按钮。宽度由字自己决定（不给 `weight`），所以它和标题之间靠
+ * [IosSheet] 那条 Row 的中间段 `weight(1f)` 分工：按钮吃内容宽，标题吃剩下的。
+ */
 @Composable
-private fun BoxScope.BarAction(
+private fun RowScope.BarAction(
     text: String,
-    align: Alignment,
     enabled: Boolean = true,
     emphasized: Boolean = false,
     onClick: () -> Unit,
@@ -665,7 +687,7 @@ private fun BoxScope.BarAction(
     val s = LocalIosStyle.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    Box(Modifier.fillMaxHeight().align(align), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxHeight(), contentAlignment = Alignment.Center) {
         Text(
             text,
             style = s.navAction.copy(

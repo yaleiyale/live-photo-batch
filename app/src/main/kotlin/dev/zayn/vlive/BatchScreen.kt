@@ -513,6 +513,9 @@ private fun BoxScope.GlassTitleBar(
         Modifier
             .align(Alignment.TopCenter)
             .fillMaxWidth()
+            // 这里**不套** `widthIn(contentMaxWidth)`，与底部那条不一样：顶栏按 spec 是通栏玻璃，
+            // 要贴住左、右、上三条屏幕边（`IosMetrics.contentMaxWidth` 那条注释列的三个消费方
+            // 也不含它）。宽屏上它比卡片宽，多出来的那段只糊到底色，卡片本来就到不了那儿。
             .iosGlassBar(glass = glass, state = haze, barAlpha = titleAlpha),
     ) {
         Box(

@@ -196,6 +196,10 @@ object IosMetrics {
      *
      * 三处必须用同一个数（主屏内容层、主屏底部操作栏、弹窗那层 Box）。这个值一旦各写各的，
      * "玻璃 bar 与卡片同宽"就只是今天恰好成立，而不是被声明出来的。
+     *
+     * **主屏顶栏不在消费方之列，这是刻意的**：spec §"通栏的两条 bar 用 0dp"要的就是它贴着
+     * 左、右、上三条屏幕边（`iosGlassBar` 的 `shadow` 那段也同一条理由）。宽屏上它比卡片宽，
+     * 多出来的那段糊的是页面底色——卡片本来就进不到那儿，所以既没有未糊的字，也没有第二条缝。
      */
     val contentMaxWidth: Dp = 640.dp
 
@@ -216,14 +220,8 @@ object IosMetrics {
     val barBottomGap: Dp = 8.dp
     /** 大标题划过多远算"折叠完成"：topBarAlpha 的分母。 */
     val collapseRange: Dp = 56.dp
-    /** 弹窗顶栏比主屏高一点：它要同时装下标题与整条路径的副标题（原本是 52.dp 的 Box）。 */
+    /** 弹窗顶栏比主屏高一点：它要装下标题与整条路径的副标题（原本是 52.dp 的 Box）。 */
     val sheetBarHeight: Dp = 52.dp
-    /**
-     * 弹窗顶栏左右各留这么多净空：标题要让位给「关闭 / 选这里」（`picker_close` / `picker_pick`）
-     * 两颗文字按钮，否则会被压在下面。
-     * 这是弹窗专属——主屏顶栏两侧没有按钮，拿它当页边距只会把标题挤窄，还躲不开横向缺口。
-     */
-    val sheetBarActionReserve: Dp = 76.dp
 }
 
 /**
