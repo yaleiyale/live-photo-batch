@@ -45,6 +45,13 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 /** [BatchSettings] 的生产实现：Preferences DataStore，写在应用私有目录里（不需要任何存储权限）。 */
 class PreferencesBatchSettings(private val context: Context) : BatchSettings {
 
+    // 只 catch IOException 是**量过**的，不是随手写的：`PreferencesSerializer.readFrom/writeTo`
+    // 声明的抛出面就是 `IOException, CorruptionException`，而 `CorruptionException` 本身
+    // `extends java.io.IOException`（javap 过 1.2.1 的 datastore-core / preferences-core 两个
+    // classes.jar 确认）——"文件坏了"和"磁盘坏了"走同一条手臂。
+    // 唯一的 RuntimeException 来源是 `IllegalStateException("multiple DataStores active")`，
+    // 它要两个持有者同时开同一个文件才点得着，而 `preferencesDataStore` 的委托属性就是
+    // 那个"每进程一个持有者"的机制（见上面那段），所以这里不给它留手臂。
     override suspend fun load(): StoredPaths = try {
         val prefs = context.dataStore.data.first()
         StoredPaths(prefs[SOURCE_DIR], prefs[TARGET_DIR])
