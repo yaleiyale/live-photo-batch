@@ -263,7 +263,7 @@ class BatchRunnerTest {
         assertEquals(ItemStatus.SUCCESS, report.items.single().status)
         assertEquals(outputBytes.toLong(), report.composedBytes)
         // 原地批次结束后源目录里只剩产物：原图与视频被删，`.part` 从不落在源目录根上。
-        assertEquals(listOf(DirEntry("IMG_a_MP.jpg", outputBytes.toLong())), storage.list("/s"))
+        assertEquals(listOf(DirEntry("IMG_a_MP.jpg")), storage.list("/s"))
         assertEquals(
             listOf(
                 "ensureDir:/s",

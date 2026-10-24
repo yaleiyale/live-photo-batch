@@ -1,21 +1,15 @@
 package dev.zayn.vlive.core
 
-data class DirEntry(val name: String, val size: Long)
+data class DirEntry(val name: String)
 
 data class PairJob(
     val stem: String,
     val imageName: String,
     val videoName: String,
     val outputName: String,
-    val imageSize: Long,
-    val videoSize: Long,
-    val outputExists: Boolean,
 )
 
-/** 只有"缺图"这一种异常可报告：见 [PairPlanner] 的驱动集规则——没有视频的 JPEG 压根不进候选。 */
-enum class Missing { IMAGE }
-
-data class Unpaired(val name: String, val missing: Missing)
+data class Unpaired(val name: String)
 
 data class PlanResult(val jobs: List<PairJob>, val unpaired: List<Unpaired>)
 
@@ -29,7 +23,7 @@ data class PlanResult(val jobs: List<PairJob>, val unpaired: List<Unpaired>)
  * 真值得看一眼的情况：有 `IMG_*.mp4` 却找不到同名图像。
  *
  * 输入约定：
- * - `source` / `target` 都是**单层**目录名列表，由 [BatchStorage.list] 给出。本对象不递归，
+ * - `source` 是**单层**目录名列表，由 [BatchStorage.list] 给出。本对象不递归，
  *   也不解释路径分隔符——名字里带 `/` 只会被当成 stem 的一部分。
  * - 图像候选：`.jpg` / `.jpeg`。视频候选：扩展名 `.mp4` **且以 [VIDEO_PREFIX] 开头**（大小写
  *   不敏感）。前缀这一刀是必要的：相册目录里还躺着录屏、下载的短视频和聊天工具存下的视频，
@@ -42,8 +36,8 @@ data class PlanResult(val jobs: List<PairJob>, val unpaired: List<Unpaired>)
  *   产出 `_MP.mp4`，真有人手写出一个，它会作为"缺图"出现在 unpaired 里——看得见比被静默吞掉好。
  * - 同一 stem 上出现两张候选（`a.jpg` 与 `a.jpeg`）时取**列表中第一个**，另一个静默丢弃，
  *   不报错也不进 unpaired。
- * - `source` 与 `target` 可以是同一个目录：产物名带 `_MP` 后缀且不作为图像候选，原地生成安全。
- *   上一轮已经写出 `a_MP.jpg` 时 `outputExists` 为 true，这一批会把产物原子替换掉。
+ * - 源目录与目标目录可以是同一个：产物名带 `_MP` 后缀且不作为图像候选，原地生成安全。
+ *   上一轮的产物再遇到同名视频时，由尾巴分类判成「已是动态照片」并跳过。
  *
  * 排序：`jobs` 与 `unpaired` 都按 stem 的**自然顺序**（`String.compareTo`，逐 16 位码元）升序，
  * 不走 locale collator，所以结果与设备语言无关。两点后果：
@@ -65,7 +59,7 @@ object PairPlanner {
      */
     const val VIDEO_PREFIX = "IMG_"
 
-    fun plan(source: List<DirEntry>, target: List<DirEntry>): PlanResult {
+    fun plan(source: List<DirEntry>): PlanResult {
         val images = LinkedHashMap<String, DirEntry>()
         val videos = LinkedHashMap<String, DirEntry>()
         for (entry in source) {
@@ -80,7 +74,6 @@ object PairPlanner {
                     if (entry.name.startsWith(VIDEO_PREFIX, ignoreCase = true)) videos.putIfAbsent(stem, entry)
             }
         }
-        val existingOutputs = target.map { it.name.lowercase() }.toHashSet()
 
         val jobs = ArrayList<PairJob>()
         val unpaired = ArrayList<Unpaired>()
@@ -88,18 +81,14 @@ object PairPlanner {
             val video = videos.getValue(stem)
             val image = images[stem]
             if (image == null) {
-                unpaired += Unpaired(video.name, Missing.IMAGE)
+                unpaired += Unpaired(video.name)
                 continue
             }
-            val outputName = stem + OUTPUT_SUFFIX + ".jpg"
             jobs += PairJob(
                 stem = stem,
                 imageName = image.name,
                 videoName = video.name,
-                outputName = outputName,
-                imageSize = image.size,
-                videoSize = video.size,
-                outputExists = outputName.lowercase() in existingOutputs,
+                outputName = stem + OUTPUT_SUFFIX + ".jpg",
             )
         }
         return PlanResult(jobs, unpaired)

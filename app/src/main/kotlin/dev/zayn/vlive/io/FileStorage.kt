@@ -84,7 +84,7 @@ class FileStorage(private val root: String) : BatchStorage {
         // listFiles() 对"不是目录 / 没权限 / I/O 出错"统一返回 null，正好是契约要的"绝不抛"。
         val children = dir.listFiles() ?: return emptyList()
         return children.filter { it.isFile && it.canRead() }
-            .map { DirEntry(it.name, it.length()) }
+            .map { DirEntry(it.name) }
             .sortedBy { it.name }
     }
 

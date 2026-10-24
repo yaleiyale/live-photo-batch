@@ -17,7 +17,7 @@ class InMemoryStorage(initial: Map<String, ByteArray> = emptyMap()) : BatchStora
         val prefix = dirPath.trimEnd('/') + "/"
         return files.entries
             .filter { it.key.startsWith(prefix) && !it.key.substring(prefix.length).contains('/') }
-            .map { DirEntry(it.key.substring(prefix.length), it.value.size.toLong()) }
+            .map { DirEntry(it.key.substring(prefix.length)) }
             .sortedBy { it.name }
     }
 

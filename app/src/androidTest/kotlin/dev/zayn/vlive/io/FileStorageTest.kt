@@ -62,7 +62,6 @@ class FileStorageTest {
         s.ensureDir("d/sub")
         s.openWrite("d/sub/hidden.txt").use { it.write(ByteBuffer.wrap(byteArrayOf(1))) }
         assertEquals(listOf("a.txt", "z.txt"), s.list("d").map { it.name })
-        assertEquals(2L, s.list("d").first { it.name == "a.txt" }.size)
     }
 
     /**
@@ -77,9 +76,9 @@ class FileStorageTest {
         s.openWrite("sort/a.jpeg").use { it.write(ByteBuffer.wrap(ByteArray(4))) }
         assertEquals(
             listOf(
-                DirEntry("a.jpeg", 4L),
-                DirEntry("a.jpg", 3L),
-                DirEntry("b.jpg", 2L),
+                DirEntry("a.jpeg"),
+                DirEntry("a.jpg"),
+                DirEntry("b.jpg"),
             ),
             s.list("sort"),
         )

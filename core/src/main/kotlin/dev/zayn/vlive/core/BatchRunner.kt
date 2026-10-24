@@ -58,8 +58,7 @@ object NoCancel : CancelToken { override fun cancelled() = false }
  */
 class BatchRunner(private val storage: BatchStorage) {
 
-    fun plan(options: BatchOptions): PlanResult =
-        PairPlanner.plan(storage.list(options.sourceDir), storage.list(options.targetDir))
+    fun plan(options: BatchOptions): PlanResult = PairPlanner.plan(storage.list(options.sourceDir))
 
     fun run(
         plan: PlanResult,

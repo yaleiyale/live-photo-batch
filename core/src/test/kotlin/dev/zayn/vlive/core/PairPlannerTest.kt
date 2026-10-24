@@ -9,8 +9,7 @@ import org.junit.jupiter.api.Test
  * 因此"普通照片缺视频"不是报告内容，报告里只剩"有视频找不到图"这一种异常。
  */
 class PairPlannerTest {
-    private fun plan(vararg names: String) =
-        PairPlanner.plan(names.map { DirEntry(it, 1L) }, emptyList())
+    private fun plan(vararg names: String) = PairPlanner.plan(names.map { DirEntry(it) })
 
     @Test fun `same stem pairs and gets the MP suffix`() {
         val result = plan("IMG_001.jpg", "IMG_001.mp4")
@@ -19,15 +18,6 @@ class PairPlannerTest {
         assertEquals("IMG_001", job.stem)
         assertEquals("IMG_001_MP.jpg", job.outputName)
         assertEquals("IMG_001.mp4", job.videoName)
-        assertEquals(false, job.outputExists)
-    }
-
-    @Test fun `sizes come from the listing`() {
-        val result = PairPlanner.plan(
-            listOf(DirEntry("IMG_a.jpg", 11L), DirEntry("IMG_a.mp4", 22L)), emptyList()
-        )
-        assertEquals(11L, result.jobs[0].imageSize)
-        assertEquals(22L, result.jobs[0].videoSize)
     }
 
     @Test fun `extension case is ignored, stem case is not`() {
@@ -65,7 +55,6 @@ class PairPlannerTest {
         val result = plan("IMG_vid.mp4")
         assertEquals(1, result.unpaired.size)
         assertEquals("IMG_vid.mp4", result.unpaired[0].name)
-        assertEquals(Missing.IMAGE, result.unpaired[0].missing)
     }
 
     @Test fun `previous outputs are not treated as inputs`() {
@@ -80,14 +69,6 @@ class PairPlannerTest {
         val result = plan("IMG_a.jpg", "IMG_a.mp4", "IMG_a_mp.jpeg", "IMG_a_mp.mp4")
         assertEquals(listOf("IMG_a"), result.jobs.map { it.stem })
         assertEquals(listOf("IMG_a_mp.mp4"), result.unpaired.map { it.name })
-    }
-
-    @Test fun `output existing in target is flagged for overwrite`() {
-        val result = PairPlanner.plan(
-            listOf(DirEntry("IMG_a.jpg", 1L), DirEntry("IMG_a.mp4", 1L)),
-            listOf(DirEntry("IMG_a_MP.jpg", 9L)),
-        )
-        assertTrue(result.jobs[0].outputExists)
     }
 
     @Test fun `other extensions are ignored entirely`() {
@@ -106,12 +87,11 @@ class PairPlannerTest {
     @Test fun `job names are the listing names, not the stem or each other`() {
         val result = PairPlanner.plan(
             listOf(
-                DirEntry("IMG_001.JPG", 3L),
-                DirEntry("IMG_001.Mp4", 4L),
-                DirEntry("IMG_holiday.jpeg", 5L),
-                DirEntry("IMG_holiday.mp4", 6L),
+                DirEntry("IMG_001.JPG"),
+                DirEntry("IMG_001.Mp4"),
+                DirEntry("IMG_holiday.jpeg"),
+                DirEntry("IMG_holiday.mp4"),
             ),
-            emptyList(),
         )
         assertEquals(2, result.jobs.size)
         assertEquals(listOf("IMG_001", "IMG_holiday"), result.jobs.map { it.stem })

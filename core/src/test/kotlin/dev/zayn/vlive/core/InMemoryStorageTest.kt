@@ -65,7 +65,7 @@ class InMemoryStorageTest {
         // 自然升序：'e'(0x65) < 'g'(0x67)，所以 a.jpeg 在 a.jpg 之前——
         // PairPlanner 的「同 stem 取第一个」因此拿到 a.jpeg，这个顺序不能漂。
         assertEquals(
-            listOf(DirEntry("a.jpeg", 4L), DirEntry("a.jpg", 3L), DirEntry("a.mp4", 5L), DirEntry("b.jpg", 2L)),
+            listOf(DirEntry("a.jpeg"), DirEntry("a.jpg"), DirEntry("a.mp4"), DirEntry("b.jpg")),
             storage.list("/d"),
         )
     }
@@ -116,7 +116,7 @@ class InMemoryStorageTest {
 
     @Test fun `initial map seeds readable files`() {
         val storage = InMemoryStorage(mapOf("/s/a.jpg" to byteArrayOf(7, 7), "/s/a.mp4" to ByteArray(9)))
-        assertEquals(listOf(DirEntry("a.jpg", 2L), DirEntry("a.mp4", 9L)), storage.list("/s"))
+        assertEquals(listOf(DirEntry("a.jpg"), DirEntry("a.mp4")), storage.list("/s"))
         assertArrayEquals(byteArrayOf(7, 7), readAll(storage, "/s/a.jpg"))
         // 重写同一个路径是截断式的：旧内容不会跟在后面
         storage.openWrite("/s/a.jpg").use { it.writeAll(ByteBuffer.wrap(byteArrayOf(1))) }
