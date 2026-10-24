@@ -18,18 +18,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Local JVM tests (`app/src/test`)——没有 Robolectric、没有新依赖：
- * `PermissionGate.of(app)` 换成假 lambda，`MediaStoreSync.scan(app, …)` 换成注入的 [scanner]，
- * Android 侧唯一剩下的一环 `viewModelScope` 在 lifecycle 2.11 里对无主线程环境退化为
- * `SupervisorJob + Dispatchers.Default`（探针实测），所以**真的** [BatchViewModel.start] 路径
- * 在纯 JVM 上就能驱动。批次读写走 `FileStorage` 真文件系统，root 注入临时目录。
+ * Local JVM tests (`app/src/test`)——没有 Robolectric、没有新依赖：`PermissionGate.of()` 是假
+ * lambda，`MediaStoreSync.scan(app, …)` 换成注入的 [scanner]，剩下的 `viewModelScope` 在无主线程
+ * 环境退化为 `SupervisorJob + Dispatchers.Default`，所以**真的** [BatchViewModel.start] 路径在纯
+ * JVM 上就能驱动；批次读写走 `FileStorage` 真文件系统，root 注入临时目录。
  *
- * 钉住的核心不变量（spec §7.6 / R4 + review finding 3）：
- * 每一个产物与每一个已删原文件必须到达扫描器，**外层 scope 取消也不例外**。
+ * 核心不变量：每一个产物与每一个已删原文件必须到达扫描器，**外层 scope 取消也不例外**。
  *
- * 全局提示断言的是 `R.string.*` 这个 int id 与参数列表，不是解析后的文案：读一个常量不需要
- * `Resources`，所以"没有 Robolectric"这条前提没被破。真要检查中英文案本身，那是资源层的
- * 装机验收项（`docs/testing.md`），不该把整个 VM 拖进 Robolectric。
+ * 全局提示断言的是 `R.string.*` 的 int id 与参数列表，不是解析后的文案——读常量不需要
+ * `Resources`；中英文案本身属于资源层的装机验收项，不该把整个 VM 拖进 Robolectric。
  */
 class BatchViewModelTest {
 
@@ -37,10 +34,9 @@ class BatchViewModelTest {
     private val mp4Bytes = ftypMp4(300)
 
     /**
-     * 路径串一律用 "/" 拼接——[BatchViewModel.isSelectable] / `FileStorage.resolve()` 的 root
-     * 规则是 POSIX 的 `"$root/"` 前缀；宿主若是 Windows，`File(parent, child).absolutePath`
-     * 会用 `\` 连接并直接被判到 root 之外。java.io.File 读串时两种分隔符都认，所以
-     * "串用 / 拼、File 照常读写"在两个宿主上都是真文件系统操作（`DirBrowserTest` 同理）。
+     * 路径串一律用 "/" 拼接：[BatchViewModel.isSelectable] 与 `FileStorage.resolve()` 的 root 规则是
+     * POSIX 的 `"$root/"` 前缀，Windows 宿主上 `File(parent, child).absolutePath` 用 `\` 连接会被
+     * 判到 root 之外。`java.io.File` 读串时两种分隔符都认，所以两个宿主上都是真文件系统操作。
      */
     private class Tree(val root: File, val rootPath: String, val srcPath: String, val outPath: String)
 
@@ -75,8 +71,7 @@ class BatchViewModelTest {
         override suspend fun save(paths: StoredPaths) { stored = paths }
     }
 
-    // scanner 放在最后一位：现有用例都写成 `viewModel(root) { paths -> ... }`，尾随 lambda 必须
-    // 继续绑到扫描器上，而不是新加的 settings。
+    // scanner 放在最后一位：尾随 lambda 必须继续绑到扫描器上，而不是 settings。
     private fun viewModel(
         root: String,
         granted: () -> Boolean = { true },
@@ -132,7 +127,7 @@ class BatchViewModelTest {
 
         val paths = runBlocking { withTimeout(30_000) { scanned.await() } }
         // 回报顺序：NO_PAIR 行先来，然后按 stem 排序的 jobs；产物用 "$targetDir/$name"
-        // 拼接（与 BatchRunner.kt:109 同一约定），deletedSources 原样绝对路径转发。
+        // 拼接（与核心层同一约定），deletedSources 原样绝对路径转发。
         assertEquals(
             listOf(
                 "${t.outPath}/IMG_a_MP.jpg",
@@ -166,7 +161,7 @@ class BatchViewModelTest {
 
     @Test
     fun `scope cancellation during the cleanup scan still delivers every path`() {
-        // finding 3 的钉子：onCleared / viewModelScope 取消落在扫描挂起的那一刻。
+        // onCleared / viewModelScope 取消落在扫描挂起的那一刻。
         // finally 里的 withContext(NonCancellable + IO) 必须让扫描提交完整列表、running 落回
         // false。把 NonCancellable 摘掉（withContext(Dispatchers.IO)），release.await() 会带着
         // CancellationException 掀掉收尾，running 永远停住，本测试立刻翻红。
@@ -242,7 +237,7 @@ class BatchViewModelTest {
 
     @Test
     fun `scope cancelled before the batch dispatches leaves zero file effects and zero scans`() {
-        // 残余风险 1 的边界（类 KDoc）：协程体还没被线程启动就碰上 scope 已取消，整个 launch
+        // 边界：协程体还没被线程启动就碰上 scope 已取消，整个 launch
         // （连 finally 都不算）被 kotlinx 直接丢弃——可接受的原因恰恰是"此刻什么都没动"：
         // 没有产物、没有删除、没有 ensureDir 之外的文件效果，相册自然不会有幽灵条目。
         // 这里钉的就是"零文件效果 + 零扫描"；测不掉的只剩 running 卡 true（VM 已死，无人读）。
@@ -287,8 +282,8 @@ class BatchViewModelTest {
     }
 
     /**
-     * 恢复只该覆盖用户**没碰过**的那一格。旧实现用一个 `userPickedDir` 同时管两个字段，
-     * 于是"只改目标目录"会把记住的源一起丢掉——下一次批次就从默认相机目录里挑图合成。
+     * 恢复只该覆盖用户**没碰过**的那一格。一个标志同时管两个字段时，"只改目标目录"
+     * 会把记住的源一起丢掉——下一次批次就从默认相机目录里挑图合成。
      */
     @Test
     fun `picking only the target keeps the remembered source`() {
@@ -319,13 +314,10 @@ class BatchViewModelTest {
     }
 
     /**
-     * 批次跑着跑着权限被收回（用户去系统设置里关掉"全部文件访问"，或被 OEM 收回）：
-     * 不复查的话，剩下的每一项都会撞在一次 `SecurityException` / 读不出来的目录上，
-     * 报告变成一整屏同质的 `IO_ERROR`——那是一堵没有信息量的墙，而且用户已经点不到"取消"。
-     * 这里在**每一项之前**复查同一个权限，第一项复查失败就停：后面的项连磁盘都没碰。
-     *
-     * 停批的判据取自 [UiState.done] 而不是"isGranted 被调了几次"：将来多一处复查（或开工前置
-     * 检查改动）都不会把这条测试变成偶发失败。
+     * 批次跑着跑着权限被收回（用户去系统设置关掉"全部文件访问"，或被 OEM 收回）：不复查的话，
+     * 剩下的每一项都撞在一次 `SecurityException` 上，报告变成一整屏同质的 `IO_ERROR`，而且用户
+     * 已经点不到"取消"。这里在**每一项之前**复查同一个权限，第一项失败就停：后面的项连磁盘都没碰。
+     * 停批的判据取自 [UiState.done] 而不是"isGranted 被调了几次"，多一处复查不会变成偶发失败。
      */
     @Test
     fun `permission revoked mid-batch stops the batch with its own error`() {
@@ -352,7 +344,7 @@ class BatchViewModelTest {
         assertTrue(File(t.srcPath, "IMG_b.jpg").isFile)
         assertTrue(File(t.srcPath, "IMG_c.jpg").isFile)
         assertFalse(File(t.outPath, "IMG_b_MP.jpg").exists())
-        // §7.6 不变量不因中途停批而放宽：已经提交的那一项照样进扫描器。
+        // 扫描不变量不因中途停批而放宽：已经提交的那一项照样进扫描器。
         assertEquals(listOf("${t.outPath}/IMG_a_MP.jpg", "${t.srcPath}/IMG_a.jpg", "${t.srcPath}/IMG_a.mp4"),
             scanned.get())
         t.root.deleteRecursively()
@@ -402,7 +394,7 @@ class BatchViewModelTest {
 
     @Test
     fun `outside-root snapshot paths are refused with the same predicate the UI used`() {
-        // finding 4：被检查的路径与被读写的路径用同一个 isSelectable——root 之外的开工快照
+        // 被检查的路径与被读写的路径用同一个 isSelectable——root 之外的开工快照
         // 静默返回（selectPath 保证 UiState 里不会出现这种串，这条是防漂移的兜底）。
         val t = tree(pairs = listOf("IMG_a"))
         val calls = AtomicInteger()
@@ -420,7 +412,7 @@ class BatchViewModelTest {
 
     @Test
     fun `unconfirmed scan becomes a visible one-line hint instead of silence`() {
-        // §7.6 的可观测性：MediaStoreSync 返回 false 时 globalError 必须给出提示（不崩、
+        // 可观测性：MediaStoreSync 返回 false 时 globalError 必须给出提示（不崩、
         // 不改写 items、running 照常落回 false）。
         val t = tree(pairs = listOf("IMG_a"))
         val vm = viewModel(t.rootPath) { false }
@@ -507,8 +499,8 @@ class BatchViewModelTest {
         t.root.deleteRecursively()
     }
 
-    // 以下两个字节工厂移植自 :core 的测试 Fixtures（:core 不许动、测试夹具也不对外发布，
-    // 这里只需要"合法 JPEG + 合法 ftyp MP4"最小形状）。
+    // 自带的两个字节工厂：:core 的测试夹具不对外发布，这里只需要
+    // "合法 JPEG + 合法 ftyp MP4"的最小形状。
     private fun segment(marker: Int, payload: ByteArray): ByteArray =
         byteArrayOf(
             0xFF.toByte(),

@@ -11,12 +11,11 @@ import java.io.File
 /**
  * `FileStorage.move` 的契约测试。
  *
- * 之前这条只有 `app/src/androidTest/.../FileStorageTest.kt` 碰过，而仪器化测试按
- * decisions.md §6.4 **只编译不执行** —— 等于零覆盖。`move` 是"删原文件之前最后一步落盘"，
- * 它说谎的代价是产物并不存在，而原文件已经没了。
+ * 仪器化测试（`app/src/androidTest`）在 CI 里**只编译不执行**，所以这条契约必须由 JVM 单测钉住。
+ * `move` 是"删原文件之前最后一步落盘"，它说谎的代价是产物并不存在，而原文件已经没了。
  *
  * 路径一律传**相对**名字：`resolve` 只认 `/` 分隔符（`BatchStorage` 的契约），在 Windows 上
- * 跑 JVM 测试时绝对路径带的是 `\`，会被当成"不在 root 之下"再拼一次。androidTest 那份也是这么做的。
+ * 跑 JVM 测试时绝对路径带的是 `\`，会被当成"不在 root 之下"再拼一次。
  */
 class FileStorageMoveTest {
     @get:Rule val tmp = TemporaryFolder()

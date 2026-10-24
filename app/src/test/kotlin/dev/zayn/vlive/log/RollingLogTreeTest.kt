@@ -12,10 +12,9 @@ import timber.log.Timber
 /**
  * Local JVM test for [RollingLogTree] 的那半件"要碰磁盘"的事：**接着往哪个文件里写**。
  *
- * 不需要 Robolectric：这个类只用 `Log` 的几个 `static final int` 常量（编译期内联），
- * 其余全是 `java.io.File` + 一条后台线程，`dir` 与 `clock` 都是构造参数。
- * 唯一要绕的是 `log()` 是 `protected`——所以走公共入口 `Timber.plant` + `Timber.i`，
- * 这也正是生产路径。
+ * 不需要 Robolectric：这个类只用 `Log` 的几个 `static final int` 常量（编译期内联），其余全是
+ * `java.io.File` + 一条后台线程，`dir` 与 `clock` 都是构造参数。唯一要绕的是 `log()` 是
+ * `protected`——所以走公共入口 `Timber.plant` + `Timber.i`，这也正是生产路径。
  */
 class RollingLogTreeTest {
 
@@ -43,8 +42,8 @@ class RollingLogTreeTest {
      * 和正在被写的文件就不是同一个：清理可以把当前文件从目录里抽走，之后的日志全写进
      * 一个没人认识的 inode。
      *
-     * 下面两个文件刻意让两个键互相矛盾：`log-9000` 名字大但 mtime 旧，`log-1000` 名字小但
-     * mtime 新（真实设备上就是"系统时间被往回拨过"的样子：名字来自被拨过的时钟，mtime 是文件系统自己的）。
+     * 下面两个文件的两个键互相矛盾：`log-9000` 名字大但 mtime 旧，`log-1000` 名字小但
+     * mtime 新（设备时间被往回拨过就是这个样子：名字来自被拨过的时钟，mtime 是文件系统自己的）。
      * 两边都必须认 `log-1000`。
      */
     @Test

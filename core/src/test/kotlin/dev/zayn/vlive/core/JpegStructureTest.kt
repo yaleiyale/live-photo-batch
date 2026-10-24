@@ -84,7 +84,7 @@ class JpegStructureTest {
 
     @Test fun `legacy exif app1 is kept but xmp app1 is located`() {
         // EXIF 的填充字节里放两处真 FFD9：APP1 是带长度字段的段，扫描器必须按长度跳过它们
-        // 才拿得到真正的 XMP 段与 imageEnd。段长与原来一致（payload 14 字节）。
+        // 才拿得到真正的 XMP 段与 imageEnd。
         val exif = Fixtures.segment(
             0xE1,
             "Exif".toByteArray() + byteArrayOf(0, 0) +
@@ -124,12 +124,9 @@ class JpegStructureTest {
     @Test fun `imageEnd counts every image byte exactly`() {
         val bytes = Fixtures.jpeg(tail = Fixtures.mp4(64))
         val structure = (scan(bytes) as JpegScanResult.Parsed).structure
-        // SOI(2) + SOF0(2+2+9) + SOS(2+2+6) + entropy(4) + EOI(2)
-        // 计划原文这里写的是 2 + 11 + 8 + 4 + 2 = 27，漏算了 SOF0 与 SOS 各自的 2 字节
-        // marker，和它上面的注释分解式（=31）自相矛盾；也与同文件
-        // `plain jpeg ends right at eoi`（断言 imageEnd == Fixtures.jpeg() 全长）冲突。
-        // 31 由夹具单独复算即可得到，不依赖扫描器，故按注释的分解式修正期望值。
-        // Fixtures.mp4 只改 filler 内容、不改长度，所以这条的算术不受影响。
+        // SOI(2) + SOF0(2+2+9) + SOS(2+2+6) + entropy(4) + EOI(2) = 31：
+        // marker 与长度字段都算进 imageEnd，全部由夹具尺寸独立复算，不依赖扫描器。
+        // Fixtures.mp4 只改 filler 内容、不改长度，所以这条的算术不受它影响。
         assertEquals(2 + 13 + 10 + 4 + 2, structure.imageEnd.toInt())
     }
 
@@ -148,8 +145,8 @@ class JpegStructureTest {
     }
 
     @Test fun `entropy is read in chunks, not one byte at a time`() {
-        // 260 KB 熵数据 + 300 KB 视频尾部。缓冲前：每个熵字节一次 channel read +
-        // 两个小对象，约 26 万次；缓冲后：每 64 KiB 一次。这条就是钉住那个回归的。
+        // 260 KB 熵数据 + 300 KB 视频尾部：熵必须按 64 KiB 一块读，逐字节读是 26 万量级的
+        // channel read + 小对象。这条就是钉住那个回归的。
         val entropy = ByteArray(260_000) { (it % 251).toByte() }   // 不含 0xFF，避免造出假 marker
         val video = Fixtures.mp4(300_000)
         val bytes = Fixtures.jpeg(entropy = entropy, tail = video)
@@ -169,7 +166,7 @@ class JpegStructureTest {
     }
 
     @Test fun `channel is left exactly at imageEnd`() {
-        // Task 4/5 之后可能还要从同一个 channel 接着读，所以扫描必须停在 EOI，
+        // 调用方之后可能还要从同一个 channel 接着读，所以扫描必须停在 EOI，
         // 不能把后面的视频字节吃掉。可定位的 channel（生产环境是 FileChannel）
         // 上这条是精确成立的，不是"大概不超过一个缓冲区"。
         val video = Fixtures.mp4(4096)

@@ -34,15 +34,13 @@ object Fixtures {
     /**
      * 标准 ftyp 头 + filler，总长 size。
      *
-     * filler 里从 box 头之后第一个字节起每 16 字节埋一对真 `FF D9`：spec §7.2 说得很明白，
-     * 追加到 JPEG 尾部的视频字节里合法地会出现 FFD9（NAL 数据、时长字段都可能凑出来）。
-     * 紧跟 EOI 的视频里要有它，"按字节对搜 FFD9"或"读完整段再找最后一个 FFD9"的偷懒实现
-     * 才会被测试抓住。box 头 12 字节保持原样，Task 5 的 ftyp 探测仍看得懂这个盒子。
+     * filler 里从 box 头之后第一个字节起每 16 字节埋一对真 `FF D9`：追加到 JPEG 尾部的视频字节里
+     * 合法地会出现 FFD9（NAL 数据、时长字段都可能凑出来），所以"按字节对搜 FFD9"或"读完整段再找
+     * 最后一个 FFD9"的实现必须在这里被抓住。box 头 12 字节保持原样，ftyp 探测仍认得这个盒子。
      */
     fun mp4(size: Long = 4096): ByteArray {
         require(size >= 12)
         val out = ByteArray(size.toInt())
-        // 前 4 字节 = 32 位大端 box size
         val boxSize = size.toInt()
         out[0] = (boxSize ushr 24).toByte()
         out[1] = (boxSize ushr 16).toByte()
@@ -72,7 +70,7 @@ object Fixtures {
 
     /**
      * 长度自洽的 ISO-BMFF box：4 字节大端总长度 + 4 字节 tag + payload（不足 [size] 补零）。
-     * Task 13 的尾巴分类只看得懂这种"前 4 字节说是多长、尾巴里就真有这么长"的盒子。
+     * 尾巴分类只认这种"前 4 字节说是多长、尾巴里就真有这么长"的盒子。
      */
     fun box(tag: String, size: Int = 8, payload: ByteArray = ByteArray(0)): ByteArray {
         require(tag.length == 4) { "box tag 必须正好 4 字节: $tag" }
@@ -84,12 +82,12 @@ object Fixtures {
     fun ftypBox(size: Int = 24): ByteArray =
         box("ftyp", size, ascii("isom") + uint32(512) + ascii("isom") + ascii("mp41"))
 
-    /** 尾巴只有 [n] 个零字节的那种（抽样里 vivo 也产出过 47 字节全零）。 */
+    /** 尾巴只有 [n] 个零字节的那种（vivo 的产物里出现过 47 字节全零）。 */
     fun zeroFill(n: Int): ByteArray = ByteArray(n)
 
     /**
-     * vivo 副图 JPEG 之后那段**非 JPEG** 的厂商记录（参考语料里是 387 字节的 `streamdataDEGS…`）。
-     * spec 2026-10-18d §1 数的正是它：GainMap 的 `Length` 必须把它也算进尾巴，否则它没人声明。
+     * vivo 副图 JPEG 之后那段**非 JPEG** 的厂商记录（真实文件里是 387 字节的 `streamdataDEGS…`）。
+     * GainMap 的 `Length` 必须把它也算进尾巴，否则那 387 字节没人声明。
      */
     fun vendorRecord(size: Int = 387): ByteArray {
         require(size >= STREAMDATA_TAG.length) { "厂商记录夹具装不下 tag: size=$size" }
@@ -97,9 +95,9 @@ object Fixtures {
     }
 
     /**
-     * 真机抽样到的厂商记录：`vivo{...json...}` + `cameralbum!<UUID>`，实测 399 字节。
-     * 尾巴开头是 ASCII `vivo`——前 4 字节按大端读是 1986653807，远大于尾巴长度，
-     * 所以它**不是**任何合法的 ISO-BMFF 盒子；这正是"长度自洽"检查存在的理由。
+     * 真实文件里的厂商记录：`vivo{...json...}` + `cameralbum!<UUID>`，整段 399 字节。
+     * 开头是 ASCII `vivo`——前 4 字节按大端读是 1986653807，远大于尾巴长度，所以它**不是**
+     * 合法的 ISO-BMFF 盒子；"长度自洽"检查就是为这种尾巴准备的。
      */
     fun vendorTrailer(): ByteArray {
         val record = ascii("cameralbum!3f2b7c1d-00aa-4b1e-9c77-2f19a7bd0001")
@@ -116,22 +114,11 @@ object Fixtures {
     }
 
     /**
-     * spec「增补（2026-10-18c）」§2 那份包，逐字节照抄：真机候选 A 写的就是它，vivo 相册认、能播。
-     * 行首缩进、属性顺序、两处 `<VIDEO_SIZE>` 填**同一个**视频长度，都不许动。
-     *
-     * 长度账：占位符 `<VIDEO_SIZE>`（12 字符）两处比 7 位数字多 10 字节，块末那个换行不属于包
-     * —— 填好后正好 **1,057** 字节。
-     *
-     * **2026-10-19e 把这份钉桩从 1,024 挪到了 1,057**，唯一原因是规范正文那句"主媒体内容的长度
-     * 应为 0"：`Primary` 新增 `Item:Length="0" Item:Padding="0"`。`rdf:li` 的序列化形状与属性顺序
-     * **不动**——规范整页没有示例包，那两处没有规范性差异，不该为了对齐厂商样本去改。
-     *
-     * 因此"手机认过这份字节"这句只对改动前的 1,024 成立，这 33 字节必须重新装机验收。
-     * 而按同一批真机记录，18d 加的 `GainMap` 声明正是 vivo 相册由认转不认的那个变量——
-     * 规范 MUST 与该机型不能两全，用户裁定取规范（见 spec 增补 2026-10-19e §4）。
-     *
-     * BOM 只能待在普通字符串里：Kotlin 原始字符串不解释 `\uFEFF`，而裸写的 U+FEFF 会被编辑器吞掉。
-     * 这份常量是**判据**而不是实现的副本：实现吐出的字节一变，这里就得红。
+     * 逐字节照抄的 XMP 包钉桩：行首缩进、属性顺序、两处 `<VIDEO_SIZE>` 填**同一个**视频长度，
+     * 都不许动。`Primary` 的 `Item:Length="0" Item:Padding="0"` 是规范正文的要求，不是笔误。
+     * 长度账：两处占位符比 7 位数字多 10 字节、块末换行不属于包，填好后正好 **1,057** 字节。
+     * 它是**判据**而不是实现的副本：实现吐出的字节一变这里就得红；要改包体先同步这条钉桩。
+     * BOM 只能待在普通字符串里：原始字符串不解释 `\uFEFF`，裸写的 U+FEFF 会被编辑器吞掉。
      */
     private val specPacketTemplate: String =
         "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
@@ -166,10 +153,9 @@ object Fixtures {
 
     /**
      * vivo HDR gain map 的源 XMP：`hdrgm:Version` + `Container:Directory` 里 Primary 与 GainMap 两项。
-     * 形状取自真机抽样（GainMap 项带 `Item:Mime=image/jpeg` 与 `Item:Length`，
-     * 那个 Length 就是副图的实际字节数，见 [gainMapJpeg]）。
-     * 这一型把语义写成**子元素文本**（`<Item:Semantic>GainMap</Item:Semantic>`）；产物那份
-     * （[specPacket]）用的是 `Container:Item` 的**属性**写法，两种形状在 vivo 语料里并存。
+     * GainMap 项带 `Item:Mime=image/jpeg` 与 `Item:Length`，那个 Length 就是副图的实际字节数
+     * （见 [gainMapJpeg]）。这一型把语义写成**子元素文本**（`<Item:Semantic>GainMap</Item:Semantic>`）；
+     * 产物那份（[specPacket]）用的是 `Container:Item` 的**属性**写法，两种形状在 vivo 语料里并存。
      */
     fun gainMapXmp(gainMapLength: Long): String = buildString {
         append(XmpPacket.PACKET_BEGIN).append('\n')
@@ -203,9 +189,9 @@ object Fixtures {
 
     /**
      * 真 HDR gain map 副图：完整 JPEG（SOI + APP2/`hdrg` 盒 + SOF0 + SOS + 熵数据 + EOI）。
-     * APP2 标识符与盒子名按 ISO 21496-1（Android 14+ 的 gain map 就是这一段），
-     * 熵数据里刻意不出现 0xFF——它是主图 EOI **之后**的字节，主图扫描器根本走不到那儿，
-     * 但保持"合法 JPEG"这个性质，产物的副图段才能被 HDR 查看器解码。
+     * APP2 标识符与盒子名按 ISO 21496-1（Android 14+ 的 gain map 就是这一段），熵数据里不出现
+     * 0xFF：它是主图 EOI **之后**的字节，主图扫描器走不到那儿，但"合法 JPEG"这个性质要保住，
+     * 产物的副图段才可能被 HDR 查看器解码。
      */
     fun gainMapImage(entropySize: Int = 4096): ByteArray {
         // hdrg 盒：长度自洽的 4+4 字节头 + version(4) + min/max/headroom(3×4) + 标志
@@ -218,11 +204,9 @@ object Fixtures {
     }
 
     /**
-     * 真机最常见的输入：XMP 声明 GainMap 的主图 + EOI 之后原样躺着的副图 JPEG，
-     * **副图之后还有 387 字节的厂商记录**（照 vivo 092349 的 `streamdataDEGS`）。
-     * 源 XMP 声明的 `Item:Length` 只到副图 JPEG 自身为止——vivo 自己就是这么漏掉那 387 字节的，
-     * spec 2026-10-18d §2 的裁定（我们的目录要把**整条尾巴**声明成 GainMap）正是对着这个形状做的。
-     * 返回 `主图（含尾巴）`。
+     * 最常见的输入：XMP 声明 GainMap 的主图 + EOI 之后原样躺着的副图 JPEG，**副图之后还有
+     * 387 字节的厂商记录**（vivo 的 `streamdataDEGS`）。源 XMP 的 `Item:Length` 只到副图自身
+     * 为止——厂商自己就是这么漏掉那 387 字节的，我们的目录要把**整条尾巴**声明成 GainMap。
      */
     fun gainMapJpeg(entropySize: Int = 4096): ByteArray {
         val gainMap = gainMapImage(entropySize)
@@ -231,10 +215,10 @@ object Fixtures {
             gainMap + vendorRecord()
     }
 
-    /** 尾巴是厂商 JSON 记录的输入（无 XMP，抽样里那 1 张就是这个形状）。 */
+    /** 尾巴是厂商 JSON 记录的输入（无 XMP）。 */
     fun vendorTrailerJpeg(): ByteArray = jpeg(tail = vendorTrailer())
 
-    /** 尾巴是 47 个零字节的输入（抽样里那 1 张零填充）。 */
+    /** 尾巴是 47 个零字节的输入。 */
     fun zeroFilledJpeg(): ByteArray = jpeg(tail = zeroFill(47))
 
     /** 尾巴是追加视频、且 XMP 已经声明 MotionPhoto 的输入——上一轮产物，必须跳过。 */
@@ -247,12 +231,11 @@ object Fixtures {
     }
 
     /**
-     * vivo 相机 mp4 末尾那个 `uuid` + 伪 UUID `vivoMediaExtInfo` 盒，逐字段照抄真机字节布局：
-     * `[u32 总长]['uuid'][16 B 伪 UUID]['vivo'][JSON][u32BE=JSON 字节数][58 B 尾记录]`，
-     * 尾记录 = `cameralbum!` + `00 00 00` + `/<编号>` + `FF FF FF FF` + 11 B 固定填充。
-     * 真机二分（2026-10-20）证明：**JSON 里 `com.android.camera.livephoto` 的值必须以字面量
-     * `motionphoto` 开头，vivo 相册才认这条 live photo**；相机自己写的是数字开头的 id，
-     * 原样追加就不认。盒尺寸、JSON 里其余的键、`version` 数字、尾记录内容都无关。
+     * vivo 相机 mp4 末尾那个 `uuid` + 伪 UUID `vivoMediaExtInfo` 盒，逐字段照抄真实字节布局：
+     * `[u32 总长]['uuid'][16 B 伪 UUID]['vivo'][JSON][u32BE=JSON 字节数][58 B 尾记录]`，尾记录 =
+     * `cameralbum!` + `00 00 00` + `/<编号>` + `FF FF FF FF` + 11 B 固定填充。
+     * **vivo 相册只认 `com.android.camera.livephoto` 的值以字面量 `motionphoto` 开头**的末盒，
+     * 相机自己写的是数字开头的 id，原样追加就不认；盒尺寸、其余键、`version`、尾记录都无关。
      */
     fun vivoTailBox(livephoto: String = REAL_LIVEPHOTO, version: Int = 2104): ByteArray {
         val json = ascii(
@@ -271,11 +254,11 @@ object Fixtures {
         return uint32((8 + body.size).toLong()) + ascii("uuid") + body
     }
 
-    /** `ftyp` 盒 + 末尾的 vivoMediaExtInfo 盒——真机 vivo 相机 mp4 的最小可辨形状。 */
+    /** `ftyp` 盒 + 末尾的 vivoMediaExtInfo 盒——vivo 相机 mp4 的最小可辨形状。 */
     fun vivoMp4(livephoto: String = REAL_LIVEPHOTO, headSize: Int = 512): ByteArray =
         mp4(headSize.toLong()) + vivoTailBox(livephoto)
 
-    /** 真机 X200 Pro mini 那条视频里的实际编号（数字开头，所以原样追加必然不被认）。 */
+    /** X200 Pro mini 那条视频里的实际编号（数字开头，所以原样追加必然不被认）。 */
     const val REAL_LIVEPHOTO = "17924055463797e14dd500000000"
 
     private const val TARGET = 399

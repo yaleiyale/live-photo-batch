@@ -16,11 +16,10 @@ import java.nio.channels.WritableByteChannel
 import java.util.concurrent.TimeUnit
 
 /**
- * 产物布局（spec「增补（2026-10-18c）」§1）：
- * `SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, trailerEnd)`。
+ * 产物布局：`SOI + 源图[2, 旧XMP起点) + 新 XMP APP1 + 源图[旧XMP终点, trailerEnd)`。
  * 新段写回旧段原来的位置，所以源片里排在 XMP 之前的 EXIF `APP1` 仍然在它之前；
  * `imageEnd` 之后的尾巴按调用方点名的 `trailerEnd` 一起搬（合成器给文件大小 = 源 JPEG 整文件），
- * 因为真机单变量对照里截掉尾巴的那份不被 vivo 相册认。
+ * 截掉尾巴的产物 vivo 相册不认。
  */
 class JpegXmpPatcherTest {
     private val app1 = XmpPacket.app1Segment(7L)
@@ -92,7 +91,7 @@ class JpegXmpPatcherTest {
     }
 
     @Test fun `source without xmp gets the new segment right after soi`() {
-        // spec §2 的字面是"源无 XMP 时插在 SOI 之后"：新段因此把 APP0 推到它后面。
+        // 契约：源无 XMP 时插在 SOI 之后，新段因此把 APP0 推到它后面。
         // 语料里的源片都带 XMP，这种形状没有参考实现可比，按字面断言，不为它加特例。
         val bytes = Fixtures.jpeg(headSegments = listOf(app0(), Fixtures.sof0()))
         val result = patch(bytes)
@@ -123,7 +122,7 @@ class JpegXmpPatcherTest {
 
     @Test fun `old xmp is dropped and replaced by exactly one new xmp in its own place`() {
         // 旧 XMP 前面先放一段 EXIF APP1——真实相机的 JPEG 就是这个顺序，也是语料的顺序。
-        // 把新段插在 SOI 之后（Task 13 的做法）会让 XMP 跑到 EXIF 前面，相册不认。
+        // 把新段插在 SOI 之后的实现会让 XMP 跑到 EXIF 前面，相册不认。
         val exif = Fixtures.segment(
             0xE1,
             "Exif".toByteArray() + byteArrayOf(0xFF.toByte(), 0xD9.toByte(), 0, 1, 2, 3),
@@ -193,7 +192,7 @@ class JpegXmpPatcherTest {
     }
 
     @Test fun `a non video trailer is copied whatever it holds`() {
-        // 增补 2026-10-18c §1：gain map 副图、厂商记录、零填充都只是"非视频尾巴"，
+        // gain map 副图、厂商记录、零填充都只是"非视频尾巴"，
         // 一律原样搬到 XMP 之后、视频之前——合成器把 trailerEnd 传到文件末尾。
         for (trailer in listOf(Fixtures.gainMapImage(entropySize = 1024), Fixtures.vendorTrailer(), Fixtures.zeroFill(47))) {
             val bytes = Fixtures.jpeg(tail = trailer)
@@ -243,7 +242,7 @@ class JpegXmpPatcherTest {
             JpegXmpPatcher.patch(structure, ByteArraySource(bytes.copyOf(10)),
                 Channels.newChannel(out), app1, trailerEnd = bytes.size.toLong())
         }
-        // 必须是 IOException 子类，Task 5 的 composer 才能把它归进 IO_ERROR。
+        // 必须是 IOException 子类，composer 才能把它归进 IO_ERROR。
         assertInstanceOf(java.io.IOException::class.java, error)
     }
 
@@ -254,10 +253,9 @@ class JpegXmpPatcherTest {
         val bytes = Fixtures.jpeg(headSegments = listOf(exif, old, Fixtures.sof0()))
         val structure = scan(bytes)
         val oldXmp = structure.oldXmp!!
-        // 源在"要读掉的旧 XMP"中间就断了：写出分支一切正常，缺字节的是丢弃分支。
-        // 这条专门盯那一步的短读处理——"能跳多少算多少"式的 skip 到 EOF 只返回 0/-1：
-        // 要么旧段字节被当成图片内容写进输出，要么循环条件永不满足而原地挂死——所以整条跑在
-        // 独立线程 + 超时上，挂死 = 失败，而不是卡住整个构建。
+        // 源在"要读掉的旧 XMP"中间就断了：写出分支一切正常，缺字节的是丢弃分支。这条专门盯
+        // 那一步的短读处理——"能跳多少算多少"式的 skip 只返回 0/-1：要么旧段字节被当成图片
+        // 内容写进输出，要么循环条件永不满足而原地挂死，所以整条跑在独立线程 + 超时上。
         val truncated = bytes.copyOf((oldXmp.start + old.size / 2).toInt())
         val out = ByteArrayOutputStream()
         val error = assertThrows(java.io.EOFException::class.java) {
@@ -274,7 +272,7 @@ class JpegXmpPatcherTest {
         val structure = scan(bytes)
         val sink = RejectingSink()
         // write 返回 0 既不是"写完"也不是"没东西可写"：必须立刻变成 IOException。
-        // 少了这个判断，排空循环原地挂死，Task 5 会把挂死当成成功。
+        // 少了这个判断，排空循环原地挂死，调用方会把挂死当成成功。
         val error = assertThrows(java.io.IOException::class.java) {
             JpegXmpPatcher.patch(structure, ByteArraySource(bytes), sink, app1)
         }

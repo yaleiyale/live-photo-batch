@@ -37,11 +37,8 @@ class BatchRunnerTest {
         val item = report.items.single()
         assertEquals(ItemStatus.SUCCESS, item.status)
         assertNull(item.reason, "成功项不该带失败原因")
-        // 计划 Step 1 这里写的是 300L（= 视频长度），可 Step 3 的实现填的是
-        // ComposeResult.totalBytes，计划前言 T5→T8 那一行也裁定"runner 只用 totalBytes"。
-        // 两者不可能同时成立，取实现一侧：bytes 是**真正写出的产物字节**，Task 11 的
-        // "已写出 N MB" 累加的就是它，只算视频会少掉整张图片。断言不删，改成同一量的
-        // 完整表达式：既等于算式，也等于落盘文件的实际长度。
+        // item.bytes 是**真正写出的产物字节**（源图 + 新 APP1 + 视频），不是视频长度：
+        // "已写出 N MB" 累加的就是它，只算视频会少掉整张图片。
         assertEquals(outputBytes.toLong(), item.bytes)
         assertEquals(storage.bytesOf("/t/IMG_a_MP.jpg").size.toLong(), item.bytes)
         assertEquals(outputBytes.toLong(), report.composedBytes)
@@ -79,10 +76,9 @@ class BatchRunnerTest {
     }
 
     /**
-     * 复检是删除前最后一道门：compose 自己说成功不算成功，要把写下去的那份**读回来**验一遍
-     * 才许 move、才许碰原文件。下面两个篡改都只作用于"读回来的 .part"，写进去的字节是好的
-     * —— 那正是这道门存在的理由：将来任何一个绕过前置校验的 composer 回归都会在这里被拦住，
-     * 而不是变成一次不可逆的删除。
+     * 复检是删除前最后一道门：写下去的那份要**读回来**验过才许 move、才许碰原文件。
+     * 下面的篡改只作用于"读回来的 .part"，写进去的字节是好的——绕过前置校验的 composer
+     * 回归必须在这里被拦住，而不是变成一次不可逆的删除。
      */
     private class Tampering(val base: InMemoryStorage, val rewrite: (ByteArray) -> ByteArray) :
         BatchStorage by base {
@@ -121,7 +117,7 @@ class BatchRunnerTest {
         val runner = BatchRunner(storage)
         val report = runner.run(runner.plan(options(true)), options(true), NoCancel) { }
         assertEquals(ItemStatus.SUCCESS, report.items.single().status)
-        // §7.5 + ruling 3：先建两个目录，写 .tmp/<name>.part，rename 到最终名，
+        // 时序：先建两个目录，写 .tmp/<name>.part，rename 到最终名，
         // 只有改名成功之后才允许删原文件（图先视频后）。整个时序就这一条测试钉死。
         assertEquals(
             listOf(
@@ -137,9 +133,8 @@ class BatchRunnerTest {
     }
 
     /**
-     * 一次运行被 force-stop / 低内存回收掀掉时，[BatchRunner] 的 `catch` 与 §7.5 的清理都来不及跑，
-     * 半截 `.part` 就永久躺在 `<target>/.tmp/` 里占空间——没有任何东西会再去看那个目录
-     * （`list` 只列一层，`.tmp` 是目录，所以它既不会被配对也永远不会被删）。
+     * 运行被 force-stop / 低内存回收掀掉时，`catch` 与清理都来不及跑，半截 `.part` 就永久躺在
+     * `<target>/.tmp/` 里占空间（`list` 只列一层，`.tmp` 是目录，既不会被配对也永远不会被删）。
      * 下一次开工先清扫：这些名字只可能是死掉的运行留下的，本次运行的 `.part` 此刻还不存在。
      */
     @Test fun `a stale part file left by a dead batch is swept before anything is written`() {
@@ -156,10 +151,7 @@ class BatchRunnerTest {
         assertTrue(swept in 0 until wrote, "清扫没有走在第一次写入之前：${storage.calls}")
     }
 
-    /**
-     * 清扫的范围就是"`.tmp` 里以 `.part` 结尾的名字"，一条边都不许多越：
-     * 同目录里别的文件可能是人放进去的，`.tmp` 之外的 `.part` 更是用户数据。
-     */
+    /** 清扫范围就是"`.tmp` 里以 `.part` 结尾的名字"：同目录其他文件与 `.tmp` 之外的 `.part` 都是用户数据。 */
     @Test fun `the sweep deletes only part files inside the tmp directory`() {
         val stale = "/t/.tmp/IMG_old_MP.jpg.part"
         val otherInTmp = "/t/.tmp/notes.txt"
@@ -178,10 +170,7 @@ class BatchRunnerTest {
         assertTrue(storage.exists(partInSource), "清扫越界：删掉了来源目录里的文件")
     }
 
-    /**
-     * 没有任何项要写的时候，`run` 对磁盘一个字节都不碰——这是既有的不变量（NO_PAIR 行不建目录），
-     * 清扫也守它：一次"无事可做"的点击不该顺手删掉别人的文件。
-     */
+    /** 没有任何项要写时 `run` 对磁盘一个字节都不碰（NO_PAIR 行不建目录），清扫也守这条。 */
     @Test fun `a batch with nothing to compose sweeps nothing`() {
         val stale = "/t/.tmp/IMG_old_MP.jpg.part"
         val (runner, storage) = runnerWith(stale to ByteArray(7), "/s/IMG_a.mp4" to video)
@@ -265,7 +254,7 @@ class BatchRunnerTest {
     }
 
     @Test fun `an in-place batch still goes through the tmp file`() {
-        // 目标目录 == 源目录是 spec 允许的场景（PairPlanner KDoc 明确支持原地生成）。
+        // 目标目录 == 源目录是允许的场景（PairPlanner 支持原地生成）。
         // .part 必须落在 targetDir/.tmp 而不是源目录根，否则原地批次会把半截文件当输入。
         val storage = RecordingStorage(InMemoryStorage(mapOf("/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video)))
         val runner = BatchRunner(storage)
@@ -308,7 +297,7 @@ class BatchRunnerTest {
         assertEquals(ItemStatus.SUCCESS, report.items.first { it.stem == "IMG_b" }.status)
         assertEquals(2, seen.size)
         assertEquals(listOf("IMG_a", "IMG_b"), seen.map { it.stem })
-        // 失败项不计入 composedBytes，也不留下 .part：§7.5 的清理不看字节数，无条件删。
+        // 失败项不计入 composedBytes，也不留下 .part：清理不看字节数，无条件删。
         assertEquals(outputBytes.toLong(), report.composedBytes)
         assertFalse(storage.tmpFiles.isNotEmpty())
         // 坏视频这一对没被删：删除只属于成功项。
@@ -317,9 +306,9 @@ class BatchRunnerTest {
     }
 
     @Test fun `only already-motion-photo counts as skipped`() {
-        // ruling 1：SKIPPABLE 只剩 ALREADY_MOTION_PHOTO。NOT_MP4 与 MALFORMED_JPEG 都必须
-        // 报 FAILED —— Task 2 的 Cursor 把 IOException 折成 Malformed，真磁盘故障绝不能
-        // 被分进"跳过"里。两条都放进阶梯里跑，还能顺带证明连续失败也不中断批次。
+        // 只有 ALREADY_MOTION_PHOTO 算跳过：NOT_MP4 与 MALFORMED_JPEG 都必须报 FAILED——
+        // MALFORMED_JPEG 也可能来自真实的磁盘故障，绝不能被分进"跳过"。两条一起跑还顺带
+        // 证明连续失败也不中断批次。
         val (runner, storage) = runnerWith(
             "/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to ByteArray(2048),
             "/s/IMG_b.jpg" to image.copyOf(9), "/s/IMG_b.mp4" to video,
@@ -338,8 +327,8 @@ class BatchRunnerTest {
     }
 
     @Test fun `a jpeg whose source xmp nobody can parse still composes`() {
-        // 增补 2026-10-18c §2/§3：写路径**不解析**源 XMP，畸形包因此既不是失败理由也不需要那套安全
-        // 解析。它的下场和别的源声明一样——被清空白掉。旧规则里这条报 MALFORMED_XMP，现在必须成功。
+        // 写路径**不解析**源 XMP：畸形包因此既不是失败理由，也不需要那套安全解析。
+        // 它的下场和别的源声明一样——被清空白掉。
         val broken = Fixtures.app1(Fixtures.XAP, "<x:xmpmeta><unclosed>".toByteArray(Charsets.UTF_8))
         val dirty = Fixtures.jpeg(headSegments = listOf(broken, Fixtures.sof0()))
         val (runner, storage) = runnerWith("/s/IMG_a.jpg" to dirty, "/s/IMG_a.mp4" to video)
@@ -365,7 +354,7 @@ class BatchRunnerTest {
     }
 
     @Test fun `a gain map jpeg composes through the batch and reports real byte counts`() {
-        // 端到端：真机最常见的那张输入（XMP 声明 GainMap + EOI 后躺着副图）必须报成功，
+        // 端到端：最常见的那张输入（XMP 声明 GainMap + EOI 后躺着副图）必须报成功，
         // 而 bytes 等于**源文件整份 + 视频**的产物长度——UI 的"已写出 N MB"读的就是它。
         val dirty = Fixtures.gainMapJpeg()
         val (runner, storage) = runnerWith("/s/IMG_a.jpg" to dirty, "/s/IMG_a.mp4" to video)
@@ -387,7 +376,7 @@ class BatchRunnerTest {
         assertEquals(structure.imageEnd + gainMapBytes, out.size - offset)
         assertEquals(video.size.toLong(), offset)
         assertFalse(text.contains("hdrgm:GainMapHeadroom"), "源包的 hdrgm 属性被掺进了产物")
-        // spec 2026-10-18d §2：有副图时**我们自己清空白写**的 hdrgm:Version 必须在场且只有一条；
+        // 有副图时**我们自己清空白写**的 hdrgm:Version 必须在场且只有一条；
         // 出现两条 = 源包没被丢干净。
         assertEquals(1, Regex(Regex.escape("hdrgm:Version=\"1.0\"")).findAll(text).count(),
             "批次产物没带（或掺重了）hdrgm:Version=\"1.0\"")
@@ -423,9 +412,9 @@ class BatchRunnerTest {
         storage.deleteRefused = setOf("/s/IMG_a.mp4")
         val runner = BatchRunner(storage)
         val item = runner.run(runner.plan(options(true)), options(true), NoCancel) { }.items.single()
-        // spec §7.5：删除失败不改变本项的成功状态，但要分别记下
+        // 删除失败不改变本项的成功状态，但要分别记下
         // "没删掉的名字"（deleteFailures，给用户看警告）和"真删掉的绝对路径"
-        // （deletedSources，ruling 4：Task 11 要把它交给 MediaStore 收敛索引）。
+        // （deletedSources，要交给 MediaStore 收敛索引）。
         assertEquals(ItemStatus.SUCCESS, item.status)
         assertEquals(listOf("IMG_a.mp4"), item.deleteFailures)
         assertEquals(listOf("/s/IMG_a.jpg"), item.deletedSources)
@@ -437,7 +426,7 @@ class BatchRunnerTest {
     @Test fun `a source that vanished after the plan is reported as io error and does not abort the batch`() {
         // UI 先 plan() 预览、再把同一个 PlanResult 交给 run()。这中间另一个进程（相册同步、
         // 用户自己在文件管理器里删）可以把源文件移走：BatchStorage.open 的契约就是此时抛
-        // FileNotFoundException（Task 7），composeOne 的 catch 分支就是为它写的。
+        // FileNotFoundException，composeOne 的 catch 分支就是为它写的。
         val (runner, storage) = runnerWith(
             "/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video, "/s/IMG_b.jpg" to image, "/s/IMG_b.mp4" to video,
         )
@@ -453,7 +442,7 @@ class BatchRunnerTest {
         assertEquals(0L, a.bytes)
         assertEquals(emptyList<String>(), a.deleteFailures)
         assertEquals(emptyList<String>(), a.deletedSources)
-        // spec §9：一项炸掉不算批次炸掉。b 照常提交，连删除记账都不受影响。
+        // 一项炸掉不算批次炸掉。b 照常提交，连删除记账都不受影响。
         assertEquals(ItemStatus.SUCCESS, report.items.first { it.stem == "IMG_b" }.status)
         assertEquals(listOf("/s/IMG_b.jpg", "/s/IMG_b.mp4"), report.items.first { it.stem == "IMG_b" }.deletedSources)
         assertEquals(listOf("IMG_a", "IMG_b"), seen.map { it.stem })
@@ -464,13 +453,13 @@ class BatchRunnerTest {
         // 没提交的项不许删原文件：视频还躺在源目录（图是被"别的进程"删的，不算我们删的）。
         assertTrue(storage.exists("/s/IMG_a.mp4"))
         // open 抛之前 openWrite 已经把 0 字节的 .part 落进了目录（内存实现的 close 语义），
-        // 所以这条断言真的在检查 catch 分支执行了 §7.5 的清理。
+        // 所以这条断言真的在检查 catch 分支执行了半截文件的清理。
         assertFalse(storage.tmpFiles.isNotEmpty(), "catch 分支留下了半截 .part：${storage.tmpFiles}")
     }
 
     @Test fun `a throwing tmp cleanup cannot escape the run`() {
         // 清理自己也是文件操作：源消失（open 抛）之后 catch 要删 .part，而这一次删除也抛。
-        // run 的契约是**必定**返回 BatchReport，绝不把异常递给 UI（spec §9）。
+        // run 的契约是**必定**返回 BatchReport，绝不把异常递给 UI。
         val storage = RecordingStorage(InMemoryStorage(mapOf(
             "/s/IMG_a.jpg" to image, "/s/IMG_a.mp4" to video, "/s/IMG_b.jpg" to image, "/s/IMG_b.mp4" to video,
         )))
@@ -489,7 +478,6 @@ class BatchRunnerTest {
             listOf("delete:/t/.tmp/IMG_a_MP.jpg.part=throw"),
             storage.calls.filter { it.startsWith("delete:/t/.tmp/") },
         )
-        // 后面的项照跑，报告照发。
         assertEquals(ItemStatus.SUCCESS, report.items.first { it.stem == "IMG_b" }.status)
         assertEquals(outputBytes.toLong(), report.composedBytes)
         // 清不掉的半截文件留在 .tmp 里——这是"批次继续"的代价（下次批次会覆盖它），
@@ -498,7 +486,7 @@ class BatchRunnerTest {
     }
 
     @Test fun `a throwing tmp cleanup does not rewrite a skipped item into a failure`() {
-        // 同一个守卫也管校验被拒的那条出路：ALREADY_MOTION_PHOTO 是 ruling 1 里唯一的"跳过"，
+        // 同一个守卫也管校验被拒的那条出路：ALREADY_MOTION_PHOTO 是唯一的"跳过"，
         // 清 .part 时抛出故障绝不能借道外层 catch 把它改写成 FAILED(IO_ERROR)——
         // 那是把用户已经完成的文件说成失败。
         val embedded = Fixtures.app1(Fixtures.XAP, XmpPacket.motionPhoto(10L))
@@ -597,10 +585,8 @@ class BatchRunnerTest {
         var deleteRefused: Set<String> = emptySet()
 
         /**
-         * 这些路径上的 delete 直接抛 `IOException`。[BatchStorage.delete] 的契约只返回 true/false，
-         * 但 `run` "必定返回报告" 的总契约不该把安全性押在实现方守约上（Task 8 报告 Concern 1 正是
-         * 这个分歧点，Task 9 的 FileStorage 也照样要求它返回 false）：所以这里偏偏抛，
-         * 证明异常递不到调用方手里。
+         * 这些路径上的 delete 直接抛 `IOException`：[BatchStorage.delete] 的契约只返回 true/false，
+         * 但 `run` "必定返回报告" 不该把安全性押在实现方守约上（真实文件系统实现同样会抛）。
          */
         var deleteThrows: Set<String> = emptySet()
 

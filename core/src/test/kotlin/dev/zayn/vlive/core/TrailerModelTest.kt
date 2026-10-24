@@ -10,7 +10,7 @@ import java.nio.channels.Channels
 import java.nio.channels.SeekableByteChannel
 
 /**
- * spec 增补（2026-10-18d）§3：`imageEnd` 之后那段尾巴该被目录声明成什么。
+ * `imageEnd` 之后那段尾巴该被目录声明成什么。
  * 期望值全部从**夹具自己的构造**推导（副图字节数、厂商记录字节数、尾巴=两者之和），
  * 不拿 [TrailerModel] 的输出反推输出。
  */

@@ -4,8 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * 玻璃标题栏的 alpha 是这一轮唯一值得单测的新逻辑：它决定"划过去才看得见"这件事，
- * 错了只会表现为"标题栏一直挡着"或"永远不出现"，肉眼看一次未必复现得出来。
+ * 玻璃标题栏的 alpha 决定"划过去才看得见"这件事：错了只会表现为"标题栏一直挡着"
+ * 或"永远不出现"，肉眼看一次未必复现得出来。
  *
  * 单位是 px，不是 dp —— 换算发生在调用点（那里有 LocalDensity），函数保持纯。
  */
@@ -38,7 +38,7 @@ class TitleBarAlphaTest {
     fun `a non-positive range never hides the bar forever`() {
         assertAlpha(1f, scrollY = 0, range = 0)
         assertAlpha(1f, scrollY = 12, range = -5)
-        // 同一条边界判据的最小合法档：spec §3.3 的 `range = 1`。算得出 1px 折叠距离的窗口本来就在
+        // 同一条边界判据的最小合法档：`range = 1`。算得出 1px 折叠距离的窗口本来就在
         // 边缘上，第一帧就得是满 alpha，不许出现"要滚过半像素才露出标题"。
         assertAlpha(1f, scrollY = 1, range = 1)
     }

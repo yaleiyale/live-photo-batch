@@ -7,10 +7,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * spec §7.6 不变量的纯计算（无文件系统、无 Android 类）——输入就是 `BatchReport.items` 可能
+ * 扫描列表不变量的纯计算（无文件系统、无 Android 类）——输入就是 `BatchReport.items` 可能
  * 长出的四种真实形状：SUCCESS 带"只删掉一半"的原文件、FAILED/SKIPPED 项、取消后跑完的尾巴、
  * "产物必须在"的底线。`"$dir/$name"` 的拼接约定钉在这里，与核心层
- * `BatchRunner.composeOne`（BatchRunner.kt:109）逐字符一致，协程里不许再有第二份内联拼接。
+ * `BatchRunner.composeOne` 逐字符一致，协程里不许再有第二份内联拼接。
  *
  * [touchedPathsFor] 是纯函数：这里给的"绝对路径"是字符串演算，与宿主文件系统无关。
  */

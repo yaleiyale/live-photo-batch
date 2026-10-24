@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * 驱动集是视频：只有 `IMG_*.mp4` 会被拿去配同名 JPEG（spec §7.4.5-7.4.6 与 PairPlanner 类头）。
- * 因此"普通照片缺视频"不再是报告内容，报告里只剩"有视频找不到图"这一种异常。
+ * 驱动集是视频：只有 `IMG_*.mp4` 会被拿去配同名 JPEG。
+ * 因此"普通照片缺视频"不是报告内容，报告里只剩"有视频找不到图"这一种异常。
  */
 class PairPlannerTest {
     private fun plan(vararg names: String) =
@@ -44,14 +44,14 @@ class PairPlannerTest {
         assertEquals(listOf("img_003.mp4"), mixed.unpaired.map { it.name })
     }
 
-    // 这一条是本次改驱动集的正向理由：录屏、下载的短视频、聊天工具存进来的 mp4 都不是动态照片。
+    // 录屏、下载的短视频、聊天工具存进来的 mp4 都不是动态照片。
     @Test fun `a video without the IMG prefix is not a driver`() {
         val result = plan("screenshot.jpg", "screenshot.mp4", "video.mp4")
         assertTrue(result.jobs.isEmpty(), "非 IMG_ 开头的视频不该成对：${result.jobs}")
         assertTrue(result.unpaired.isEmpty(), "它也不该出现在报告里：${result.unpaired}")
     }
 
-    // 反向理由：普通照片没有配对视频，过去每个都刷一条"缺视频"，纯噪声。
+    // 普通照片没有配对视频时不该刷"缺视频"——那是纯噪声。
     @Test fun `a plain photo without a video is not reported at all`() {
         val result = plan("IMG_only.jpg", "IMG_second.jpg", "IMG_third.jpeg")
         assertTrue(result.jobs.isEmpty())
@@ -103,9 +103,6 @@ class PairPlannerTest {
         assertEquals(listOf("IMG_a", "IMG_b"), result.jobs.map { it.stem })
     }
 
-    // 计划夹具写的是 plan("only.jpg", "only.mp4", "vid.mp4")：前两项同 stem，必然成对，
-    // 于是它自己的两条断言（jobs 为空 + unpaired 含 only 与 vid）不可能同时成立。
-    // 保留断言原样，只删掉多余的 "only.mp4"，让"图像缺视频 / 视频缺图像"各来一条。
     @Test fun `job names are the listing names, not the stem or each other`() {
         val result = PairPlanner.plan(
             listOf(

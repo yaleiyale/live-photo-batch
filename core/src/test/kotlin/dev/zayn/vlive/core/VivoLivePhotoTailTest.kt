@@ -8,13 +8,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.fail
 
 /**
- * 真机二分（2026-10-20）钉下来的规则：vivo 相册认不认这条 live photo，取决于视频末尾那个
- * `uuid/vivoMediaExtInfo` 盒里 `com.android.camera.livephoto` 的值**是否以 motionphoto 开头**。
- * 相机自己写的是数字开头的 id，所以原样追加的产物在这台 V2419A 上一律不认；加上前缀就认，
- * 且盒尺寸、JSON 里其余的键、`version` 数字、尾记录内容都不影响（Y1/Y2/Y3 认、Y4 不认）。
+ * vivo 相册认不认这条 live photo，取决于视频末尾那个 `uuid/vivoMediaExtInfo` 盒里
+ * `com.android.camera.livephoto` 的值**是否以 motionphoto 开头**。
+ * 相机自己写的是数字开头的 id，所以原样追加的产物在 V2419A 上不被认；加上前缀就认，
+ * 且盒尺寸、JSON 里其余的键、`version` 数字、尾记录内容都不影响。
  *
  * 另一条同等重要：**看不懂就一个字都不改**。没有这个盒、JSON 解析不出、长度字段自相矛盾、
- * 盒子没走到文件末尾——一律 null，调用方原样搬运。我们只改自己看得懂的东西，也不伪造结构。
+ * 盒子没走到文件末尾——一律 null，调用方原样搬运。只改看得懂的东西，也不伪造结构。
  */
 class VivoLivePhotoTailTest {
 

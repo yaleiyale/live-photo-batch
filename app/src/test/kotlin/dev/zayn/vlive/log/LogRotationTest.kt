@@ -6,9 +6,8 @@ import org.junit.Test
 
 /**
  * Local JVM test (`app/src/test`) for the log-retention rules — the pure half of
- * [LogRotation]. The tree itself ([RollingLogTree]) only ever does "list the directory, ask this
- * function, delete what it said", so pinning the decision is what actually protects the
- * "别把存储写满" requirement.
+ * [LogRotation]. [RollingLogTree] only ever lists the directory, asks this function and deletes
+ * what it said, so pinning the decision is what protects the "别把存储写满" requirement.
  */
 class LogRotationTest {
 
@@ -46,7 +45,7 @@ class LogRotationTest {
         val alsoOld = file("log-002.txt", 100, 20)
         val newestButStillOld = file("log-003.txt", 100, 10)
         val doomed = caps(maxAgeDays = 7)(listOf(old, alsoOld, newestButStillOld))
-        // 规则 1：当前文件永不删 —— 哪怕它自己也过期了，删它等于丢掉最近的上下文。
+        // 当前文件永不删 —— 哪怕它自己也过期了，删它等于丢掉最近的上下文。
         assertEquals(listOf(old, alsoOld), doomed)
     }
 

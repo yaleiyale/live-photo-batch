@@ -13,11 +13,8 @@ import java.nio.channels.Channels
 class XmpPacketTest {
 
     /**
-     * spec 增补（2026-10-18c）§2 那份包：真机候选 A 写的就是它，vivo 相册认、能播。
-     * 判据是**字节**，不是"实现现在吐了什么"——A 与 Task 13 产物只差这份包，合并形状已经被真机否掉。
-     * 增补 2026-10-19e：按规范正文给 `Primary` 补上 `Item:Length="0" Item:Padding="0"`，
-     * 这份夹具跟着从 1,024 挪到 1,057 字节；`rdf:li` 的形状与属性顺序不动。
-     * "手机认过"那句只对改动前的字节成立，新形状要重新装机验收。
+     * 判据是**字节**，不是"实现现在吐了什么"：产物里那份包必须与
+     * [Fixtures.specPacket] 一字不差，实现吐出的字节一变这里就得红。
      * 尾巴既非副图也无需 Padding 时（两个参数都不给），这份包**一个字节都不许多**——形状不许漂移。
      */
     @Test fun `the packet is byte for byte the one the phone accepted`() {
@@ -68,7 +65,7 @@ class XmpPacketTest {
         }
     }
 
-    // ---------- spec 增补（2026-10-18d）：目录必须声明每一段字节 ----------
+    // ---------- 目录必须声明每一段字节 ----------
 
     @Test fun `a gain map trailer gets a GainMap item ordered before the video`() {
         val text = XmpPacket.motionPhoto(5_032_601L, gainMapBytes = 371_928L).decodeToString()
@@ -103,8 +100,8 @@ class XmpPacketTest {
     }
 
     /**
-     * 增补 2026-10-19e 之后主图项**带** `Length`，但只能是 `0`（规范：主图项的 Length 若写就应为 0）。
-     * `Padding` 仍然只许出现在第一项——OPPO 在每一项上都写 `Padding="0"`，那是它自己违反
+     * 主图项**带** `Length`，但只能是 `0`（规范：主图项的 Length 若写就应为 0）。
+     * `Padding` 只许出现在第一项——OPPO 在每一项上都写 `Padding="0"`，那是它自己违反
      * "Padding 只允许第一项"，不抄。
      */
     @Test fun `Primary carries Length 0 and is the only item allowed to carry Padding`() {
@@ -132,8 +129,7 @@ class XmpPacketTest {
     /**
      * 序列化形状**不是规范性变量**（Motion Photo 1.0 整页只有属性表与散文，没有示例 XMP 包），
      * 所以这里钉的是"我们自己不许漂"，不是"规范如此"：`<rdf:li>` 不带 `parseType`、
-     * `Semantic` 排在 `Mime` 前。改它没有任何合规收益，只会让字节钉桩重走一遍装机验收——
-     * 2026-10-19e 第一次就这么改错过，那条理由已经写进 [XmpPacket] 的 KDoc。
+     * `Semantic` 排在 `Mime` 前。改它没有任何合规收益，只会让字节钉桩重走一遍装机验收。
      */
     @Test fun `serialization shape stays ours, not borrowed from a vendor sample`() {
         val text = XmpPacket.motionPhoto(5_032_601L, gainMapBytes = 371_928L).decodeToString()
@@ -168,7 +164,7 @@ class XmpPacketTest {
     }
 
     /**
-     * spec §4 第一条——"紧密封装"的可执行形式：主图编码长度 + Padding + GainMap.Length +
+     * "紧密封装"的可执行形式：主图编码长度 + Padding + GainMap.Length +
      * MotionPhoto.Length == 产物文件大小。数字**全部从产物里读回来**（目录属性 + 重扫 EOI +
      * 落盘字节数），任何一项 Length 写小、写大或漏写都会让等式先红，不是拿常量硬凑。
      */

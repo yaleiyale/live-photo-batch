@@ -26,15 +26,15 @@ class MotionPhotoComposerTest {
             as JpegScanResult.Parsed).structure
 
     /**
-     * 产物长度的唯一算式（spec 增补 2026-10-18c §1）：**源文件整份**扣掉被丢弃的旧 XMP、加上新 APP1，
-     * 再加上视频字节。`imageEnd` 之后的尾巴包含在"整份"里，所以它不单独出现在算式上。
+     * 产物长度的唯一算式：**源文件整份**扣掉被丢弃的旧 XMP、加上新 APP1，再加上视频字节。
+     * `imageEnd` 之后的尾巴包含在"整份"里，所以它不单独出现在算式上。
      */
     private fun expectedSize(fileSize: Int, droppedOldXmp: Int, app1Size: Int, videoSize: Int): Long =
         fileSize.toLong() - droppedOldXmp + app1Size + videoSize
 
     /**
-     * §4 的判据：`文件大小 - MicroVideoOffset == 视频起点`，且该处起前 12 字节内出现 `ftyp`。
-     * 偏移量从**产物自己的字节**里读，不硬编码。尾巴在不在位由调用方另有条款钉。
+     * 判据：`文件大小 - MicroVideoOffset == 视频起点`，且该处起前 12 字节内出现 `ftyp`。
+     * 偏移量从**产物自己的字节**里读，不硬编码；尾巴在不在位由调用方另有条款钉。
      */
     private fun assertVideoAtFileSizeMinusOffset(out: ByteArray): Long {
         val text = out.toString(Charsets.ISO_8859_1)
@@ -47,9 +47,9 @@ class MotionPhotoComposerTest {
     }
 
     /**
-     * 产物里那段 XMP 必须与真机认下来的那份（[Fixtures.specPacket]）**逐字节**相同。
-     * 起点 = APP1 里的 XAP 标识符 + 结尾 NUL 之后；标识符在产物里只出现一次，由别的条款钉。
-     * 这条只用于**无尾巴**输入：有尾巴时目录必须带 GainMap/Padding 声明，见 [assertPacket]。
+     * 产物里那段 XMP 必须与 [Fixtures.specPacket] **逐字节**相同；起点从 APP1 里的 XAP 标识符
+     * + 结尾 NUL 之后倒推，不硬编码偏移。这条只用于**无尾巴**输入：有尾巴时目录必须带
+     * GainMap/Padding 声明，见 [assertPacket]。
      */
     private fun assertPacketIsTheAcceptedOne(out: ByteArray, videoSize: Long) {
         assertPacket(out, Fixtures.specPacket(videoSize))
@@ -79,13 +79,12 @@ class MotionPhotoComposerTest {
         // totalBytes 必须算上新插入的 APP1：patched 只是"源图字节数"，app1 与视频都得另加。
         assertEquals(out.size.toLong(), success.totalBytes)
         assertEquals(image.size + XmpPacket.app1Segment(900L).size + video.size, out.size)
-        // 尾部逐字节等于源 MP4
         assertArrayEquals(video, out.copyOfRange(out.size - video.size, out.size))
         // 头 + 新 XMP + 源图剩余 + 视频
         val expectedHead = byteArrayOf(0xFF.toByte(), 0xD8.toByte()) +
             XmpPacket.app1Segment(900L) + image.copyOfRange(2, image.size - 2)
         assertArrayEquals(expectedHead, out.copyOfRange(0, expectedHead.size))
-        // sink 归调用方：成功路径也不许替它 close()（Task 8 用 use { } 包着它，compose 先关
+        // sink 归调用方：成功路径也不许替它 close()（调用方用 use { } 包着它，compose 先关
         // 就等于在 rename 之前把 .part 通道关掉）。只有走完写入阶段的这条能盯住这件事。
         val owned = CountingSink()
         MotionPhotoComposer.compose(ByteArraySource(image), ByteArraySource(video), owned)
@@ -109,7 +108,7 @@ class MotionPhotoComposerTest {
         assertEquals(out.size - offset, scan(out).imageEnd)
     }
 
-    // ---------- spec「增补（2026-10-18c）」§1：源 JPEG 整文件进产物 ----------
+    // ---------- 源 JPEG 整文件进产物 ----------
 
     @Test fun `gain map trailer is kept byte for byte and the video follows it`() {
         val image = Fixtures.gainMapJpeg()
@@ -121,7 +120,7 @@ class MotionPhotoComposerTest {
         val (result, out) = compose(image, video)
         val success = assertInstanceOf(ComposeResult.Success::class.java, result)
         val oldXmp = structure.oldXmp ?: fail("gain map 夹具必须带一段源 XMP")
-        // 有副图 → 目录里多了 GainMap 项与 hdrgm 声明，新段比 18c 那份长：字节账本要用这一份。
+        // 有副图 → 目录里多了 GainMap 项与 hdrgm 声明，新段比无副图那份长：字节账本要用这一份。
         val app1 = XmpPacket.app1Segment(video.size.toLong(), gainMapBytes = trailer.size.toLong())
 
         // 产物 = 源文件整份（旧 XMP 原位换成新段）+ 视频：一段不少、一字节不改。
@@ -133,11 +132,11 @@ class MotionPhotoComposerTest {
         assertEquals(expectedSize(image.size, oldXmp.length.toInt(), app1.size, video.size), out.size.toLong())
         assertEquals(out.size.toLong(), success.totalBytes, "totalBytes 不是产物文件的真实字节数")
 
-        // 尾巴**逐字节**躺在它自己的位置上，且尾巴之后紧跟视频字节：截掉尾巴的产物真机不认。
+        // 尾巴**逐字节**躺在它自己的位置上，且尾巴之后紧跟视频字节：截掉尾巴的产物 vivo 相册不认。
         val trailerAt = (structure.imageEnd - oldXmp.length + app1.size).toInt()
         assertArrayEquals(trailer, out.copyOfRange(trailerAt, trailerAt + trailer.size))
         assertArrayEquals(video, out.copyOfRange(trailerAt + trailer.size, out.size))
-        // 副图字节在场，所以它自己的 APP2 标识符也在场（上一版这里断言的是"必须消失"）。
+        // 副图字节在场，所以它自己的 APP2 标识符也在场。
         assertTrue(out.toString(Charsets.ISO_8859_1).contains("21496"), "gain map 副图没被搬进产物")
 
         // 包必须把整条尾巴（副图 + 厂商记录）声明成 GainMap：逐字节对照带声明的那一份。
@@ -173,7 +172,7 @@ class MotionPhotoComposerTest {
             assertFalse(text.contains(it), "源包的 $it 被掺进了产物")
         }
         // hdrgm 前缀本身**允许**出现——但只能是我们清空白写的那一条 hdrgm:Version="1.0"
-        // （spec 2026-10-18d §2：有副图时目录必须带它）。出现两条就是源包被掺进来了。
+        // （有副图时目录必须带它）。出现两条就是源包被掺进来了。
         assertEquals(1, Regex(Regex.escape("hdrgm:Version=\"1.0\"")).findAll(text).count(),
             "产物里的 hdrgm:Version 必须恰好一条，且是我们写的那份")
         assertTrue(text.contains("GCamera:MotionPhoto=\"1\""), "产物没写成动态照片")
@@ -192,8 +191,8 @@ class MotionPhotoComposerTest {
     }
 
     @Test fun `exif app1 stays before the xmp app1 in the product`() {
-        // 语料的段序是 SOI → APP0 → EXIF APP1 → XMP APP1 → …；Task 13 把新段插在 SOI 之后，
-        // EXIF 被挤到了 XMP 后面。这里用真合成的产物形状钉住"原位写回"。
+        // 语料的段序是 SOI → APP0 → EXIF APP1 → XMP APP1 → …；把新段插在 SOI 之后，
+        // EXIF 就会被挤到 XMP 后面。这里用真合成的产物形状钉住"原位写回"。
         val exif = Fixtures.segment(0xE1, "Exif".toByteArray() + byteArrayOf(0, 0) + ByteArray(32))
         val old = Fixtures.app1(Fixtures.XAP, Fixtures.gainMapXmp(1234L).toByteArray(Charsets.UTF_8))
         val app0 = Fixtures.segment(0xE0, Fixtures.ascii("JFIF\u0000") + byteArrayOf(1, 1, 0, 0, 1, 0, 1, 0, 0, 0))
@@ -228,7 +227,7 @@ class MotionPhotoComposerTest {
 
         val (result, out) = compose(image, video)
         assertInstanceOf(ComposeResult.Success::class.java, result)
-        // 厂商 JSON 不是 gain map → 整条尾巴声明成主图 Padding（spec 2026-10-18d §2 第二行）。
+        // 厂商 JSON 不是 gain map → 整条尾巴声明成主图 Padding。
         val app1 = XmpPacket.app1Segment(video.size.toLong(), paddingBytes = trailer.size.toLong())
         assertEquals(expectedSize(image.size, 0, app1.size, video.size), out.size.toLong())
         // 厂商记录原样躺在 EOI 与视频之间：这张图没有源 XMP，新段插在 SOI 之后，
@@ -290,7 +289,7 @@ class MotionPhotoComposerTest {
     }
 
     @Test fun `not jpeg`() {
-        // PNG 魔数：真实世界最常混进来的就是它，比简报那个带乱码的 "PNGâPNG" 更确定（不依赖源码编码）。
+        // PNG 魔数：最常混进图片目录的东西；用字节而不是文本，不依赖源码文件编码。
         val png = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte()) +
             byteArrayOf(0x0D, 0x0A, 0x1A, 0x0A)
         val (result, out) = compose(png, Fixtures.mp4())
@@ -303,7 +302,7 @@ class MotionPhotoComposerTest {
         val (result, out) = compose(Fixtures.jpeg(), bad)
         assertEquals(FailureReason.NOT_MP4, (result as ComposeResult.Failure).reason)
         assertEquals(0, out.size)
-        // 顺序也要钉住：ruling 3 要求先探测视频头（最便宜），再扫 JPEG。
+        // 顺序也要钉住：先探测视频头（最便宜），再扫 JPEG。
         // 两头都坏时答案必须是 NOT_MP4——把 JPEG 扫描挪到前面的实现会先撞上 NOT_JPEG，
         // 于是坏视频在整批任务里被误报成坏图片，报告与 SKIPPED/FAILED 分类都跟着错。
         val both = compose("PNG".toByteArray(), bad)
@@ -331,8 +330,8 @@ class MotionPhotoComposerTest {
     }
 
     @Test fun `a source packet nobody can parse is simply overwritten`() {
-        // 2026-10-18c §2/§3：写路径不再解析源 XMP，所以畸形包既不是失败理由，也不需要那套
-        // 安全解析（DTD、外部实体一律没人去读）。它的下场和别的源声明一样——被清空白掉。
+        // 写路径不解析源 XMP：畸形包既不是失败理由，也不需要那套安全解析（DTD、外部实体
+        // 一律没人去读）。它的下场和别的源声明一样——被清空白掉。
         val broken = Fixtures.app1(Fixtures.XAP, "<x:xmpmeta><unclosed>".toByteArray(Charsets.UTF_8))
         val image = Fixtures.jpeg(headSegments = listOf(broken, Fixtures.sof0()))
         val video = Fixtures.mp4(64)
@@ -361,9 +360,9 @@ class MotionPhotoComposerTest {
     }
 
     @Test fun `two xap segments are refused and write nothing`() {
-        // 扫描器只会把**最后一个** XAP 记成"旧 XMP 的原位"，于是新包插到第二段的位置、
-        // 第一段原样留在它之前。按"取第一个 XMP"实现的读法（Exiv2、vivo 相册）看到的仍是
-        // 旧的普通照片 —— 而 runner 只看 move() 为真就会删原图。宁可拒绝，不许猜。
+        // 扫描器只把**最后一个** XAP 记成"旧 XMP 的原位"，于是新段插到第二段的位置、第一段
+        // 原样留在它之前。按"取第一个 XMP"实现的读法（Exiv2、vivo 相册）看到的仍是旧的普通
+        // 照片，而 runner 只看 move() 为真就会删原图。宁可拒绝，不许猜。
         val two = Fixtures.jpeg(
             headSegments = listOf(
                 Fixtures.app1(Fixtures.XAP, Fixtures.xmpPacket),
@@ -387,10 +386,9 @@ class MotionPhotoComposerTest {
         val result = MotionPhotoComposer.compose(
             ByteArraySource(Fixtures.jpeg()), ByteArraySource(ByteArray(8)), sink
         )
-        // 无 ftyp 的视频在写任何东西之前就被拒
         assertEquals(FailureReason.NOT_MP4, (result as ComposeResult.Failure).reason)
         assertFalse(sink.wroteAnything)
-        // sink 归调用方所有（Task 8 用 use { } 包着它）：compose 连"失败"都不许替它关。
+        // sink 归调用方所有（调用方用 use { } 包着它）：compose 连"失败"都不许替它关。
         assertTrue(sink.isOpen, "compose 关掉了调用方的 sink")
     }
 
@@ -408,8 +406,8 @@ class MotionPhotoComposerTest {
         assertTrue(sink.failed, "sink 从未被要求写入超出上限的字节，这条测试是空的")
         assertEquals(FailureReason.IO_ERROR, (result as ComposeResult.Failure).reason)
         // committed 行为：已落盘的字节不会因为失败而回滚或被清零——它们实打实留在 sink 里，
-        // 由调用方按 spec §7.5 无条件删掉 .part。谁若把"失败 = 什么都没写"当成前提（无论是
-        // 重新加回一个恒为 0 的 bytesWritten 字段，还是在清理时跳过删除），这条断言就红。
+        // 由调用方无条件删掉 .part。把"失败 = 什么都没写"当成前提的实现（无论是不清理还是
+        // 把 bytesWritten 报成 0）都会在这条断言上红。
         assertEquals(limit.toLong(), sink.size().toLong())
         assertTrue(sink.size() > imagePart, "半截视频字节应当已经进了 sink")
         // 留下的不是垃圾，而是合法产物的前缀：忘记删 .part 的调用方拿到的是一个截断文件。
@@ -422,7 +420,7 @@ class MotionPhotoComposerTest {
         assertTrue(sink.isOpen, "compose 关掉了调用方的 sink")
     }
 
-    // ---------- 真机二分（2026-10-20）：vivo 末盒的 livephoto 值必须带 motionphoto 前缀 ----------
+    // ---------- vivo 末盒的 livephoto 值必须带 motionphoto 前缀 ----------
 
     @Test fun `vivo tail box gets the prefix and both declared sizes follow the rewrite`() {
         val image = Fixtures.jpeg()
@@ -479,9 +477,9 @@ class MotionPhotoComposerTest {
     }
 
     /**
-     * 收满 [limit] 字节就把后续写入变成 [IOException] 的 sink——模拟设备写到一半就坏掉。
-     * [write] 允许只消费部分缓冲（`writeAll` 正是为此而循环），所以它能先吞掉剩余额度再抛，
-     * 于是失败发生时 sink 里留下的是**真实写出去过**的字节，不是内存里的镜像。
+     * 收满 [limit] 字节就把后续写入变成 [IOException] 的 sink。[write] 允许只消费部分缓冲
+     * （`writeAll` 正是为此而循环），所以它能先吞掉剩余额度再抛：失败时 sink 里留下的是
+     * **真实写出去过**的字节，不是内存镜像。
      */
     private class ExhaustingSink(private val limit: Int) : java.nio.channels.WritableByteChannel {
         private val bytes = ByteArrayOutputStream()

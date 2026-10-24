@@ -13,14 +13,13 @@ import java.io.File
 import java.nio.ByteBuffer
 
 /**
- * 真机/模拟器上跑的契约测试（Task 12 用 vivo V2419A 跑）；CI 只编译不执行。
+ * 真机/模拟器上跑的契约测试；CI 只编译不执行。
  *
- * 写在这里的用例都是 `InMemoryStorageTest` 里已经钉过的同一条 `BatchStorage` 契约——
- * 两个实现只在「目录」「可见性」这两处分叉，而 Task 6 的取舍和 Task 8 的删除原文件
- * 恰好都踩在这两处分叉上，所以每条都值得在真实文件系统上再钉一次。
+ * 这里的每条用例都是 `InMemoryStorageTest` 钉过的同一条 `BatchStorage` 契约——两个实现只在
+ * 「目录」「可见性」两处分叉，而配对与删除原文件恰好踩在这两处分叉上。
  *
- * 注意 `WritableByteChannel` 只有 `write`，没有 `put`（`put` 是 `ByteChannel` 侧的读方法），
- * 而 `:core` 的 `writeAll` 是 `internal`，`:app` 用不到，所以下面直接 `write` 单块小缓冲。
+ * `WritableByteChannel` 只有 `write`，没有 `put`（`put` 是 `ByteChannel` 侧的读方法），而
+ * `:core` 的 `writeAll` 是 `internal`、`:app` 用不到，所以下面直接 `write` 单块小缓冲。
  */
 @RunWith(AndroidJUnit4::class)
 class FileStorageTest {
@@ -68,7 +67,7 @@ class FileStorageTest {
 
     /**
      * 排序是契约的一部分：`File.listFiles()` 的顺序在设备上不可预测，
-     * 而 Task 6 的 `PairPlanner` 对同 stem 的两张候选取「列表里第一个」。
+     * 而 `PairPlanner` 对同 stem 的两张候选取「列表里第一个」。
      */
     @Test fun listSortsByNaturalNameOrder() {
         val s = storage()
@@ -88,8 +87,7 @@ class FileStorageTest {
 
     /**
      * 目录不是文件：`exists` 必须为 false，`delete` 必须返回 false 且不碰它，
-     * `list` 对不存在/不可读的目录给空列表。`BatchRunner` 从不把 `exists` 用在目录上，
-     * 但一旦有人这么用，这两条就是内存实现与真实文件系统最容易说谎的地方。
+     * `list` 对不存在/不可读的目录给空列表。这是内存实现与真实文件系统最容易说谎的两处。
      */
     @Test fun directoriesAreNotFilesAndMissingPathsSayFalse() {
         val s = storage()
@@ -109,7 +107,7 @@ class FileStorageTest {
 
     /**
      * 覆盖已存在的目标：`move` 返回 true 之后 `to` 换成了 `from` 的内容、`from` 消失，
-     * 而源不存在时 `move` 返回 false 且目标保持原样——Task 8 只在 true 时才删原文件。
+     * 而源不存在时 `move` 返回 false 且目标保持原样——runner 只在 true 时才删原文件。
      */
     @Test fun moveReplacesExistingTargetAndIgnoresMissingSource() {
         val s = storage()
@@ -139,7 +137,7 @@ class FileStorageTest {
     /**
      * 落盘对读者的最坏情况：真实文件实现里，未 close 的写入在磁盘上是可见的半截文件
      * （契约因此只承诺 close 之后的结果，见 [FileStorage] 的类注释）。
-     * 这里钉的是反面——close 返回后内容必须完整，因为 Task 8 就靠这一步发布产物。
+     * 这里钉的是反面——close 返回后内容必须完整，因为批次就靠这一步发布产物。
      */
     @Test fun writtenBytesAreCompleteAfterClose() {
         val s = storage()
@@ -154,10 +152,9 @@ class FileStorageTest {
     }
 
     /**
-     * `resolve()` 的 root 边界：`path == root`（不带尾斜杠）也是绝对路径。
-     * Task 10 的 `DirBrowser(root)` 与预设项「内部存储」传的就是 root 本身，
-     * 一旦二次拼接就会变成 `<root>/<root>`：`list` 静默给空列表，`ensureDir` 在真实
-     * 存储里造一棵垃圾嵌套树——所以这里同时钉「两个写法列出同一批条目」和「垃圾路径没被造出来」。
+     * `resolve()` 的 root 边界：`path == root`（不带尾斜杠）也是绝对路径。`DirBrowser(root)` 与
+     * 预设项「内部存储」传的就是 root 本身，一旦二次拼接就变成 `<root>/<root>`：`list` 静默给空
+     * 列表，`ensureDir` 在真实存储里造一棵垃圾嵌套树。
      */
     @Test fun rootPathIsAbsoluteAndNeverDoublePrefixed() {
         val root = rootDir.path

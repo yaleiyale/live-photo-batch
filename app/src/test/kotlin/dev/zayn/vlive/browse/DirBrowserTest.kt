@@ -70,10 +70,9 @@ class DirBrowserTest {
     /**
      * The absolute-path branch is `relative.startsWith("/")` — a POSIX-only rule that
      * deliberately differs from `FileStorage.resolve()` (see DirBrowser's KDoc). On a Windows
-     * host `java.io.File` hands back `C:\...`, that branch can never fire, and a hand-written
-     * `/...` expectation would be asserting a rule the class does not claim on that OS. So the
-     * host split is stated honestly with `assumeTrue`, and every expectation is built with the
-     * same `File` API under test instead of a literal `/` join.
+     * host `java.io.File` hands back `C:\...`, that branch can never fire. Hence the honest
+     * `assumeTrue` host split, and expectations built with the same `File` API under test
+     * instead of a literal `/` join.
      */
     @Test fun `absolute path is used as-is and ignores the root`() {
         assumeTrue("absolute-path browsing rule is POSIX-only (startsWith(\"/\"))", File.separator == "/")
@@ -150,9 +149,9 @@ class DirBrowserTest {
     @Test fun `an alias for a nested directory is not added as a shortcut`() {
         val root = freshRoot()
         val here = root.absolutePath
-        // 相机 = DCIM/Camera is a grandchild. It used to be pulled up to the root level as a
-        // shortcut and looked exactly like a real folder that no file manager shows, so the whole
-        // shortcut mechanism was removed: the root list is the real children and nothing else.
+        // 相机 = DCIM/Camera is a grandchild. The root list is the real children and nothing
+        // else: an alias never pulls a deep directory up as a shortcut, because that would look
+        // exactly like a real folder no file manager shows.
         val merged = mergedRootEntries(
             mapOf(path(here, "DCIM") to "DCIM", path(here, "DCIM", "Camera") to "相机"),
             listOf(item(here, "DCIM", label = "DCIM")),

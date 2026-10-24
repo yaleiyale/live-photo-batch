@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * spec「增补 §1」的尾巴分类。分类器只认**交给它的 head**（从 imageEnd 起最多 16 字节）
+ * 尾巴分类。分类器只认**交给它的 head**（从 imageEnd 起最多 16 字节）
  * 与源 XMP 文本，所以这里所有用例都能用一组字节 + 一段文本完全表达。
  */
 class TrailerClassifierTest {
@@ -33,7 +33,7 @@ class TrailerClassifierTest {
     }
 
     @Test fun `box longer than the visible window is still video`() {
-        // 真机追加的视频动辄几 MB：ftyp 盒本身就 24-32 字节，声明的总长远超 16 字节的窗口。
+        // 真实追加的视频动辄几 MB：ftyp 盒本身就 24-32 字节，声明的总长远超 16 字节的窗口。
         // 窗口装满时只能验下界，判据落在 tag 与 ftyp 兜底规则上。
         val head = Fixtures.mp4(8_000_000L).copyOf(16)
         assertEquals(TrailerKind.VIDEO, kind(head))
@@ -56,7 +56,7 @@ class TrailerClassifierTest {
     private fun ub64(value: Long): ByteArray = ByteArray(8) { i -> (value ushr (56 - 8 * i)).toByte() }
 
     @Test fun `mdat with a 64 bit extended size is video`() {
-        // 真机语料里 mdat 就是这个形态：vivo 那条 5,976,771 字节的 mdat 前 4 字节读出来是 1。
+        // vivo 的 mdat 就是这个形态：那条 5,976,771 字节的 mdat，前 4 字节读出来是 1。
         // 按 32 位长度走盒子的实现会把它判成"不是盒子"，于是往一段真视频后面再拼一段视频。
         assertEquals(TrailerKind.VIDEO, kind(header64("mdat", 5_976_771L)))
         // 超过 32 位无符号上界的长度也必须读全：截成 int 会让 4 GB 的 mdat 变成负数。
@@ -137,8 +137,8 @@ class TrailerClassifierTest {
     }
 
     @Test fun `gain map declaration alone is other`() {
-        // 这正是让用户全部真实输入被旧规则跳掉的那一张：hdrgm:Version + 只有 GainMap 项，
-        // 尾巴是副图 JPEG。它必须放行。
+        // 最常见的真实输入：hdrgm:Version + 只有 GainMap 项，尾巴是副图 JPEG。
+        // 它不是动态照片，必须放行。
         val xmp = Fixtures.gainMapXmp(441963L)
         assertEquals(TrailerKind.OTHER, kind(Fixtures.gainMapImage().copyOf(16), xmp))
         // 同一段 XMP、根本没有尾巴：还是"不是动态照片"，只是没尾巴可搬
