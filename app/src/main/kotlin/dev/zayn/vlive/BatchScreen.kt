@@ -95,8 +95,7 @@ private enum class Picking { Source, Target }
 /**
  * 一屏装下全部功能：权限、两个目录、危险开关、进度与报告。
  *
- * 外观按 iOS「设置」的分组卡片重排（令牌与控件在 [dev.zayn.vlive.ui]），
- * 三个刻意的设计点一条没动：
+ * 外观是 iOS「设置」的分组卡片（令牌与控件在 [dev.zayn.vlive.ui]）。三个设计点：
  * 1. **报告列表不用 `LazyColumn`，改用整表折叠 + 分页。** 外层已经是一条 `verticalScroll` 的 `Column`，
  *    在里面再嵌一个纵向 `LazyColumn` 会让它带着无限高度去测量，Compose 直接抛
  *    `"Vertically scrollable component was measured with an infinity maximum height constraints"`。
@@ -150,8 +149,8 @@ fun BatchScreen(
     // `scroll.value` 带 @FrequentlyChangingValue，组合期直接读 = 整屏每帧重组一次；lint 给的解法
     // 就是 derivedStateOf，而且语义正好对上：alpha 只在 0..collapseRange 这一段里变，顶到 1f 或回到
     // 0f 之后再多滚都不发布新值，所以 [GlassTitleBar] 里那道门只在"越过 0"那一刻翻一次。
-    // 不套 animateFloatAsState —— spec 要求 bar 跟着手指走，加动画等于让它落后于滚动。
-    // 这里刻意**不**用 `by` 委托：委托点就是这个 composable 的顶层，读一次就把装着整个内容层与
+    // 不套 animateFloatAsState —— bar 必须跟着手指走，加动画等于让它落后于滚动。
+    // 这里不用 `by` 委托：委托点就是这个 composable 的顶层，读一次就把装着整个内容层与
     // 底部栏的那个 Box lambda 拖进重组（每帧重跑报告的 groupingBy/count/reportPage）。传 State 下去，
     // 让 [GlassTitleBar] 自己读，无效化范围就只有那一小块玻璃。
     val titleAlpha = remember { derivedStateOf { titleBarAlpha(scroll.value, collapsePx) } }
@@ -173,9 +172,8 @@ fun BatchScreen(
                 // inset 的归属变了：windowInsetsPadding 会把视口本身缩小，内容永远划不到 bar 底下，
                 // 玻璃就糊不出东西；留白必须挂在 verticalScroll **之后** —— 那条链上 verticalScroll
                 // 之后的是滚动内容自己的 padding（首尾留白、视口满屏），之前的仍然是缩视口。
-                // compose-foundation 1.12.1 的 verticalScroll 没有 contentPadding 形参（javap 实测只有
-                // enabled / flingBehavior / reverseScrolling / overscrollEffect），所以这份 PaddingValues
-                // 由 Modifier.padding(paddingValues = …) 来吃，效果与计划的 contentPadding 同形。
+                // `verticalScroll` 没有 contentPadding 形参，所以这份 PaddingValues 由
+                // Modifier.padding(paddingValues = …) 来吃，效果同形。
                 .verticalScroll(state = scroll)
                 .padding(
                     paddingValues = PaddingValues(
@@ -301,7 +299,7 @@ fun BatchScreen(
                 var open by rememberSaveable { mutableStateOf(false) }
                 var filter by rememberSaveable { mutableStateOf(ReportFilter.All) }
                 var page by rememberSaveable { mutableIntStateOf(0) }
-                // spec §9：单项失败不中断批次，但 UI 要在末尾汇总计数（磁盘写满就是逐项 IO_ERROR）。
+                // 单项失败不中断批次，但 UI 要在末尾汇总计数（磁盘写满就是逐项 IO_ERROR）。
                 val counts = state.items.groupingBy { it.status }.eachCount()
                 val warned = state.items.count { it.deleteFailures.isNotEmpty() }
                 val shown = reportPage(state.items, filter, page)
@@ -380,10 +378,9 @@ fun BatchScreen(
         )
 
         // 开始 / 取消从滚动流里搬到这条常驻栏：位置不能跟着内容跳，主操作要一直够得着；
-        // 两颗按钮只加自己的 tint，绝不再各糊一层（spec §1.1）。这条栏本身在 2026-10-22 的设备实测
-        // 之后从 iosGlassBar 换成 iosGlassTray —— 同样的着色 + 高光 + 描边，只去掉 hazeBlur 那一层：
-        // 三条 bar 全开模糊时超过 8ms 的帧占 46.7%（基线 12.5%），只砍这一条就回到 30.2%，
-        // 顶栏与弹窗顶栏的模糊保留。三台构建的九个样本与判据见 decisions.md §5.19。
+        // 两颗按钮只加自己的 tint，绝不再各糊一层。这条栏用 iosGlassTray 而不是 iosGlassBar：
+        // 同样的着色 + 高光 + 描边，只去掉 hazeBlur 那一层——三条 bar 全开模糊会掉帧，
+        // 顶栏与弹窗顶栏的模糊保留。
         Row(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -406,7 +403,7 @@ fun BatchScreen(
         ) {
             IosButton(
                 text = stringResource(R.string.action_start),
-                // 没授权就点不动：spec §9 把权限列为全局前置条件，别让人先按下开始再收一条错误。
+                // 没授权就点不动：权限是全局前置条件，别让人先按下开始再收一条错误。
                 enabled = state.permissionGranted && !state.running,
                 onClick = vm::start,
                 // 宽度靠 weight 分，不写死 dp：主操作占大头，随语言/字号自动伸缩。
@@ -457,7 +454,7 @@ fun BatchScreen(
  *
  * 三条约束原样保留：
  * - `alpha > 0f` 才进组合（不可见时不画，也就不付模糊的代价，同时不会有"读得到一个看不见的标题"）；
- * - **不做动画**：值直接来自滚动位置，`animateFloatAsState` 只会让 bar 落后于手指（spec §2.2）；
+ * - **不做动画**：值直接来自滚动位置，`animateFloatAsState` 只会让 bar 落后于手指；
  * - 顺序仍是**先 `iosGlassBar` 再 `padding(top = inset)`**，反过来会在状态栏那一条和玻璃之间留一条
  *   接缝 —— 与冷启动时已经被投诉过的那条是同一类。
  *
@@ -480,7 +477,7 @@ private fun BoxScope.GlassTitleBar(
         Modifier
             .align(Alignment.TopCenter)
             .fillMaxWidth()
-            // 这里**不套** `widthIn(contentMaxWidth)`，与底部那条不一样：顶栏按 spec 是通栏玻璃，
+            // 这里**不套** `widthIn(contentMaxWidth)`，与底部那条不一样：顶栏是通栏玻璃，
             // 要贴住左、右、上三条屏幕边（`IosMetrics.contentMaxWidth` 那条注释列的三个消费方
             // 也不含它）。宽屏上它比卡片宽，多出来的那段只糊到底色，卡片本来就到不了那儿。
             .iosGlassBar(glass = glass, state = haze, barAlpha = titleAlpha),
@@ -530,13 +527,11 @@ private fun folderAliases(root: String): Map<String, String> {
  * **只有一条列表**：`上一级`（父级还在 root 之内时）排在最前，后面就是这一层要显示的目录，
  * 共用一张卡片与同一套分隔线规则。根那一级由 [mergedRootEntries] 决定内容：真实子目录，命中
  * [aliases] 的换成本地显示名（`Pictures → 图片`）。这里**没有任何快捷方式**——画出来和真实目录
- * 无法区分、文件管理里又根本没有那个条目（曾经的 `相机 = DCIM/Camera` 就是这个问题），所以到相机
- * 目录老老实实两跳：`DCIM → Camera`。
+ * 无法区分、文件管理里又根本没有那个条目，所以到相机目录老老实实两跳：`DCIM → Camera`。
  *
- * **最顶层就是 root 的内容**（DCIM、下载、图片…），root 自己不再作为一个条目出现，
- * 也不给"从 root 再往上一级"的入口。这不是保守，是真机测出来的死角：`/storage/emulated`
- * 通常读不出来（`listFiles()` 给 null → 空列表），而 root 作为它的子项只显示成一个 `0`，
- * 退进去之后既看不到 DCIM 也回不到原来那层——一条没有回头路的分支。
+ * **最顶层就是 root 的内容**（DCIM、下载、图片…），root 自己不作为条目出现，也不给"从 root
+ * 再往上一级"的入口：`/storage/emulated` 通常读不出来（`listFiles()` 给 null → 空列表），而 root
+ * 作为它的子项只显示成一个 `0`，退进去之后既看不到 DCIM 也回不到原来那层——一条没有回头路的分支。
  * [selectable] 为假的父级因此一律不列出来（同一判定也继续挡住"选这里"：那种串喂给
  * `FileStorage.resolve()` 会被重新拼到 root 之下，选了就等于把批次指向另一个目录）。
  *
@@ -604,7 +599,7 @@ private fun DirectoryPicker(
     val upPath = view.parent.takeIf { it.isNotEmpty() && selectable(it) }
     val atRoot = File(view.path).absoluteFile == File(root).absoluteFile
     // 标题是最后一级目录名，副标题是整条路径的**显示形式**：root 那一级读作 [rootLabel]，
-    // 往下就是「内部存储/DCIM/Camera」。这里刻意不把 "/storage/emulated/0" 摊给用户看——
+    // 往下就是「内部存储/DCIM/Camera」。这里不把 "/storage/emulated/0" 摊给用户看——
     // 那串既没人读得懂，root 又确实是可以选作源/目标的，所以用别名而不是藏掉。
     val leaf = if (atRoot) rootLabel else view.path.trimEnd('/').substringAfterLast('/').ifEmpty { view.path }
     val subtitle = displayPath(view.path, root, rootLabel)
@@ -696,7 +691,7 @@ private fun itemLine(item: ItemResult): String {
         ItemStatus.SKIPPED -> stringResource(R.string.row_skipped, item.stem, reason)
         ItemStatus.FAILED -> stringResource(R.string.row_failed, item.stem, reason)
     }
-    // deleteFailures 只会挂在 SUCCESS 上：Task 8 规定改名成功后状态不再被回改写，
+    // deleteFailures 只会挂在 SUCCESS 上：改名成功后状态不再被回改写，
     // 删不掉的源文件是警告。所以警告必须跟着 SUCCESS 一起显示，不能只在失败分支里拼。
     val warning = if (item.deleteFailures.isEmpty()) ""
     else stringResource(R.string.row_delete_warning, item.deleteFailures.joinToString())
@@ -704,8 +699,8 @@ private fun itemLine(item: ItemResult): String {
 }
 
 /**
- * 原因的本地化短语，后面跟着机器可读的枚举名（spec §9 要求面向用户给短语，同时留着能贴进
- * issue 的那个名字）。`reason == null` 时只有"未说明"，不拼括号里的代码。
+ * 原因的本地化短语，后面跟着机器可读的枚举名（面向用户给短语，同时留着能贴进 issue 的那个名字）。
+ * `reason == null` 时只有"未说明"，不拼括号里的代码。
  */
 @Composable
 private fun reasonLabel(reason: FailureReason?): String {

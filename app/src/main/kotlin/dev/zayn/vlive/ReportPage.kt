@@ -18,7 +18,7 @@ enum class ReportFilter { All, Success, Skipped, Failed;
     }
 }
 
-/** 一页画多少行。真机（1216×2640）上一行报告约 44dp，20 行足够铺满两屏再多给一点余量。 */
+/** 一页画多少行。一行报告约 44dp，20 行足够铺满两屏再多给一点余量。 */
 const val REPORT_PAGE_SIZE = 20
 
 /** 一页报告：要画的行、当前页（0 基）、总页数、以及**筛选后**的总行数。 */
@@ -32,7 +32,7 @@ data class ReportPage(
 /**
  * 纯函数：按 [ReportFilter.accepts] 过滤，再切出第 [page] 页。
  *
- * 存在的理由有两条，都跟"这条改动到底在解决什么"有关：
+ * 存在的理由有两条：
  * 1. **省的是组合，不是数据。** `state.items` 每条只有几个字符串，几百条也就几十 KB；真正贵的是
  *    外层那条 `verticalScroll` 的 `Column` 把**每一行都组合 + 测量 + 排版**一遍（[BatchScreen] 的
  *    KDoc 写了为什么这里不能换 `LazyColumn`）。一次只画一页，组合出来的节点数才真的被限住。

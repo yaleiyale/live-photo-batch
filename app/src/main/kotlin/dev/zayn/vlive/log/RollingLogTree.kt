@@ -17,9 +17,9 @@ import timber.log.Timber
  * 把日志写进**应用私有目录**（`filesDir/logs/`）的 Timber tree，自带轮转与清理。
  *
  * ## 为什么是私有目录，不是共享存储
- * 这个 app 有 `MANAGE_EXTERNAL_STORAGE`，写到 `/storage/emulated/0` 当然做得到 —— 但那正是需求里
- * "避免垃圾过多"要防的东西：日志散在相册看得见的地方，用户既找不到也删不干净。私有目录不需要任何
- * 权限、卸载即消失，出问题时 `adb pull /data/data/dev.zayn.vlive/files/logs` 也拿得到。
+ * 这个 app 有 `MANAGE_EXTERNAL_STORAGE`，写到 `/storage/emulated/0` 做得到——但不该：日志散在相册
+ * 看得见的地方，用户既找不到也删不干净。私有目录不需要任何权限、卸载即消失，出问题时
+ * `adb pull /data/data/dev.zayn.vlive/files/logs` 也拿得到。
  *
  * ## 三条上限，谁先撞谁生效
  * 单文件写满 [maxFileBytes] 就换一个新的；总数超过 [maxFiles] 个、或合计超过 [maxTotalBytes]、
@@ -94,9 +94,9 @@ class RollingLogTree(
             // 这里要的是 File（取长度、续写），不是 logs() 那份喂给 planLogCleanup 的摘要。
             val candidates = dir.listFiles()?.filter { it.isFile && isLogName(it.name) }.orEmpty()
             // "最新"在本类里只允许有一个键，就是 [planLogCleanup] 用的那个：lastModified 升序、同分按名字。
-            // 曾经这里写的是 `maxByOrNull { it.name }`，于是"接着写哪个文件"和"哪个文件永不许删"
-            // 是两个答案——名字来自时钟，mtime 是文件系统自己盖的，系统时间被往回拨过一次它们就分叉，
-            // 而分叉的代价是清理可以把手上正在写的文件从目录里抽走，之后的日志写进一个没人认识的 inode。
+            // 文件名里的毫秒来自时钟，mtime 是文件系统自己盖的，系统时间被往回拨过一次两者就分叉；
+            // 一旦"接着写哪个文件"和"哪个文件永不许删"给出不同答案，清理就会把手上正在写的这个文件
+            // 从目录里抽走，之后的日志写进一个没人认识的 inode。
             val newest = candidates.maxWithOrNull(compareBy({ it.lastModified() }, { it.name }))
             val file = if (newest != null && newest.length() < maxFileBytes) newest else File(dir, nextName())
             written = file.length()

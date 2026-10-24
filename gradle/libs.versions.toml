@@ -33,11 +33,10 @@ androidx-test-runner = { group = "androidx.test", name = "runner", version.ref =
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 android-application = { id = "com.android.application", version.ref = "agp" }
-# Task 11 Step 0：Compose 编译器插件。版本必须跟 Kotlin 编译器同一个串（version.ref = "kotlin"），
+# Compose 编译器插件。版本必须跟 Kotlin 编译器同一个串（version.ref = "kotlin"）：
 # 它不是"库"而是编译器的扩展，版本不一致时插件会直接拒绝编译。
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-# 故意没有 kotlin-android：AGP 9.0 起 Kotlin 支持内置在 AGP 里，
-# 再声明这个插件会被 KGP 直接拒绝加载（"plugin is no longer required for Kotlin support since AGP 9.0"），
-# 而且 version.ref = "kotlin" 还会撞上 Gradle 的
-# "plugin is already on the classpath with an unknown version"（本地 :app:tasks 实测）。
+# 没有 kotlin-android：AGP 9.0 起 Kotlin 支持内置在 AGP 里，再声明这个插件会被 KGP 直接拒绝加载
+# （"plugin is no longer required for Kotlin support since AGP 9.0"），而 version.ref = "kotlin"
+# 还会撞上 Gradle 的 "plugin is already on the classpath with an unknown version"。
 # :app 的 Kotlin 配置因此只写 android { ... } 同级的 kotlin { compilerOptions { ... } }。

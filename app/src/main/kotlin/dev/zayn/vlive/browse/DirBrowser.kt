@@ -45,12 +45,11 @@ internal fun displayPath(path: String, root: String, rootLabel: String): String 
  * `FileStorage(root)` 的是同一个串。原因和 `FileStorage.resolve()` 一致：那里对
  * `path == root || path.startsWith("$root/")` 才走"原样使用"分支，root 带尾斜杠或为空会让
  * `"/storage/emulated/0"` 被当相对路径二次拼接成 `/storage/emulated/0/storage/emulated/0`，
- * 目录浏览随即静默变空。[subdirs] 里对相对路径做 `File(File(root), relative)` 拼接，
- * 生产环境调用方传进来的都是绝对路径（`startsWith("/")` 分支直接 `File(path)`），
- * 只有测试才会传相对串，所以这个 root 只在测试语境下参与拼接；无论哪种，root 字符串都保持
- * 同一约定，两个类共享它、不能各写各的。
+ * 目录浏览随即静默变空。[subdirs] 里对相对路径做 `File(File(root), relative)` 拼接，而生产环境
+ * 调用方传进来的都是绝对路径（`startsWith("/")` 分支直接 `File(path)`），只有测试才传相对串——
+ * 无论哪种，两个类共享同一个 root 字符串，不能各写各的。
  *
- * 不过**"是不是绝对路径"的判定规则和 `FileStorage.resolve()` 并不是同一个函数**：本类只看
+ * **"是不是绝对路径"的判定规则和 `FileStorage.resolve()` 并不是同一个函数**：本类只看
  * `startsWith("/")`，root 之外的绝对路径（`/sdcard`、`/data/local/tmp`）同样可以浏览，
  * 而 `FileStorage` 只对 root 之内（含 root 本身）原样使用、其余一律重新拼到 root 之下。
  * 后果写在 [DirItem] 的契约里：浏览器给出的路径不保证能喂给存储层，别当同一条路径解析用。
@@ -58,15 +57,9 @@ internal fun displayPath(path: String, root: String, rootLabel: String): String 
  * ## 绝不抛，只给空
  * [subdirs] 走 `File.listFiles()`，它对"不存在 / 不是目录 / 读不出来 / I/O 出错"统一返回
  * **null 而不抛**，这里一律映射成空列表——缺目录是常态（用户刚跳进一个空分支），不能因此崩。
- * 只保留 `isDirectory && canRead()` 且**名字不以 `.` 开头**的条目（过滤 `.nomedia`、
- * `.trash` 之类），再按 `name.lowercase()` 升序，保证两次列出顺序一致（`listFiles()` 的顺序
- * 在 POSIX 上未定义，排序不能省）。
- *
- * ## 这里不再有"常用入口"清单
- * 曾经有一个 `presets()` 返回几条中文命名的常用目录。它兼了两个身份——既给根级别提供别名，
- * 又自带一份"要画出来的条目"，于是列表里会冒出磁盘上不是这么叫、甚至不在这一层的项。
- * 现在显示名由 [mergedRootEntries] 的 `aliases` 参数决定（调用方用字符串资源拼出来），
- * 本类只回答"这一层到底有什么"。
+ * 只保留 `isDirectory && canRead()` 且**名字不以 `.` 开头**的条目（过滤 `.nomedia`、`.trash`
+ * 之类），再按 `name.lowercase()` 升序，保证两次列出顺序一致（`listFiles()` 的顺序在 POSIX 上
+ * 未定义，排序不能省）。
  */
 class DirBrowser(private val root: String) {
     /**
@@ -90,14 +83,12 @@ class DirBrowser(private val root: String) {
  * 用字符串资源拼出来。
  *
  * 规则（返回值顺序即画出来的顺序）：
- * - 列出来的**只有 `currentPath` 的真实子目录**——不补任何快捷方式。曾经有一条把
- *   `DCIM/Camera → 相机` 提到根级别的机制，它画出来和真实目录一模一样，而文件管理里根本没有
- *   这么个根级条目，看着就像凭空多出来的目录；到相机目录现在是两跳（`DCIM → Camera`）。
+ * - 列出来的**只有 `currentPath` 的真实子目录**，不补任何快捷方式——凭空多出来的条目会让人
+ *   以为磁盘上真有；
  * - `currentPath` 自己不出现（别名表里根自身那一条也会被丢掉）；
  * - 命中某个真实子目录的别名，替换它的显示名（`<root>/Pictures → 图片`）；
  * - 没被别名覆盖的真实子目录（`Documents`、`Music`……）一律保留，不因为"不在别名里"就够不着；
- * - 按显示名 `lowercase()` 码元自然序，与 [DirBrowser.subdirs] 同一条规则，不给常用项开小灶
- *   —— 弹窗里"上面一坨预设、下面一坨子目录"的分段感就是这里去掉的。
+ * - 按显示名 `lowercase()` 码元自然序，与 [DirBrowser.subdirs] 同一条规则，不给常用项开小灶。
  *
  * 键的比较走 [java.io.File] 的绝对化，**不靠手写分隔符拼接**，所以注入临时目录的测试主机
  * （含 Windows）也成立。注意它**大小写敏感**，而共享存储挂载大小写不敏感：别名拼写与磁盘

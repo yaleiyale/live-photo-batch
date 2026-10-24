@@ -14,16 +14,14 @@ import timber.log.Timber
  * 上次选过的两个目录。可空 = "没存过"，与"存了但不可用"（[dev.zayn.vlive.BatchViewModel.isSelectable]
  * 挡掉的那种）是两件事，后者由调用方决定怎么处置。
  *
- * **删除开关刻意不在这里。** 它是唯一会动原文件的那一项，记住它意味着"某次勾了一下，之后每次冷启动
- * 都悄悄带着它"—— 而需求要记的是"目录选择结果"。所以它每次启动都回到关，只有两个路径被持久化。
+ * **删除开关不在这里。** 它是唯一会动原文件的那一项，记住它意味着"某次勾了一下，之后每次冷启动都
+ * 悄悄带着它"，而要记的是目录选择结果。所以它每次启动都回到关，只有两个路径被持久化。
  */
 data class StoredPaths(val sourceDir: String? = null, val targetDir: String? = null)
 
 /**
- * [dev.zayn.vlive.BatchViewModel] 看得见的那一面。
- *
- * 存在的理由和 `PermissionGate` / 注入的 `scanner` 是同一条：VM 要能在纯 JVM 上被单测驱动，
- * 所以它只认这个接口，不认 `Context`。生产实现是下面那个 DataStore 版；测试给内存假实现。
+ * [dev.zayn.vlive.BatchViewModel] 看得见的那一面：VM 只认这个接口，不认 `Context`，
+ * 这样它能在纯 JVM 上被单测驱动。生产实现是下面的 DataStore 版，测试给内存假实现。
  */
 interface BatchSettings {
     /** 读回上次的选择。**绝不抛**：读不出来就等于"没存过"，不能让一次 IO 故障掀掉整个界面。 */
@@ -45,13 +43,11 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 /** [BatchSettings] 的生产实现：Preferences DataStore，写在应用私有目录里（不需要任何存储权限）。 */
 class PreferencesBatchSettings(private val context: Context) : BatchSettings {
 
-    // 只 catch IOException 是**量过**的，不是随手写的：`PreferencesSerializer.readFrom/writeTo`
-    // 声明的抛出面就是 `IOException, CorruptionException`，而 `CorruptionException` 本身
-    // `extends java.io.IOException`（javap 过 1.2.1 的 datastore-core / preferences-core 两个
-    // classes.jar 确认）——"文件坏了"和"磁盘坏了"走同一条手臂。
-    // 唯一的 RuntimeException 来源是 `IllegalStateException("multiple DataStores active")`，
-    // 它要两个持有者同时开同一个文件才点得着，而 `preferencesDataStore` 的委托属性就是
-    // 那个"每进程一个持有者"的机制（见上面那段），所以这里不给它留手臂。
+    // 只 catch IOException 是量过抛出面之后的结论，不是随手写的：DataStore 读写声明抛
+    // `IOException, CorruptionException`，而 `CorruptionException extends IOException`——
+    // "文件坏了"和"磁盘坏了"走同一条手臂。唯一的 RuntimeException 来源是
+    // `IllegalStateException("multiple DataStores active")`，它要两个持有者同时开同一个文件才点得着，
+    // 而进程唯一的委托属性正是防它的机制（见上面那段），所以这里不给它留手臂。
     override suspend fun load(): StoredPaths = try {
         val prefs = context.dataStore.data.first()
         StoredPaths(prefs[SOURCE_DIR], prefs[TARGET_DIR])

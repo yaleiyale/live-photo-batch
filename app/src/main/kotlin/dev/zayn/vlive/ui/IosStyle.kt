@@ -22,10 +22,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.isSystemInDarkTheme
 
 /**
- * 一屏用到的全部颜色。浅深两套都是 iOS 系统色（AA 组），值取自 iOS 深色规范里对应 token。
- *
- * 颜色只能从 [LocalIosStyle] 取，不许再有 `object IosColor { val card = Color(...) }` 那种
- * 编译期常量 —— 那种写法把浅色的值烧进了调用点，跟随系统的深色就做不出来。
+ * 一屏用到的全部颜色，浅深两套都是 iOS 系统色（AA 组）。只能从 [LocalIosStyle] 取，不许再有
+ * `object IosColor { val card = Color(...) }` 那种编译期常量 —— 它把浅色的值烧进调用点，深色就做不出来。
  */
 @Immutable
 data class IosPalette(
@@ -79,16 +77,10 @@ val IosDarkPalette = IosPalette(
 )
 
 /**
- * accent 的四个值：浅/深 × 常规/高对比（spec §1.5）。
- *
- * 常规两列就是色板里原本的两个值，一个都没改；高对比那两列是本轮定的**起点**，不是苹果公开数值的引用。
- *
- * 判据不是"四个值全都 ≥ 4.5:1"，而是 docs/decisions.md §5.19 那条裁定：常规档白字在 Tinted 底上是
- * **量出来并记录在案**的分数（浅色合成后 3.3:1、深色 4.7:1；前者与苹果自己的系统按钮同形 —— 不透明
- * `#007AFF` 也只有 4.0:1），是已接受的偏离；**高对比那一列才必须过硬指标**，浅色 `#0040DD` 合成后
- * 5.7:1（不透明 7.6:1）过了，深色 `#66B3FF` 合成后只有 2.9:1，没过，§5.19 把它记成待办而不是已结案。
- * 数都是按相对亮度在合成色（accent @ 0.85 压在该外观的玻璃上）上算的，不在设备上量 —— 别为了让某条
- * 线过 4.5 去调深那个常规蓝，那等于把这轮改造的意义抹掉。
+ * accent 的四个值：浅/深 × 常规/高对比。判据不是"四个值全都 ≥ 4.5:1"：常规档白字在 Tinted 底上（accent
+ * @ 0.85 合成在该外观的玻璃上）读 3.3:1／4.7:1，与苹果不透明 `#007AFF` 的 4.0:1 同形，是已接受的偏离 ——
+ * 别为了让哪条线过 4.5 去调常规蓝。高对比那一列必须过硬指标：浅色 `#0040DD` 合成后 5.7:1 已过，深色
+ * `#66B3FF` 只有 2.9:1，未达标，已知并接受。
  */
 fun accentFor(dark: Boolean, highContrast: Boolean): Color = when {
     !dark && !highContrast -> Color(0xFF007AFF)
@@ -98,11 +90,8 @@ fun accentFor(dark: Boolean, highContrast: Boolean): Color = when {
 }
 
 /**
- * 一块玻璃的全部参数。**只服务三个浮动 bar 区**（主屏顶栏、主屏底部操作栏、弹窗顶栏）：
- * 卡片不许用它，条内按钮也不许用它再糊一层（spec §1.1"一层玻璃只模糊一次"）。
- *
- * 两套预设按外观自动选，刻意不做用户可见的强度开关：这一屏没有承载它的设置面。
- * alpha 只许改这张表，调用点不许写散装 alpha。
+ * 一块玻璃的全部参数。**只服务三个浮动 bar 区**（主屏顶栏、主屏底部操作栏、弹窗顶栏）：卡片不许用它，条内
+ * 按钮也不许用它再糊一层。按外观自动选、没有强度开关（这一屏没有承载它的设置面）；alpha 只许改这张表。
  */
 @Immutable
 data class GlassMaterial(
@@ -122,10 +111,8 @@ val LightGlass = GlassMaterial(
 )
 
 /**
- * 深色走"着色"档：着色层比初稿轻，因为卡片已经不是玻璃，只剩 bar 上的文字要保证读得清。
- *
- * `blurRadius` 两套预设取同一个 `24.dp`，这是 spec §1.3 定的、**不是复制粘贴漏改**：深浅两档只差着色，
- * 模糊半径不跟着变，整机就只有一种性能画像。把它"修"成两个值等于给深色单独做一条模糊开销曲线。
+ * 深色走"着色"档，着色层比浅色轻：卡片已经不是玻璃，只剩 bar 上的文字要保证读得清。两套预设的
+ * `blurRadius` 同为 `24.dp` 不是复制粘贴漏改 —— 深浅只差着色，半径跟着外观变就等于给深色单独做一条模糊开销曲线。
  */
 val DarkGlass = GlassMaterial(
     tint = Color(0xFF1C1C1E).copy(alpha = 0.62f),
@@ -137,15 +124,13 @@ val DarkGlass = GlassMaterial(
 
 val LocalIosGlass = staticCompositionLocalOf { LightGlass }
 
-/** 与 [iosStyle] 对称：合成期一次取好玻璃参数。 */
 @Composable
 fun iosGlass(): GlassMaterial = LocalIosGlass.current
 
 /**
- * 颜色 + 文字样式的合一入口。合成期一次取值（`val s = LocalIosStyle.current`），后面全部走 `s.`。
- *
- * 字号对齐 iOS 文本样式（pt≈sp）：大标题 32 / 行标题 17 / 值与脚注 13–14。颜色由色板决定，
- * 所以样式表是实例而不是 object 常量。
+ * 颜色 + 文字样式的合一入口：合成期一次取值（`val s = LocalIosStyle.current`），后面全部走 `s.`。
+ * 字号对齐 iOS 文本样式（pt≈sp）：大标题 32 / 行标题 17 / 值与脚注 13–14；颜色由色板决定，所以样式表是
+ * 实例而不是 object 常量。
  */
 @Immutable
 class IosStyle(private val p: IosPalette) {
@@ -181,9 +166,6 @@ class IosStyle(private val p: IosPalette) {
 /** 默认给浅色：预览与没有 [IosTheme] 包裹的测试路径用得上，不会静默变深色。 */
 val LocalIosStyle = staticCompositionLocalOf { IosStyle(IosLightPalette) }
 
-/**
- * 几何与时长不属于颜色，仍然是常量。
- */
 object IosMetrics {
     val screenMargin: Dp = 16.dp
     val cardRadius: Dp = 12.dp
@@ -192,14 +174,9 @@ object IosMetrics {
     val sectionGap: Dp = 22.dp
 
     /**
-     * 内容封顶宽度：折叠屏内屏约 780dp，不封顶的话卡片会被拉成一条横杠。
-     *
-     * 三处必须用同一个数（主屏内容层、主屏底部操作栏、弹窗那层 Box）。这个值一旦各写各的，
-     * "玻璃 bar 与卡片同宽"就只是今天恰好成立，而不是被声明出来的。
-     *
-     * **主屏顶栏不在消费方之列，这是刻意的**：spec §"通栏的两条 bar 用 0dp"要的就是它贴着
-     * 左、右、上三条屏幕边（`iosGlassBar` 的 `shadow` 那段也同一条理由）。宽屏上它比卡片宽，
-     * 多出来的那段糊的是页面底色——卡片本来就进不到那儿，所以既没有未糊的字，也没有第二条缝。
+     * 内容封顶宽度：折叠屏内屏约 780dp，不封顶的话卡片会被拉成一条横杠。三处必须用同一个数（主屏内容层、
+     * 主屏底部操作栏、弹窗那层 Box），各写各的之后"玻璃 bar 与卡片同宽"就不再是被声明出来的。**主屏顶栏
+     * 不是消费方**：它要贴着左、右、上三条屏幕边，宽屏上多出来那段糊的是页面底色，卡片本来进不到那儿。
      */
     val contentMaxWidth: Dp = 640.dp
 
@@ -207,28 +184,21 @@ object IosMetrics {
     val hairline: Dp = 0.6.dp
     val buttonHeight: Dp = 50.dp
 
-    /** 底部操作栏的连续圆角：刻意小于半高（74/2），读作苹果的连续圆角而不是胶囊。 */
+    /** 底部操作栏的连续圆角：小于半高（74/2），读作苹果的连续圆角而不是胶囊。 */
     val glassRadius: Dp = 30.dp
     val topBarHeight: Dp = 44.dp
-    /**
-     * 50.dp 按钮 + 上下各 12.dp。
-     *
-     * 内容层末尾那段留白要用它（那段挂在 `verticalScroll` **之后**的 `padding(paddingValues = …)` 里 ——
-     * `verticalScroll` 没有 `contentPadding` 形参，旧注释这么写会让人去加一个不存在的参数）。
-     */
+    /** 50.dp 按钮 + 上下各 12.dp：主屏内容层末尾那段留白用它。 */
     val barContentHeight: Dp = 74.dp
     val barBottomGap: Dp = 8.dp
     /** 大标题划过多远算"折叠完成"：topBarAlpha 的分母。 */
     val collapseRange: Dp = 56.dp
-    /** 弹窗顶栏比主屏高一点：它要装下标题与整条路径的副标题（原本是 52.dp 的 Box）。 */
+    /** 弹窗顶栏比主屏高一点：要装下标题与整条路径的副标题。 */
     val sheetBarHeight: Dp = 52.dp
 }
 
 /**
- * 动效令牌。时长与缓动集中一处，调用点不许再写散装毫秒数。
- *
- * `ENTER_MS` 与 `IosSwitch` 里那个 220ms 同值：启动入场、开关拨动、进度条推进应该是同一种
- * 手感，而不是各调各的曲线。
+ * 动效令牌。时长与缓动集中一处，调用点不许再写散装毫秒数。`ENTER_MS` 与 `IosSwitch` 里那个 220ms 同值：
+ * 启动入场、开关拨动、进度条推进要是同一种手感，而不是各调各的曲线。
  */
 object IosMotion {
     /** splash logo 淡出与卡片入场用同一个时长，两段动画才接得上。 */
@@ -241,10 +211,7 @@ object IosMotion {
     /** 入场位移：12dp 上浮，够看见但不拖沓。 */
     const val RISE_DP = 12f
 
-    /**
-     * 兜底放行时长：splash 退出回调万一不回叫（OEM 分支不少），超过这个时间也必须把内容放出来。
-     * 看不见动画可以接受，看不见界面不行。
-     */
+    /** 兜底放行时长：splash 退出回调不回叫时也必须把内容放出来 —— 看不见动画可以，看不见界面不行。 */
     const val RELEASE_TIMEOUT_MS = 600L
 
     /** iOS 观感对应的减速曲线（不是 Material 的 emphasized，是标准 ease-out）。 */
@@ -282,28 +249,22 @@ private fun darkColorSchemeOf(p: IosPalette) = darkColorScheme(
 )
 
 /**
- * 主题入口：跟随系统浅/深，把同一套色板同时交给自绘控件层（[LocalIosStyle]）与仍然走
- * MaterialTheme 的兜底色（`Text` 的默认色、`Dialog` 的表面色）。
- *
- * 深浅色**只有这一处判定**；色板换了，MaterialTheme 与自绘层必须一起换，否则会出现
- * "自绘卡片是深色、Dialog 还是白"这种两套主题同时可见的接缝。
+ * 主题入口：跟随系统浅/深，把同一套色板同时交给自绘控件层（[LocalIosStyle]）与仍然走 MaterialTheme 的
+ * 兜底色（`Text` 的默认色、`Dialog` 的表面色）。深浅色**只有这一处判定**；色板换了，MaterialTheme 与自绘
+ * 层必须一起换，否则会出现"自绘卡片是深色、Dialog 还是白"这种两套主题同时可见的接缝。
  */
 @Composable
 fun IosTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    // 系统"高文字对比度"开关，取法见 spec §1.5。第一次读可能触发一次 IPC（之后 AccessibilityManager
-    // 自己缓存），所以整段包在 remember 里、不在每次重组时读 —— BatchScreen 那条"合成期不碰
-    // binder/磁盘"的约定靠这个 remember 守住，不是靠假设这个 getter 便宜。
-    // `LocalContext.current` 本身是 @ReadOnlyComposable 的取值，只能待在函数体里，所以先取 context
-    // 再把它当 key：Activity 重建前它是同一个对象，key 不会多读一次，读到的仍是"每个主题实例一次"。
-    // 已知限制：开关运行中被翻动不会立刻重组，下一次配置变化/主题重建才生效，内部工具接受这个代价。
+    // 系统"高文字对比度"开关。第一次读可能触发一次 IPC（之后 AccessibilityManager 自己缓存），所以整段包在
+    // remember 里、不在每次重组时读 —— 组合期不碰 binder/磁盘。`LocalContext.current` 是 @ReadOnlyComposable
+    // 的取值，只能待在函数体里，所以先取 context 再当 key：Activity 重建前它是同一个对象，读到的仍是
+    // "每个主题实例一次"。已知限制：开关运行中被翻动不会立刻重组，下一次配置变化/主题重建才生效。
     val context = LocalContext.current
     val highContrast = remember(context) {
-        // 档位判断不是双保险而是必需，而且它决定要不要付那次 binder 调用：isHighContrastTextEnabled 是
-        // API 36 才进 AccessibilityManager 的，minSdk 31–35 上这个方法根本不存在，直接调不是 lint 抱怨一下
-        // 而已，是启动第一帧 NoSuchMethodError。所以判断放在 remember 里面、服务只在用得上它的机型上取，
-        // 31–35 连一次取服务都不发生（它们本来就只会渲染常规 accent）。
-        // 读不到开关（含取到 null）的机型退回常规 accent，这就是高对比那两列只在 36+ 生效的原因。
+        // isHighContrastTextEnabled 是 API 36 才进 AccessibilityManager 的，minSdk 31–35 上直接调不是 lint 抱怨
+        // 一下而已，是启动第一帧 NoSuchMethodError。档位判断因此必需，它同时决定要不要付那次 binder 调用：
+        // 31–35 连取服务都不发生。读不到开关（含取到 null）的机型退回常规 accent。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
             val am = context.getSystemService(AccessibilityManager::class.java)
             am?.isHighContrastTextEnabled == true

@@ -118,8 +118,8 @@ private fun PressableRow(
 }
 
 /**
- * 标题 + 值的行。值另起一行且不设 maxLines：界面上必须看得见**完整绝对路径**
- * （这是 BatchScreen 里那条"显示的就是批次真正会用的串"的约定），单行加省略号会把它截没。
+ * 标题 + 值的行。值另起一行且不设 maxLines：界面上必须看得见**完整绝对路径**（这里显示的就是批次真正会用的
+ * 串），单行加省略号会把它截没。
  */
 @Composable
 fun DetailRow(
@@ -148,14 +148,10 @@ fun DetailRow(
 }
 
 /**
- * 整行点标题也能切换——iOS 的开关行就是这么工作的，原实现同样如此。
- *
- * `toggleable` 挂在**整条 Row** 上，不是挂在标题 `Text` 上：标题只吃 `weight(1f)` 那段文字宽，
- * 挂在它上面时，行高方向的 6dp padding、标题与开关之间那 8dp 缝、以及卡片到屏幕边的余量全都不响应，
- * 用户按着一行的空白处什么也不会发生（TalkBack 同样只会把"开关"读在几个字上）。
- * 换成 `toggleable` 而不只是 `clickable(role = Switch)`：前者会把
- * `ToggleableState`（开/关）连同角色一起写进语义节点，读屏才说得出"删除原文件，关"，
- * 而不是只说"双击以激活"。开关本体自己那颗仍是独立的点击目标，子节点先命中，不会互相抢。
+ * 整行点标题也能切换 —— iOS 的开关行就是这么工作的。`toggleable` 因此挂在**整条 Row** 上：挂在标题 `Text`
+ * 上时行高方向的 padding、标题与开关之间那 8dp 缝、卡片到屏幕边的余量都不响应，按着一行空白处什么也不发生
+ * （TalkBack 也只会把"开关"读在几个字上）。用 `toggleable` 而不是 `clickable(role = Switch)`：前者把
+ * `ToggleableState`（开/关）连同角色写进语义节点，读屏才说得出"删除原文件，关"。开关本体那颗仍是独立点击目标。
  */
 @Composable
 fun SwitchRow(
@@ -188,7 +184,7 @@ fun SwitchRow(
         ) {
             Text(
                 title,
-                // 危险开关一勾上就把整行染成系统红，和原实现的 error 同一条规则。
+                // 危险开关一勾上就把整行标题染成系统红。
                 style = s.body.copy(color = if (checked) s.red else s.label),
                 modifier = Modifier.weight(1f),
             )
@@ -225,9 +221,8 @@ fun IosSwitch(on: Boolean, enabled: Boolean, onColor: Color, onToggle: () -> Uni
         Box(
             Modifier
                 .align(Alignment.CenterStart)
-                // 行程 = 51 - 27 - 2*2。必须排在绘制类 modifier **之前**：offset 是 LayoutModifier，
-                // 挪的是它内侧的东西，写在 background 之后就只有内容被挪，而这颗圆点没有内容 ——
-                // 于是轨道换了色、圆点原地不动。
+                // 行程 = 51 - 27 - 2*2。offset 必须排在绘制类 modifier **之前**：它是 LayoutModifier，挪的是
+                // 内侧的东西，写在 background 之后就只有内容被挪，而这颗圆点没有内容 —— 轨道换色、圆点原地不动。
                 .offset(x = 20.dp * knob)
                 .padding(2.dp)
                 .size(27.dp)
@@ -272,9 +267,7 @@ fun IosButton(
             .height(IosMetrics.buttonHeight)
             .alpha(if (pressed && enabled) 0.7f else 1f)
             // shadow 必须在 clip 之前：clip 设 clipToOutline，反过来写这 2.dp 阴影就被裁没。
-            // 这条只管药丸，不许拿去给玻璃 bar 加回 shadow —— 那边实测 shadow 会在层内预留一圈、
-            // 把排在它后面的绘制连子节点一起裁进去（decisions.md §5.21）。2.dp 这一档量不到预留：
-            // 蓝色填充铺满布局盒 x=74..694 / y=2154..2283。
+            // 这条只管药丸，不许拿去给玻璃 bar 加回 shadow —— 那边它会在层内预留一圈，把后面的绘制连子节点一起裁进去。
             .shadow(elevation = if (style == IosButtonStyle.Destructive) 0.dp else 2.dp, shape = edge)
             .clip(edge)
             .background(surface)
@@ -333,11 +326,9 @@ fun StatusRow(dot: Color, text: String, divider: Boolean = true) {
 }
 
 /**
- * 报告卡片：**整张列表收成一行**。
- *
- * 折叠时只有表头那一行（标题 + 汇总 + chevron），`content` 根本不会被组合 —— 这才是这条改动省东西
- * 的地方（外层是 `verticalScroll` 的 `Column`，嵌不了纵向 `LazyColumn`，所以少画只能靠少组合）。
- * 展开后才画筛选档、这一页的行与分页。默认折叠由调用方决定。
+ * 报告卡片：**整张列表收成一行**。折叠时只有表头那一行（标题 + 汇总 + chevron），`content` 根本不会被组合 ——
+ * 外层是 `verticalScroll` 的 `Column`，嵌不了纵向 `LazyColumn`，少画只能靠少组合。展开后才画筛选档与分页，
+ * 默认折叠由调用方决定。
  */
 @Composable
 fun ReportCard(
@@ -372,7 +363,6 @@ fun ReportCard(
     }
 }
 
-/** 筛选档位那排胶囊：选中的一枚是蓝底白字，其余是卡片底 + 主色字。 */
 @Composable
 fun FilterChipRow(
     labels: List<String>,
@@ -400,7 +390,7 @@ fun FilterChipRow(
     }
 }
 
-/** 分页那一行：左右两个文字按钮，中间是"第 x/y 页"。到边的那侧禁用（不是隐藏，位置不能跳）。 */
+/** 分页那一行。到边的那侧禁用而不是隐藏 —— 位置不能跳。 */
 @Composable
 fun ReportPager(
     label: String,
@@ -441,7 +431,7 @@ private fun PagerAction(text: String, enabled: Boolean, onClick: () -> Unit) {
     )
 }
 
-/** 展开指示：收起时朝右，展开时转到朝下，时长复用入场那套令牌。 */
+/** 展开指示：收起朝右、展开朝下，时长复用入场那套令牌。 */
 @Composable
 private fun ExpandChevron(expanded: Boolean) {
     val angle by animateFloatAsState(if (expanded) 90f else 0f, tween(IosMotion.ENTER_MS), label = "reportChevron")
@@ -525,16 +515,12 @@ private fun FolderIcon() {
 
 /**
  * 全屏模态卡片：玻璃顶栏左取消、中标题、右确认，压在一条可滚动的分组列表之上。
- *
  * `decorFitsSystemWindows = false` 让窗口铺到状态栏底下，配合整屏底色就没有那条接缝。
- * 竖直避让**不再由整层 insets 内缩负责**：那条 modifier 缩的是视口，列表会被整个压到
- * 顶栏下面，顶栏底下就永远没有可糊的内容，玻璃只会糊出一块实心底色。现在容器只吃横向 inset
- * （刘海/挖孔跟着窗口边），竖直方向交给滚动内容自己的首尾留白，于是列表从弹窗顶边铺起、
- * 首行停在顶栏之下，但整条列表仍划得过玻璃底下。
  *
- * insets 一律在 `Dialog { }` **里面**求值：Dialog 是独立窗口，`asPaddingValues()` 抓的是求值那一刻
- * 所在窗口的 density 与 layoutDirection。在主屏那一层算好再传进来，今天两个窗口都是全屏所以数字
- * 碰巧相同；多窗口、折叠屏姿态、或有人把 `usePlatformDefaultWidth` 改回 true，四条边就会各自飘开。
+ * 竖直避让**不由整层 insets 内缩负责**：那条 modifier 缩的是视口，列表会被整个压到顶栏下面，顶栏底下就再没有
+ * 可糊的内容，玻璃只会糊出一块实心底色。容器只吃横向 inset，竖直方向交给滚动内容自己的首尾留白。
+ * insets 一律在 `Dialog { }` **里面**求值：Dialog 是独立窗口，`asPaddingValues()` 抓的是求值那一刻所在窗口
+ * 的 density 与 layoutDirection，在外面算好传进来四条边会各自飘开。
  */
 @Composable
 fun IosSheet(
@@ -549,21 +535,19 @@ fun IosSheet(
 ) {
     val s = LocalIosStyle.current
     val glass = iosGlass()
-    // Dialog 是独立窗口，hazeBlur 采的是**同窗口内**的绘制层，主屏那个 HazeState 在这里取不到
-    // 任何位图（spec §2.5）。所以弹窗必须自己注册第二个源，而不是把外面那个传进来复用。
+    // Dialog 是独立窗口，hazeBlur 采的是**同窗口内**的绘制层，主屏那个 HazeState 在这里取不到任何位图。
+    // 所以弹窗必须自己注册第二个源，而不是把外面那个传进来复用。
     val haze = rememberHazeState()
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
-        // 四条 inset 全部在**这个窗口**里现算（见函数 KDoc 那条窗口归属的理由）。
         val insets = WindowInsets.safeDrawing.asPaddingValues()
         val layoutDirection = LocalLayoutDirection.current
         val topInset = insets.calculateTopPadding()
-        // 顶栏整条的实高 = 状态栏 inset + 那条 52.dp 的内容。列表的顶部留白和顶栏自己的
-        // padding+height 用的是同一个值：让第一行正好停在顶栏之下这件事靠的就是这个等式，
-        // 两处各拼各的话它只活在注释里，改任一侧都会把首行推进玻璃底下或者留出一道空缝。
+        // 顶栏整条的实高 = 状态栏 inset + 那条 52.dp 的内容。列表的顶部留白和顶栏自己的 padding+height 用的是
+        // 同一个值：第一行正好停在顶栏之下靠的就是这个等式，改任一侧都会把首行推进玻璃底下或留出一道空缝。
         val barHeight = topInset + IosMetrics.sheetBarHeight
 
         // 弹窗其余部分仍然是实心分组底色：玻璃只有顶栏这一条，bar 里再垫一层玻璃等于同一层糊两次。
@@ -577,7 +561,6 @@ fun IosSheet(
                 ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // 折叠屏内屏约 780dp 宽，内容封顶后居中，否则卡片和行会被拉成一条横杠。
             // 这个 Box 同时是顶栏那一条覆盖物的坐标空间，所以它铺满高度。
             Box(
                 Modifier
@@ -592,11 +575,9 @@ fun IosSheet(
                         .fillMaxSize()
                         .hazeSource(haze)
                         .verticalScroll(state = rememberScrollState())
-                        // verticalScroll 没有 contentPadding 形参（Task 6 javap 实测），padding 只能
-                        // 挂在它之后 —— 链上它之前的 modifier 缩的是视口，之后的才是滚动内容自己的
-                        // 首尾留白。这段顶边距就是「首行不被顶栏永久盖住」和「内容划得到顶栏底下」的分工点。
-                        // 底部留白要额外吃进 insets 的下边距：弹窗 decorFitsSystemWindows = false，整窗
-                        // 铺到导航条底下，不加这一段最后一行就压在导航条下面（与主屏内容层同一做法）。
+                        // verticalScroll 没有 contentPadding 形参，padding 只能挂在它之后：排在它之前的缩的是视口，
+                        // 之后的才是滚动内容自己的首尾留白。底部留白要额外吃进 insets 下边距，否则最后一行压在
+                        // 导航条底下。
                         .padding(
                             paddingValues = PaddingValues(
                                 top = barHeight,
@@ -605,33 +586,23 @@ fun IosSheet(
                         ),
                     content = content,
                 )
-                // 这里原来是一条 IosDivider(indent = false)：它已经删掉，**不要加回来** ——
-                // iosGlassBar 自己就画了那条 hairline 描边（glass.stroke），再来一条等于同一条线上画两遍。
+                // 顶栏下面不要再画 IosDivider：iosGlassBar 自己就带了那条 hairline 描边（glass.stroke），画两遍会加深。
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        // 顶栏整条的实高直接钉在 barHeight 上（列表那段留白用的是同一个值）；
-                        // 里面那一层照样是「先让出状态栏 inset，再画 52.dp 内容」，两处相加正好等于它。
+                        // 整条实高钉在 barHeight 上，内层「让出状态栏 inset + 52.dp 内容」两处相加正好等于它。
                         .height(barHeight)
                         .iosGlassBar(glass = glass, state = haze),
                 ) {
-                    // 同主屏顶栏：先糊、再让 inset 把内容推下去（玻璃自己盖到状态栏底下）。
-                    // 反过来写会在状态栏那一条和玻璃之间留一条没糊的缝。
+                    // 先糊、再让 inset 把内容推下去（玻璃自己盖到状态栏底下）；反过来写会留一条没糊的缝。
                     Box(
                         Modifier
                             .fillMaxWidth()
                             .padding(top = topInset)
                             .height(IosMetrics.sheetBarHeight),
                     ) {
-                        // 一条 Row，三段：关闭 / 标题 / 选这里。中间那段吃 `weight(1f)`，所以标题
-                        // **在布局上就不可能**压到两颗按钮 —— 之前这里是三段各自 `align` 到同一个 Box，
-                        // 靠一个写死的 `sheetBarActionReserve = 76.dp` 让位，而按钮的实宽是"字宽 + 32dp"：
-                        // 英文 "Choose here" 那侧要 110dp 左右，76dp 让不出来说缺 35dp 就缺 35dp，
-                        // 于是标题的末字符直接压在按钮的字上（2026-10-22 装机量出来的）。
-                        // 顺带修掉另一处不符：声明顺序里标题 Column 排在两颗按钮**之后**，Box 按声明序绘制，
-                        // 盖住谁的正是它，而当时的注释写的是"被压住的是标题不是按钮"——注释与画面相反。
-                        // 代价是标题改成在"两颗按钮之间"居中，不再是在整条 bar 上严格居中；
-                        // 两种语言的按钮字宽不同，标题会跟着偏几 dp，这比两块字叠在一起轻。
+                        // 一条 Row 三段：取消 / 标题 / 确认，中间那段吃 `weight(1f)` —— 标题因此在布局上不可能压到
+                        // 两颗按钮，代价是它在两颗按钮之间居中、而不是整条 bar 严格居中。
                         Row(
                             Modifier.fillMaxSize(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -640,7 +611,6 @@ fun IosSheet(
                             Column(
                                 Modifier
                                     .weight(1f)
-                                    // 与两颗按钮之间至少留这点缝：撞不上之外还要读得开。
                                     .padding(horizontal = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
@@ -673,10 +643,7 @@ fun IosSheet(
     }
 }
 
-/**
- * 弹窗顶栏上的那颗文字按钮。宽度由字自己决定（不给 `weight`），所以它和标题之间靠
- * [IosSheet] 那条 Row 的中间段 `weight(1f)` 分工：按钮吃内容宽，标题吃剩下的。
- */
+/** 弹窗顶栏上的那颗文字按钮：宽度由字自己决定，不给 `weight`，剩下的横向空间归标题。 */
 @Composable
 private fun RowScope.BarAction(
     text: String,

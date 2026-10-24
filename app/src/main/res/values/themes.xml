@@ -19,10 +19,8 @@
       postSplashScreenTheme 指回运行时主题；MainActivity 仍在 onCreate 里再显式 setTheme 一次，
       不把这件事交给库在 API 31 系统分支里的恢复逻辑。
 
-      刻意**没有** `windowSplashScreenIconBackgroundColor`：它原本是给"某条渲染路径丢掉 drawable
-      自带的蓝底方块"买的保险，装机实测证明要防的那件事没有发生（蓝底方块一直在），而它会在图标背后
-      多画一层系统色圆，所以撤掉。深色下 splash 的白标记会被 OriginOS 改画成黑色，这条属性也救不了它
-      —— 见 docs/decisions.md §5.15 的探针记录。
+      没有 `windowSplashScreenIconBackgroundColor`：它会在图标背后多画一层系统色圆，而 drawable
+      自带的蓝底本来就一直在。深色下 splash 的白标记会被 OriginOS 改画成黑色，这条属性也救不了它。
     -->
     <style name="Theme.Vlive.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/grouped_background</item>

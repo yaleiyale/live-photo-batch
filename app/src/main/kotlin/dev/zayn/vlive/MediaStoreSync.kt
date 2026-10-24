@@ -7,32 +7,31 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * 产物要能被相册立刻看到，被删的原文件要从索引里消失（spec §7.6）。
+ * 产物要能被相册立刻看到，被删的原文件要从索引里消失。
  *
  * ## 为什么是"一次性传全部路径 + 最多等 2 秒"
  * `MediaScannerConnection.scanFile` 对每个路径各回调一次 `onScanCompleted`，而这里只要
- * "别再往相册里留幽灵条目"这个最终效果，不关心逐条确认。所以整个批次结束后把产物路径和
- * `ItemResult.deletedSources`（Task 8 给的**绝对路径**，正是扫描器要的串）合成一次调用，
- * 让系统扫一遍；回调哪怕只回来一次、哪怕一次都不回来，`await` 也会在 2 秒后放行——
- * 收敛是尽力而为，不能变成卡死 UI 的同步等待。
+ * "别再往相册里留幽灵条目"这个最终效果，不关心逐条确认。所以整个批次结束后把产物路径与
+ * `ItemResult.deletedSources`（都是**绝对路径**，正是扫描器要的串）合成一次调用，让系统扫一遍；
+ * 回调哪怕只回来一次、哪怕一次都不回来，`await` 也会在 2 秒后放行——收敛是尽力而为，
+ * 不能变成卡死界面的同步等待。
  *
- * ## 为什么必须从非主线程调用（Task 11 的调用点在 `Dispatchers.IO` 上）
- * `latch.await()` 阻塞的是**调用线程**。`scanFile` 的静态入口不传 Handler，
- * 其内部连接客户端的回调 Handler 是在绑定服务回调线程上建的（拿不到 Looper 时退到主 Looper），
- * 也就是说回调投递到**主线程**。于是：
+ * ## 为什么必须从非主线程调用
+ * `latch.await()` 阻塞的是**调用线程**。`scanFile` 的静态入口不传 Handler，其内部连接客户端的回调
+ * Handler 是在绑定服务回调线程上建的（拿不到 Looper 时退到主 Looper），也就是说回调投递到**主线程**。
+ * 于是：
  * - 在 `Dispatchers.IO` 线程上等：主线程空着，回调能跑，latch 正常放行，最多阻塞这条 IO 线程 2 秒
  *   （一次性、在批次末尾，且 `Dispatchers.IO` 是可扩的 64 线程池，不会饿死别的协程）；
  * - 万一在主线程上等：`onServiceConnected`/`onScanCompleted` 排在同一条被堵住的消息队列后面，
  *   必然等满 2 秒超时，还顺手 ANR。
- * 所以 [dev.zayn.vlive.BatchViewModel] 只在 IO 调度器里调它，别把它挪到
- * `setContent` / `onClick` / `onResume` 里。
+ * 所以 [dev.zayn.vlive.BatchViewModel] 只在 IO 调度器里调它，别把它挪进
+ * `setContent` / `onClick` / `onResume`。
  *
  * ## 绝不抛，但绝不**静默**
- * 绑定失败、`SecurityException`、线程被中断——任何一种都不该让已经跑完的批次在收尾时崩掉，
- * 也不该让 `UiState.running` 永远卡在 true（扫描是尽力而为的收尾动作，不是成功条件）。
- * 但"扫描没成"本身是 spec §7.6 的验收项：静默失败就是把这个不变量藏起来。所以 [scan] 返回
- * 一个**确认信号**（true = 已发起且在超时内收到至少一次回调确认）并把失败打进 logcat，
- * 调用方（BatchViewModel 的收尾）据此给 UI 一行提示。
+ * 绑定失败、`SecurityException`、线程被中断——任何一种都不该让已经跑完的批次在收尾时崩掉，也不该让
+ * `UiState.running` 永远卡在 true（扫描是尽力而为的收尾动作，不是成功条件）。但"扫描没成"是要验收的：
+ * 静默失败就是把这个不变量藏起来。所以 [scan] 返回一个**确认信号**（true = 已发起且在超时内收到至少
+ * 一次回调确认）并把失败打进日志，调用方据此给 UI 一行提示。
  */
 object MediaStoreSync {
 

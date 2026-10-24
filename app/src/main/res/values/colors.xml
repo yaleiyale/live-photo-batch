@@ -4,7 +4,7 @@
          windowBackground 是冷启动那一帧的颜色，和 IosLightPalette.groupedBackground 同一个值 ——
          两处不一致就会在 splash 消失的一瞬看出接缝。 -->
     <color name="grouped_background">#F2F2F7</color>
-    <!-- 图标底色 = IosPalette.blue。**刻意没有 night 变体**（values-night/colors.xml 里不写它）：
-         启动图标与 splash 那块蓝是被设计成"任何时候都认得出是它"的，深色下也一样。 -->
+    <!-- 图标底色 = IosPalette.blue。**没有 night 变体**（values-night/colors.xml 里不写它）：
+         启动图标与 splash 那块蓝要任何时候都认得出是它，深色下也一样。 -->
     <color name="icon_background">#FF007AFF</color>
 </resources>

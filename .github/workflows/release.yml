@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 # 同一时刻只允许一个发版：两个并发跑会撞同一个分钟级 tag（gh 会红，但红得很难看）。
-# 这里刻意不 cancel-in-progress —— 已经传到一半的 asset 被掐掉会留下半个 release。
+# 这里不 cancel-in-progress —— 已经传到一半的 asset 被掐掉会留下半个 release。
 concurrency:
   group: release
   cancel-in-progress: false
@@ -96,6 +96,6 @@ jobs:
             --notes-file out/body.md \
             --prerelease
           # 只回读确认，不参与成败判断。字段名是 url —— gh release view 没有 htmlUrl，
-          # 写错会让这一步红掉（run 39532833851 实测：release 已经建好，红的只有这一行）。
+          # 写错会让一个已经成功的 release 显示成红步骤。
           gh release view "$TAG" --json tagName,url,assets \
             --jq '{tag: .tagName, url: .url, assets: [.assets[].name]}'

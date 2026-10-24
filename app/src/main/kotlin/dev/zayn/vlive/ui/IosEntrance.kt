@@ -16,12 +16,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 /**
- * 入场闸门：内容在 splash 的退出动画放完之前停在 `alpha = 0`，两段动画才接得上——
- * 否则卡片在 logo 背后就已经演完了，用户看到的只是"闪一下然后界面已经在屏幕上"。
- *
- * [release] 有两条来路：MainActivity 的 splash 退出监听，和 [entranceFallback] 那条超时。
- * 超时不是多余的防御：OEM 对 splash 的分支不少，监听器万一不回叫，没有兜底整屏就**永久**停在
- * 看不见的位置上。看不见动画可以接受，看不见界面不行。
+ * 入场闸门：内容在 splash 的退出动画放完之前停在 `alpha = 0`，两段动画才接得上 —— 否则卡片在 logo 背后
+ * 就已经演完了，用户看到的只是"闪一下然后界面已经在屏幕上"。
+ * [released] 有两条来路：MainActivity 的 splash 退出监听，和 [IosEntranceFallback] 那条超时兜底。
  */
 class IosEntrance {
     var released by mutableStateOf(false)
@@ -33,8 +30,8 @@ class IosEntrance {
 }
 
 /**
- * 超时兜底：[IosMotion.RELEASE_TIMEOUT_MS] 之后无条件放行。放在 `BatchScreen` 里跑一次就够，
- * 不要每个 section 各起一条。名字走 Compose 约定（返回 Unit 的组合函数用大驼峰）。
+ * 超时兜底：[IosMotion.RELEASE_TIMEOUT_MS] 之后无条件放行 —— OEM 对 splash 的分支不少，退出监听不回叫时
+ * 整屏不能**永久**停在看不见的位置上。整屏跑一次就够（挂在 `BatchScreen`），不要每个 section 各起一条。
  */
 @Composable
 fun IosEntranceFallback(entrance: IosEntrance) {
@@ -47,12 +44,10 @@ fun IosEntranceFallback(entrance: IosEntrance) {
 /**
  * 第 [index] 段的入场：淡入 + [IosMotion.RISE_DP] dp 上浮，按 [IosMotion.STAGGER_MS] ms 交错。
  *
- * 这里**没有**读 `Settings.Global.ANIMATOR_DURATION_SCALE`：那是一次跨进程查询，与本仓库
- * 「组合期不碰 binder / 磁盘」（见 `BatchScreen` 的 KDoc）这条约定冲突，所以留给平台去折算。
- * 用户在系统里关掉动画时这段到底会不会归零，装机确认过再补断言 —— 别把没验过的事写进注释。
- *
- * 挂在 `Modifier` 上而不是包一层容器：`SectionCard` 自己已经带 `padding`/`clip`/`background`，
- * 再套一层 Column 会改变卡片间距的归属，交错就变成"整屏一起动"。
+ * 这里**没有**读 `Settings.Global.ANIMATOR_DURATION_SCALE`：那是一次跨进程查询，和「组合期不碰 binder /
+ * 磁盘」这条约定冲突，折算交给平台；用户在系统里关掉动画时这段会不会归零，尚未验证。
+ * 挂在 `Modifier` 上而不是包一层容器：`SectionCard` 自己已经带 `padding`/`clip`/`background`，再套一层
+ * Column 会改变卡片间距的归属，交错就变成"整屏一起动"。
  */
 @Composable
 fun Modifier.iosEnter(index: Int, entrance: IosEntrance): Modifier {

@@ -2,9 +2,8 @@
 <!--
   minSdk 31 ≥ 26，所以 anydpi-v26 一份就够，不需要为 pre-26 铺六档密度 PNG。
 
-  这里**刻意没有 <monochrome> 层**：曾经它直接复用纯白的前景层，代价是任何走"主题图标"的渲染
-  都会把那一层重染成主题色 —— 深色下白变黑，图标里的相框与齿孔就没了。宁可让 launcher 在没有
-  单色层时退回普通图标，也不要一个会被染色的形状。
+  这里**没有 <monochrome> 层**：任何走"主题图标"的渲染都会把那一层重染成主题色，深色下白变黑，
+  图标里的相框与齿孔就没了。宁可让 launcher 在没有单色层时退回普通图标，也不要一个会被染色的形状。
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />

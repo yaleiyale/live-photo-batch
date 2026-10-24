@@ -54,7 +54,7 @@
     <string name="reason_not_mp4">not an MP4</string>
     <string name="reason_io_error">read/write failure</string>
     <string name="reason_no_pair">no matching pair</string>
-    <!-- 本地化短语 + 机器可读的枚举名（spec §9：给人看懂，同时留一个能贴进 issue 的名字）。 -->
+    <!-- 本地化短语 + 机器可读的枚举名：给人看懂，同时留一个能贴进 issue 的名字。 -->
     <string name="reason_code">%1$s (%2$s)</string>
 
     <string name="picker_close">Close</string>
