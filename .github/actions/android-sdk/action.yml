@@ -12,7 +12,10 @@ runs:
       shell: bash
       run: |
         SDKM="$(command -v sdkmanager || echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager")"
-        yes | "$SDKM" --licenses > /dev/null
+        # 喂 y 用进程替换，不用 `yes | sdkmanager`：composite 的步骤跑在 `bash -eo pipefail`
+        # 下（inline 的 run 步不写 shell 键时才是 `bash -e`），读取者一关管道，`yes` 就死于
+        # SIGPIPE，管道状态变成 141——一条已经成功的命令会把整个步骤判红。
+        "$SDKM" --licenses > /dev/null < <(yes)
         "$SDKM" "build-tools;36.0.0"
         # compileSdk = 37 / compileSdkMinor = 0 解析到的就是这一个包，它是硬依赖：
         # 装不上必须让这一步红，不能跟着下面的循环一起被容忍——包被改名/不可用时，
