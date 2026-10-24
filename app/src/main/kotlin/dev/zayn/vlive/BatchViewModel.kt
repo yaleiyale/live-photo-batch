@@ -294,7 +294,7 @@ class BatchViewModel internal constructor(
      *   路径，这条守卫把"UI 检查用的谓词"（DirBrowser 的 canPick）和"批次真正读写的路径"钉死成
      *   同一个 [isSelectable]，防止两条判定将来漂移分叉；
      * - 源目录不是可读目录；
-     * - 目标目录建不起来——`FileStorage.ensureDir` 抛 `IOException`，`BatchRunner.run` 刻意让它
+     * - 目标目录建不起来——`FileStorage.ensureDir` 抛 `IOException`，`BatchRunner.run` 让它
      *   逃出来，所以必须由这里兜住，绝不能让它掀翻协程。
      */
     internal suspend fun runBatch(snapshot: UiState) {
