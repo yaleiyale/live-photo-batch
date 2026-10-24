@@ -1,7 +1,6 @@
 package dev.zayn.vlive
 
 import androidx.lifecycle.viewModelScope
-import dev.zayn.vlive.journal.DeleteJournal
 import dev.zayn.vlive.core.ItemStatus
 import dev.zayn.vlive.settings.BatchSettings
 import dev.zayn.vlive.settings.StoredPaths
@@ -82,9 +81,8 @@ class BatchViewModelTest {
         root: String,
         granted: () -> Boolean = { true },
         settings: BatchSettings = FakeSettings(),
-        journal: DeleteJournal = DeleteJournal(File(root, "journal")),
         scanner: suspend (List<String>) -> Boolean = { true },
-    ): BatchViewModel = BatchViewModel(granted, scanner, settings, root, journal)
+    ): BatchViewModel = BatchViewModel(granted, scanner, settings, root)
 
     /** 轮询到条件成立（start / persist 都走 viewModelScope，测试线程只能等它落位）。 */
     private fun awaitUntil(timeoutMs: Long = 10_000, condition: () -> Boolean): Boolean {
@@ -262,41 +260,6 @@ class BatchViewModelTest {
         assertTrue(File(t.srcPath + "/IMG_a.jpg").isFile)
         assertTrue(File(t.srcPath + "/IMG_a.mp4").isFile)
         assertNull(vm.state.value.globalError)
-        t.root.deleteRecursively()
-    }
-
-    /**
-     * 这条就是"删除凭据"这件事本身：不可逆的操作做完之后，下一次 Start 不许把它抹掉。
-     *
-     * 断言刻意分两半 —— 界面上的计数会归零（那是对的，它说的是"这一批"），但**文件里**
-     * 上一批的清单必须一条不少。只测内存的话，这条 bug 根本不会被抓到。
-     */
-    @Test
-    fun `the deleted list survives the next Start because it lives in the journal file`() {
-        val t = tree(pairs = listOf("IMG_a", "IMG_b"))
-        val journal = DeleteJournal(File(t.rootPath, "journal"))
-        val vm = viewModel(t.rootPath, journal = journal) { true }
-        vm.setSource(t.srcPath)
-        vm.setTarget(t.outPath)
-        vm.setDeleteOriginals(true)
-
-        vm.start()
-        assertTrue(vm.awaitIdle())
-        val firstBatch = vm.state.value.batchId
-        assertEquals(4, vm.state.value.deletedRecorded)
-
-        vm.start()
-        assertTrue(vm.awaitIdle())
-        assertTrue("第二批没有东西可合", vm.state.value.batchId != firstBatch)
-        assertEquals(0, vm.state.value.deletedRecorded)
-
-        assertEquals(
-            listOf(
-                "${t.srcPath}/IMG_a.jpg", "${t.srcPath}/IMG_a.mp4",
-                "${t.srcPath}/IMG_b.jpg", "${t.srcPath}/IMG_b.mp4",
-            ),
-            journal.deletedPaths(firstBatch),
-        )
         t.root.deleteRecursively()
     }
 

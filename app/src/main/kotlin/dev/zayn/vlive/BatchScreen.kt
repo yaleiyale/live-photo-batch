@@ -366,39 +366,6 @@ fun BatchScreen(
                     }
                 }
             }
-
-            if (state.deletedRecorded > 0) {
-                Spacer(Modifier.height(IosMetrics.sectionGap))
-                // 这一行的数据来自 journal 文件，不来自 state.items —— 后者下一次 Start 就清零了，
-                // 而"删掉了哪些原文件"恰恰是过了这批之后才最需要回答的问题。
-                var deletedOpen by rememberSaveable { mutableStateOf(false) }
-                ReportCard(
-                    title = stringResource(R.string.journal_deleted_title),
-                    summary = pluralStringResource(
-                        R.plurals.journal_deleted_count,
-                        state.deletedRecorded,
-                        state.deletedRecorded,
-                    ),
-                    expanded = deletedOpen,
-                    modifier = Modifier.iosEnter(9, entrance),
-                    onToggle = {
-                        deletedOpen = !deletedOpen
-                        if (deletedOpen) vm.loadDeletedSources()
-                    },
-                ) {
-                    state.deletedSources.forEach { path ->
-                        Text(
-                            path,
-                            style = s.footnote.copy(color = s.secondaryLabel),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .padding(horizontal = IosMetrics.rowPadding)
-                                .padding(top = 6.dp, bottom = 6.dp),
-                        )
-                    }
-                }
-            }
         }
 
         // 大标题留在滚动流里，玻璃栏画的是折叠后的紧凑标题；alpha 由滚动位置直接决定，

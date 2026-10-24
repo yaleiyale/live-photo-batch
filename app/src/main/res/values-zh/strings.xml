@@ -24,10 +24,6 @@
     <plurals name="report_summary_warning">
         <item quantity="other"> · 原文件没删掉 %1$d</item>
     </plurals>
-    <string name="journal_deleted_title">已删除的原文件</string>
-    <plurals name="journal_deleted_count">
-        <item quantity="other">已删除 %1$d 个</item>
-    </plurals>
     <string name="filter_all">全部</string>
     <string name="filter_success">成功</string>
     <string name="filter_skipped">跳过</string>
