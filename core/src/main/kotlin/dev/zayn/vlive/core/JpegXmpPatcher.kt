@@ -8,25 +8,23 @@ import java.nio.channels.WritableByteChannel
 /**
  * 写出 `源图[0, 旧XMP起点) + 新 APP1(XMP) + 源图[旧XMP终点, trailerEnd)`：
  * 新段回到**旧段原来的位置**，`imageEnd` 之后的尾巴按调用方点名的 `trailerEnd` 一起搬走
- * （合成器给的是文件大小，即源 JPEG **整文件**进产物，spec 增补（2026-10-18c）§1）。
+ * （合成器给的是文件大小，即源 JPEG **整文件**进产物）。
  * 只做区间搬运，不解释 JPEG 语义——语义已经由 JpegScanner 固化成 JpegStructure。
  */
 object JpegXmpPatcher {
     private const val COPY_BUFFER = 64 * 1024
 
     /**
-     * 产物布局（增补 2026-10-18c §1）：源 JPEG 从 SOI 到文件末**一个字节都不改**，只把旧 XMP `APP1`
-     * 换成新的那一份；视频跟在 `trailerEnd` 之后。
+     * 产物布局：源 JPEG 从 SOI 到文件末**一个字节都不改**，只把旧 XMP `APP1` 换成新的那一份；
+     * 视频跟在 `trailerEnd` 之后。
      *
-     * 为什么 `imageEnd` 之后的尾巴必须留：真机单变量对照里，同一个 XMP 包、同一个视频，
-     * 保留源片尾巴（那张 442,350 字节的 gain map 副图）的候选被 vivo 相册认作动态照片，
-     * 截到 EOI 的那份和重编码过的主图都不认。副图留在产物里还顺带保住了 HDR。
+     * `imageEnd` 之后的尾巴必须搬走：那里是 gain map 副图与厂商记录，截到 EOI 的产物会被相册
+     * 拒作动态照片，副图留在产物里还顺带保住了 HDR。
      *
-     * 为什么新段必须写回旧段的原位而不是插在 SOI 之后：vivo 相册与 Exiv2 按 `EXIF APP1 在前、
-     * XMP APP1 在后` 的形状读元数据，参考语料（vivo 自己认可的合成结果）就保持源片的段序
-     * （`SOI → APP0 → EXIF → XMP → …`）。插在 SOI 之后会把 XMP 挤到 EXIF 前面，实测产物就不被
-     * 认作动态照片。源里没有 XMP 段时没有"原位"可回，按 §7.3 插在 SOI 之后——此时新段会把
-     * 紧跟 SOI 的 APP0 推到后面（语料的源片都带 XMP，这种形状没有参考实现可比）。
+     * 新段必须写回旧段的原位，而不是插在 SOI 之后：vivo 相册与 Exiv2 按 `EXIF APP1 在前、
+     * XMP APP1 在后` 的形状读元数据，插在 SOI 之后会把 XMP 挤到 EXIF 前面，产物就不被认作
+     * 动态照片。源里没有 XMP 段时没有"原位"可回，才插在 SOI 之后——此时新段会把紧跟 SOI 的
+     * APP0 推到后面。
      *
      * @param trailerEnd `imageEnd` 之后还要连带搬走的字节位置（含），默认就是 [JpegStructure.imageEnd]，
      * 即"一个越过 EOI 的字节都不搬"。合成器传源文件大小。
@@ -55,12 +53,12 @@ object JpegXmpPatcher {
             val input = Channels.newInputStream(ch)
             val oldXmp = structure.oldXmp
             if (oldXmp == null) {
-                // 源里没有 XMP 段：没有"原位"可回，就按 §7.3 插在 SOI 之后。
+                // 源里没有 XMP 段：没有"原位"可回，就插在 SOI 之后。
                 copied += transfer(input, buf, 2L, emit)
                 sink.writeAll(ByteBuffer.wrap(app1))
                 copied += transfer(input, buf, structure.imageEnd - 2L, emit)
             } else {
-                // 旧段之前的段（EXIF、ICC、APP0…）必须留在新 XMP 之前——参考语料就是这个顺序。
+                // 旧段之前的段（EXIF、ICC、APP0…）必须留在新 XMP 之前，读元数据的一方就按这个顺序找。
                 copied += transfer(input, buf, oldXmp.start, emit)         // SOI + [2, 旧段起点)
                 sink.writeAll(ByteBuffer.wrap(app1))
                 // 旧段必须被**读掉**（不写、不计数），否则下一步会从旧段开头读起：

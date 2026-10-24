@@ -1,13 +1,12 @@
 package dev.zayn.vlive.core
 
 /**
- * 源 JPEG 在 `imageEnd` 之后那段字节的身份。见 spec「增补（2026-10-18）」§1。
+ * 源 JPEG 在 `imageEnd` 之后那段字节的身份。
  *
  * - [VIDEO]：真有一段追加的视频（或源 XMP 已经声明过视频）——这才是"上一轮已经合成过"，
  *   调用方据此返回 `ALREADY_MOTION_PHOTO`。
- * - [OTHER]：gain map 副图、厂商 JSON 记录、零填充……**一律放行**，并原样搬进产物（spec 增补 2026-10-18c §1）。
- *   旧规则"EOI 后有任何字节就跳过"在 V2419A 上会把用户 100% 的真实输入判成已合成过，
- *   因为那台机器上每张 JPEG 都有尾巴。
+ * - [OTHER]：gain map 副图、厂商 JSON 记录、零填充……**一律放行**，并原样搬进产物。
+ *   相机 JPEG 普遍带这种尾巴，"EOI 后有任何字节就跳过"会把几乎所有真实输入误判成已合成过。
  * - [NONE]：文件正好停在 EOI，没有尾巴。
  */
 enum class TrailerKind { NONE, VIDEO, OTHER }
@@ -22,7 +21,7 @@ enum class TrailerKind { NONE, VIDEO, OTHER }
  * 所以 [MotionPhotoComposer] 用 `image.size() - imageEnd` 现算，不猜。
  */
 object TrailerClassifier {
-    /** 探测窗口：与 spec §7.4.4 的视频头探测同一个宽度。 */
+    /** 探测窗口：与视频头探测同一个宽度。 */
     const val PROBE_BYTES = 16
 
     /** 出现即认定"这是一段视频"的盒子。`ftyp`/`moov`/`mdat` 是 ISO-BMFF 的三种必备盒。 */
@@ -32,7 +31,7 @@ object TrailerClassifier {
     private val PADDING_TAGS = setOf("free", "skip", "wide", "pnot")
 
     /**
-     * spec 增补 §1 第二条的 XMP 信号：`Container` 里存在 `Item:Mime` 以 `video/` 打头的项。
+     * XMP 侧的视频信号：`Container` 里存在 `Item:Mime` 以 `video/` 打头的项。
      * 与 [MotionDetector] 同样要求命名空间前缀——裸的 `video/mp4` 出现在说明文字里不算。
      */
     private val VIDEO_MIME = Regex("""<Item:Mime[^>]*>\s*video/""")
@@ -54,11 +53,11 @@ object TrailerClassifier {
     /**
      * 按 ISO-BMFF 一路走盒子：前 4 字节是大端总长度 `N`，第 5-8 字节是 tag。
      * `N == 1` **不是长度**，而是"真实总长度在 tag 之后那 8 字节"（64 位扩展长度，盒头共 16 字节）；
-     * vivo 与 OPPO 语料的 `mdat` 就是这个形态，按 32 位读它会得到 `N=1`，于是把一段真视频判成
+     * vivo 与 OPPO 的 `mdat` 就是这个形态，按 32 位读它会得到 `N=1`，于是把一段真视频判成
      * "不是盒子"，下一轮就往它后面再拼一段视频。
      *
-     * 其余 `N` 的下界按 spec 取 4（`N==4` 表示后面跟 64 位扩展长度，那种尾巴不可能是我们要认的
-     * 形态，交给 tag 检查把它挡掉）。
+     * 其余 `N` 的下界取 4（`N==4` 表示后面跟 64 位扩展长度，那种尾巴不可能是我们要认的形态，
+     * 交给 tag 检查把它挡掉）。
      */
     private fun isIsoBmff(head: ByteArray): Boolean {
         if (hasFtypNearHead(head)) return true
@@ -80,15 +79,15 @@ object TrailerClassifier {
                 return !wholeTrailerInView || n <= visible
             }
             if (tag !in PADDING_TAGS) return false
-            // 填充盒盖住了窗口：后面的盒子看不见，只能按"不是视频"处理（真机追加的 mp4
-            // 一律以 ftyp 打头，永远走不到这一支的拒绝分支）。
+            // 填充盒盖住了窗口：后面的盒子看不见，只能按"不是视频"处理（追加的视频一律以
+            // ftyp 打头，永远走不到这一支的拒绝分支）。
             if (n > visible) return false
             off += n.toInt()
         }
         return false
     }
 
-    /** spec 增补 §1：`imageEnd` 起前 12 字节内出现 `ftyp` 也算视频。 */
+    /** `imageEnd` 起前 12 字节内出现 `ftyp`，也算视频。 */
     private fun hasFtypNearHead(head: ByteArray): Boolean {
         val limit = minOf(head.size, FTYP_WINDOW) - FTYP.size
         for (i in 0..limit) {
@@ -113,6 +112,6 @@ object TrailerClassifier {
     private fun tag(head: ByteArray, off: Int): String =
         String(head, off + 4, 4, Charsets.ISO_8859_1)
 
-    /** 盒子长度字段占 4 字节，所以 tag 最晚从第 8 字节开始；spec 说的"前 12 字节"就是这里。 */
+    /** 盒子长度字段占 4 字节，所以 tag 最晚从第 8 字节开始；"前 12 字节"就是这里。 */
     private const val FTYP_WINDOW = 12
 }

@@ -1,7 +1,7 @@
 package dev.zayn.vlive.core
 
 /**
- * spec §7.4 第 3 条的"源 XMP 已经带 Motion Photo 语义"判定。
+ * 判断一份源 XMP 是否已经带 Motion Photo 语义。
  *
  * 匹配必须带命名空间前缀：`MicroVideoOffset` 这种裸词在任意 XMP 里都可能出现，
  * 用它做子串会把普通照片误判成已合成过而整批跳过。

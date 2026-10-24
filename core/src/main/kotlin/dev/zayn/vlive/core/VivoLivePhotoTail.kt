@@ -9,9 +9,8 @@ import java.nio.channels.SeekableByteChannel
  * 把 vivo 相机 mp4 末尾那个 `uuid` + 伪 UUID `vivoMediaExtInfo` 盒里的
  * `com.android.camera.livephoto` 值改成以 `motionphoto` 开头。
  *
- * 判据来自真机二分（2026-10-20）：同一张图配同一件事——把末盒换成"值以 motionphoto 开头"的那一份，
- * vivo 相册就从"不认"变"认"；而盒尺寸、JSON 里其余的键、`version` 数字、`cameralbum!` 那条尾记录
- * 全都不影响（Y1/Y2/Y3 认、Y4 用字母开头但非该前缀 -> 不认）。相机自己写的编号是数字开头的 id，
+ * vivo 相册只认值以 `motionphoto` 开头的这份末盒：盒尺寸、JSON 里其余的键、`version` 的数字、
+ * `cameralbum!` 那条尾记录都不影响判定，只有这个前缀影响。相机自己写进去的编号是数字开头的 id，
  * 所以**原样追加必然不被认**。
  *
  * 只改这一个字段，其余字节原样：末盒排在 `moov` 之后，视频里所有 `stco`/`co64` 的 chunk 偏移

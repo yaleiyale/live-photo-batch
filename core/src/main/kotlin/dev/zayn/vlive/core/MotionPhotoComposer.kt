@@ -27,35 +27,32 @@ sealed interface ComposeResult {
  * JPEG + MP4 → Google Motion Photo：把源 JPEG **整文件**原样写出去（只把旧 XMP `APP1` 换成清空白
  * 写的那一份），再在文件末尾追加 MP4 原始字节。不解码、不转码、不重编码，纯字节拼接 + 元数据。
  *
- * 产物布局（spec「增补（2026-10-18c）」§1）：
- * `源图[0, 旧XMP起点)` + 新 XMP APP1 + `源图[旧XMP终点, 文件末)` + 视频字节。
- * 也就是桌面端 `livemaker.vala` 的 `export_with_main_image()`：整文件拷贝 + 追加视频。
- * `imageEnd` 之后的尾巴（gain map 副图、厂商记录、零填充）**必须搬**——真机单变量对照：同一个包、
- * 同一个视频，留着尾巴的候选被 vivo 相册认，截到 EOI 的那份不认。新 XMP 写回旧段的原位，
- * 所以源片里排在 XMP 之前的 EXIF 仍然在它之前。
+ * 产物布局：`源图[0, 旧XMP起点)` + 新 XMP APP1 + `源图[旧XMP终点, 文件末)` + 视频字节。
+ * `imageEnd` 之后的尾巴（gain map 副图、厂商记录、零填充）**必须搬**——截到 EOI 的产物会被相册
+ * 拒作动态照片。新 XMP 写回旧段的原位，所以源片里排在 XMP 之前的 EXIF 仍然在它之前。
  * `GCamera:MicroVideoOffset` 与容器项的 `Item:Length` 都等于**追加的视频字节数**（从文件末尾倒推，
  * 与中间夹多少尾巴无关）：`文件大小 - MicroVideoOffset == 视频起点`，而 `imageEnd` 在更前面。
  * 唯一的例外是 vivo 相机的末盒：[VivoLivePhotoTail] 会把 `livephoto` 值加上 `motionphoto` 前缀
  * （不加这台机器就不认），那两处长度填的是**改写后实际写出的字节数**，不是 `video.size()`。
  *
- * 校验顺序按 spec §7.4（增补 §1 取代其中第 3 条），且是**可观测的**：先把最便宜的视频头探测放最前
- * （坏视频绝不让后面白扫一遍 JPEG），再判 SOI、段遍历、扩展 XMP、尾巴分类，
- * 全部通过后才开始写 sink。被校验拒掉的项对 sink 一个字节都不写；**写入阶段**的 I/O 故障就不一定了——
- * 它可能在 patch 之后、甚至视频搬了一半时才炸，sink 里实打实留着半截文件。两种失败都只报 [FailureReason]、
- * 不报字节数：spec §7.5 的清理是无条件的（失败就删 .part），计数没有读者，而一个恒为 0 的字段只会被误读成
- * "0 表示什么都没写过"，那在半途失败这条路上恰恰是假的。
+ * 校验顺序按**代价从低到高**排，且是**可观测的**：最便宜的视频头探测放最前（坏视频绝不让后面
+ * 白扫一遍 JPEG），再判 SOI、段遍历、扩展 XMP、尾巴分类，全部通过后才开始写 sink。被校验拒掉的项
+ * 对 sink 一个字节都不写；**写入阶段**的 I/O 故障就不一定了——它可能在 patch 之后、甚至视频搬了
+ * 一半时才炸，sink 里实打实留着半截文件。两种失败都只报 [FailureReason]、不报字节数：失败的清理
+ * 是无条件的（失败就删 `.part`），计数没有读者，而一个恒为 0 的字段只会被误读成"0 表示什么都没
+ * 写过"，那在半途失败这条路上恰恰是假的。
  *
- * sink 由调用方拥有并负责关闭：本函数绝不关它（Task 8 用 `use { }` 包着它）。
+ * sink 由调用方拥有并负责关闭：本函数绝不关它。
  * 全程流式、定长 64 KiB 缓冲，常数内存；同一个来源要读两遍（扫描 + 搬运）靠 [ChannelSource]
  * 可重开这一契约实现，:core 因此不需要真实的文件路径抽象。尾巴探测另开第三次读：分类器只取
  * `imageEnd` 起 16 字节；[TrailerModel.describe] 从 `imageEnd` 流式走完尾巴的 marker（可定位来源
- * 是一次 seek，上限是文件大小，绝不整尾巴进内存）。目录因此**声明了 EOI 与视频之间的每一段字节**
- * （spec 增补 2026-10-18d §2）：副图整条声明成 GainMap 项，其余整条声明成主图 Padding。
+ * 是一次 seek，上限是文件大小，绝不整尾巴进内存）。目录因此**声明了 EOI 与视频之间的每一段字节**：
+ * 副图整条声明成 GainMap 项，其余整条声明成主图 Padding。
  */
 object MotionPhotoComposer {
     private const val COPY_BUFFER = 64 * 1024
 
-    /** spec §7.4 第 4 条只看起始 12 字节；多取 4 字节留给 ftyp 的位移余量。 */
+    /** 视频头探测只需要起始 12 字节；多取 4 字节留给 ftyp 的位移余量。 */
     private const val PROBE_BYTES = 16
 
     fun compose(
@@ -110,23 +107,23 @@ object MotionPhotoComposer {
         } catch (e: IOException) {
             return ComposeResult.Failure(FailureReason.IO_ERROR)
         }
-        // 增补 §1：只有**视频形状**的尾巴（或源 XMP 已经声明过视频）才算"上一轮已经合成过"。
-        // gain map 副图、厂商 JSON、零填充在这里放行——vivo 上每张 JPEG 都有这种尾巴。
-        // 放行的下场是"原样搬进产物"：增补 2026-10-18c §1，尾巴留在 EOI 与视频之间。
+        // 只有**视频形状**的尾巴（或源 XMP 已经声明过视频）才算"上一轮已经合成过"。
+        // gain map 副图、厂商 JSON、零填充在这里放行——相机 JPEG 普遍带这种尾巴，见着尾巴就跳过
+        // 等于把几乎所有真实输入都判成已合成过。放行的下场是"原样搬进产物"，留在 EOI 与视频之间。
         if (TrailerClassifier.classify(trailerHead, structure.oldXmpText) == TrailerKind.VIDEO) {
             return ComposeResult.Failure(FailureReason.ALREADY_MOTION_PHOTO)
         }
 
-        // 增补 §3：给尾巴定性——副图整条声明成 GainMap，其余整条声明成主图 Padding，
+        // 给尾巴定性——副图整条声明成 GainMap，其余整条声明成主图 Padding，
         // EOI 与视频之间不留一个没人声明的字节。畸形尾巴在这里降级成 Padding 而不是抛。
         val trailerDescription = TrailerModel.describe(image, structure.imageEnd, fileSize)
-        // 末盒规整（真机二分 2026-10-20）：vivo 相册只认 `livephoto` 值以 motionphoto 开头的视频，
-        // 而相机自己写的是数字开头的 id，原样追加必然不认。看不懂的视频返回 null，那时
-        // videoBytes == videoSize，产物与"原样追加"逐字节相同——不伪造、不强改。
+        // 末盒规整：vivo 相册只认 `livephoto` 值以 motionphoto 开头的视频，而相机自己写的是
+        // 数字开头的 id，原样追加必然不认。看不懂的视频返回 null，那时 videoBytes == videoSize，
+        // 产物与"原样追加"逐字节相同——不伪造、不强改。
         val tail = VivoLivePhotoTail.plan(video)
         val videoBytes = tail?.totalBytes ?: videoSize
         val app1 = try {
-            // 增补 §2：清空重写，源 XMP 一个属性都不带进产物；包由 XmpPacket 一处生成。
+            // 清空重写：源 XMP 一个属性都不带进产物，包由 XmpPacket 一处生成。
             // 两处长度填的是**实际写出的视频字节数**（末盒变长了就跟着变），不是 video.size()。
             XmpPacket.app1Segment(
                 videoBytes,
@@ -145,7 +142,7 @@ object MotionPhotoComposer {
             ComposeResult.Success(videoBytes, patched + app1.size + videoBytes)
         } catch (e: IOException) {
             // 全部校验都已通过，到这里只剩 I/O 故障：sink 里可能已经留下一半内容，
-            // 调用方按 §7.5 无条件丢弃半成品，所以这里只报原因，不报"写了几个字节"。
+            // 调用方无条件丢弃半成品，所以这里只报原因，不报"写了几个字节"。
             ComposeResult.Failure(FailureReason.IO_ERROR)
         }
     }
@@ -208,7 +205,7 @@ object MotionPhotoComposer {
         if (tail != null) sink.writeAll(ByteBuffer.wrap(tail.replacement))
     }
 
-    /** spec §7.4 第 4 条：起始 12 字节内出现 ftyp。 */
+    /** MP4 判据：起始 12 字节内出现 `ftyp`。 */
     private fun containsFtyp(head: ByteArray): Boolean {
         if (head.size < MIN_MP4_HEAD) return false
         // 盒子 size 字段占 4 字节，所以 tag 起点最晚是 12-4=8：再往后就已越出"前 12 字节"。

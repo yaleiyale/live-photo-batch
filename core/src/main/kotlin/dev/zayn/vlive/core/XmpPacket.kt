@@ -4,10 +4,10 @@ object XmpPacket {
     const val XAP_IDENTIFIER = "http://ns.adobe.com/xap/1.0/"
     private const val MAX_SEGMENT_BODY = 65533 // 长度字段自身占 2 字节，字段上限 65535
 
-    // spec 增补 §2 那份包用到的命名空间。值一个都不能"顺手改"：URI 对不上，按
+    // 这份包用到的命名空间。值一个都不能"顺手改"：URI 对不上，按
     // `xmpmeta/rdf:RDF/rdf:Description` 取属性的读取方（相册、Exiv2）就看不见我们的声明。
-    // RDF 那条栽过跟头：源片用的是带斜杠的标准 URI `1999/02/22-rdf-syntax-ns#`，
-    // 写成 `1999-02-22` 那种短横形我们会**另起**一个 rdf:RDF，真机产物因此不被认作动态照片。
+    // RDF 必须是带斜杠的标准 URI `1999/02/22-rdf-syntax-ns#`——写成 `1999-02-22` 那种短横形会
+    // 另起一个 rdf:RDF 命名空间，产物因此不被认作动态照片。
     private const val XMPMETA_NS = "adobe:ns:meta/"
     private const val CAMERA_NS = "http://ns.google.com/photos/1.0/camera/"
     private const val CONTAINER_NS = "http://ns.google.com/photos/1.0/container/"
@@ -18,19 +18,18 @@ object XmpPacket {
 
     /**
      * 包的起止处理指令：XMP 规范要求 `<?xpacket begin>` 用 U+FEFF 声明字节序，
-     * 而 `<?xpacket end>` 告诉解析方"到这里为止是包"。模板与测试夹具里的源包共用这两行。
+     * 而 `<?xpacket end>` 告诉解析方"到这里为止是包"。
      * BOM 必须是 `\uFEFF` 转义：Kotlin 原始字符串不解释转义，裸写的 U+FEFF 又极易被编辑器吞掉。
      */
     const val PACKET_BEGIN = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
     const val PACKET_END = "<?xpacket end=\"w\"?>"
 
     /**
-     * 产物 XMP 的**唯一**生成入口，也是 [MotionPhotoComposer] 唯一写进产物的元数据
-     * （spec 增补（2026-10-18c）§2）：**清空重写**——源 XMP 里的 `hdrgm:*`、`dc:*`、厂商命名空间
-     * 和源片自己的 `Container:Directory` 项一个都不掺进来。真机单变量对照就是这么判的：
-     * 同一个包、同一个视频，包从清空白写的那份被 vivo 相册认下来，从源包合并出来的那份不认。
+     * 产物 XMP 的**唯一**生成入口，也是 [MotionPhotoComposer] 唯一写进产物的元数据：
+     * **清空重写**——源 XMP 里的 `hdrgm:*`、`dc:*`、厂商命名空间和源片自己的 `Container:Directory`
+     * 项一个都不掺进来。从源包合并出来的那份 vivo 相册不认，清空白写的这份才认。
      *
-     * **容器项的字段集合按规范正文写**（spec 增补 2026-10-19e，判据是规范原文，不是任何厂商样本）：
+     * 容器项的字段集合按 Google Motion Photo 1.0 正文写，判据是规范原文，不是任何厂商样本：
      * 1. `Primary` 带 `Item:Length="0"`——规范原话是"主媒体内容的长度应为 0"，且主图长度"可通过解析
      *    主图片确定"，所以这个 `0` 是规范要求的写法，不是可选装饰。
      * 2. `Item:Padding` **只**写在 `Primary` 上——规范："只有第一项媒体内容可以包含 Padding 属性"；
@@ -38,35 +37,26 @@ object XmpPacket {
      * 3. `MotionPhoto` 项的 `Length` 必须让视频正好落在文件末尾——规范："此媒体项的位置必须位于文件
      *    末尾，此媒体项的字节终止后不得放置其他字节"。
      *
-     * **序列化形式规范没有规定**：那一页只有属性表与散文，**没有任何示例 XMP 包**。因此
-     * `<rdf:li>` 与 `<rdf:li rdf:parseType="Resource">`、属性的先后顺序，都不产生规范性差异。
-     * 本文件按自己的历史形状写（语义与 MIME 挂在 `Container:Item` 的属性上、`Semantic` 在 `Mime`
-     * 之前），**不为了"对齐某厂商样本"去动它**——2026-10-19e 第一次改错了方向，已回退。
+     * **序列化形式规范没有规定**：那一页只有属性表与散文，没有任何示例 XMP 包。因此 `<rdf:li>` 与
+     * `<rdf:li rdf:parseType="Resource">`、属性的先后顺序，都不产生规范性差异。本文件按自己的形状写
+     * （语义与 MIME 挂在 `Container:Item` 的属性上、`Semantic` 在 `Mime` 之前），不为了"对齐某厂商
+     * 样本"去动它。
      *
-     * 厂商样本在这里只留作**反例**，说明"规范允许"与"厂商做了"是两件事（下面每个数字都取自该文件
-     * 本身，9,609,672 B、imageEnd 3,546,201）：OPPO 的 `GainMap.Length`=585,268 声明了一份这份文件里
-     * 根本不存在的副图，目录按项累加因此正好溢出文件末尾 585,268 字节——**溢出量的来源是这一项，
-     * 不是 MotionPhoto**；它的 `MotionPhoto.Length`=6,063,471 数的是整条尾巴（mp4 5,468,971 +
-     * `jxrs` 594,332 + 末盒 168），数字诚实，却让视频项没有结束在 EOF（规范 MUST）；三项还都写了
-     * `Padding`，其中两项正是规范明令禁止的非首项。我们的数字一律如实：
-     * `GainMap.Length` = 整条尾巴（增补 18d §2 的裁定），`MotionPhoto.Length` = `MicroVideoOffset`
-     * = 追加的视频字节数。
+     * 厂商样本不等于合规：OPPO 的产物就把 `GainMap.Length` 写成文件里根本不存在的副图长度、让视频项
+     * 没有结束在 EOF，还给规范明令禁止的非首项加了 `Padding`。我们的数字一律如实：
+     * `GainMap.Length` = 整条尾巴，`MotionPhoto.Length` = `MicroVideoOffset` = 追加的视频字节数。
      *
-     * 三个形状要点照 spec §2 逐字节抄（`XmpPacketTest` 拿 fixture 字面量钉死）：
+     * 三个形状要点（`XmpPacketTest` 拿字面量钉死）：
      * 1. **一个** `rdf:RDF`、**一个** `rdf:Description`，七个动照片属性与 `Container:Directory` 同居其上；
-     * 2. 容器项写成 `Container:Item` 上的**属性**（与 vivo 源包同形），不是 `<Item:Semantic>` 子元素文本；
+     * 2. 容器项写成 `Container:Item` 上的**属性**，不是 `<Item:Semantic>` 子元素文本；
      * 3. 项顺序 Primary →（GainMap）→ MotionPhoto，视频项在最后。
      *
-     * 目录必须声明 EOI 与视频之间的**每一段字节**（增补 2026-10-18d §2，"紧密封装"MUST）：
-     * [gainMapBytes] 把整条尾巴声明成排在视频前的 `GainMap` 项，并给宿主 Description 带回
-     * `xmlns:hdrgm` + `hdrgm:Version="1.0"`（只在有副图时写）；[paddingBytes] 把整条尾巴声明成
-     * 主图的 `Item:Padding`（规范只允许第一项有）。两者**互斥**且至多其一非 null。
-     * 定性由 [TrailerModel.describe] 做出，调用方不得自己猜。
+     * 目录必须声明 EOI 与视频之间的**每一段字节**（"紧密封装"是 MUST）：[gainMapBytes] 把整条尾巴
+     * 声明成排在视频前的 `GainMap` 项，并给宿主 Description 带回 `xmlns:hdrgm` + `hdrgm:Version="1.0"`
+     * （只在有副图时写）；[paddingBytes] 把整条尾巴声明成主图的 `Item:Padding`（规范只允许第一项有）。
+     * 两者**互斥**且至多其一非 null。定性由 [TrailerModel.describe] 做出，调用方不得自己猜。
      *
-     * 两个时间戳固定 `-1`：桌面端会先读源包里已有的 `*PresentationTimestampUs`，能解析成整数就沿用，
-     * 否则 `-1`。输入是 vivo 原片，源包里没有这两个标签，读与不读都是 `-1`；这里不做那次读取——
-     * 读源包正是上一版掺脏东西的入口。被认的第三方样本写的是 `0`，但 `0` 的语义是"从第 0 微秒播"，
-     * 与"未提供"不是一回事，没有真机依据前不改。
+     * 两个时间戳固定 `-1`，语义是"未提供"。`0` 说的是"从第 0 微秒播"，与"未提供"不是一回事。
      *
      * 逐行 `joinToString("\n")` 而不是整块原始字符串：见 [PACKET_BEGIN] 的 BOM 理由。
      */
@@ -108,7 +98,7 @@ object XmpPacket {
                 "Item:Length=\"0\" Item:Padding=\"${paddingBytes ?: 0L}\"/></rdf:li>")
             if (gainMapBytes != null) {
                 // Length 是**整条尾巴**（含副图 JPEG 之后的厂商记录），不是副图的诚实内长：
-                // 规范只给第一项 Padding，副图与视频之间没有别的合法字段（spec §2 末段）。
+                // 规范只给第一项 Padding，副图与视频之间没有别的合法字段。
                 add("     <rdf:li><Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" " +
                     "Item:Length=\"$gainMapBytes\"/></rdf:li>")
             }
@@ -137,7 +127,7 @@ object XmpPacket {
             identifier + packet
     }
 
-    /** 供测试与调用方复用：包体超过 16 位长度字段能表达的上限就拒绝。 */
+    /** 包体超过 16 位长度字段能表达的上限就拒绝。 */
     fun requireFitsInSegment(packet: ByteArray): ByteArray {
         val needed = XAP_IDENTIFIER.length + 1 + packet.size
         require(needed <= MAX_SEGMENT_BODY) {

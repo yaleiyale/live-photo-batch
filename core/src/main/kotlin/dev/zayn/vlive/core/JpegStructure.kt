@@ -28,14 +28,14 @@ sealed interface JpegScanResult {
 }
 
 /**
- * 按 marker 遍历 JPEG（spec §7.2），绝不搜索字节序列 FFD9：追加的视频字节里合法地会出现 FFD9。
+ * 按 marker 遍历 JPEG，绝不搜索字节序列 FFD9：追加的视频字节里合法地会出现 FFD9。
  * 熵数据内的 0xFF 必定被填充成 FF00，所以"FF 后跟非 0"才是真 marker。
  *
  * 全程流式、常数内存：只有带长度字段的段按其长度缓冲（上限 65533 字节），熵数据一边预读一边丢弃。
  */
 object JpegScanner {
-    private val XAP = FixturesIdentifiers.XAP
-    private val XMP_EXTENSION = FixturesIdentifiers.XMP_EXTENSION
+    private val XAP = Identifiers.XAP
+    private val XMP_EXTENSION = Identifiers.XMP_EXTENSION
 
     fun scan(src: ReadableByteChannel): JpegScanResult {
         val cur = Cursor(src)
@@ -100,8 +100,8 @@ object JpegScanner {
         return true
     }
 
-    /** APP1 标识符是 ISO-8859-1 文本；放在独立对象里，避免生产代码依赖测试夹具。 */
-    private object FixturesIdentifiers {
+    /** APP1 标识符是 ISO-8859-1 文本，结尾 NUL 属于标识符本身。 */
+    private object Identifiers {
         val XAP = "http://ns.adobe.com/xap/1.0/".toByteArray(Charsets.ISO_8859_1) + byteArrayOf(0)
         val XMP_EXTENSION = "http://ns.adobe.com/xmp/extension/".toByteArray(Charsets.ISO_8859_1)
     }
@@ -110,8 +110,8 @@ object JpegScanner {
      * 定长 64 KiB 预读缓冲区。
      *
      * 逐字节 `ch.read(ByteBuffer.wrap(ByteArray(1)))` 会让熵数据里的每个字节都产生一次小数组、
-     * 一个小 ByteBuffer 和一次系统调用；按 spec §2 G5 的预算（100 张约 4 MB JPEG）就是约 4 亿次，
-     * 15 秒根本不可能。这里把"取下一个字节"变成"取下一个 64 KiB"，内存仍是常数。
+     * 一个小 ByteBuffer 和一次系统调用；一张 4 MB 的 JPEG 就是约 400 万次，一批下来跑不完。
+     * 这里把"取下一个字节"变成"取下一个 64 KiB"，内存仍是常数。
      *
      * [position] 始终是**逻辑**已消费字节数，与缓冲区里已经读进来但还没消费的提前量无关；
      * 提前量恒不超过一个缓冲区，并且找到 EOI 后 [rewindUnused] 会把它退回可定位的 channel。
@@ -163,7 +163,7 @@ object JpegScanner {
 
         /**
          * 把预读进来但没用到的字节退回 channel，让它停在 [position]（= imageEnd）。
-         * 只对接入了 [SeekableByteChannel] 的来源生效（Task 9 的 `RandomAccessFile.channel`）；
+         * 只对接入了 [SeekableByteChannel] 的来源生效（生产路径是 `RandomAccessFile.channel`）；
          * 管道一类不可定位的来源就只能丢掉这一段有界提前量——解析结果本身不受影响。
          */
         fun rewindUnused() {
